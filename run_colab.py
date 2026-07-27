@@ -12,13 +12,21 @@ from google.colab import drive
 
 REPO = "https://github.com/runchengxie/deeplob-reproduction.git"
 
-# 1. Clone / update code
+# 1. Clone / update code (force-clean to avoid stale .git locks)
 os.chdir("/content")
-if os.path.isdir("deeplob-reproduction"):
-    subprocess.run(["git", "-C", "deeplob-reproduction", "pull"], check=True)
-else:
-    subprocess.run(["git", "clone", REPO], check=True)
-os.chdir("deeplob-reproduction")
+local = "deeplob-reproduction"
+if os.path.isdir(local):
+    # try a normal pull first; if it fails, wipe and re-clone
+    r = subprocess.run(["git", "-C", local, "pull"], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("pull failed, re-cloning:", r.stderr[-300:])
+        subprocess.run(["rm", "-rf", local], check=True)
+if not os.path.isdir(local):
+    r = subprocess.run(["git", "clone", REPO, local], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("CLONE STDERR:", r.stderr[-800:])
+        raise RuntimeError("git clone failed; see STDERR above")
+os.chdir(local)
 
 # 2. Mount Drive
 drive.mount("/content/drive")
