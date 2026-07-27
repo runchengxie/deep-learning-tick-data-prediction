@@ -129,7 +129,7 @@ def train(cfg: Config) -> dict:
     if cfg.device == "cuda" and not torch.cuda.is_available():
         print("[warn] cuda requested but unavailable; falling back to cpu.")
 
-    model = build_model(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(device)
+    model = build_model(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, num_features=NUM_FEATURES).to(device)
     criterion = nn.NLLLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, eps=cfg.eps)
 

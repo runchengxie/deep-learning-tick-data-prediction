@@ -57,24 +57,24 @@ def test_param_count():
 
 
 def test_fi2010_dataset_shape():
-    """Exercise FI2010WindowDataset with a synthetic 44-col .npy mirror.
+    """Exercise FI2010WindowDataset with a synthetic 148-col .npy mirror.
 
-    Simulates the FI-2010 normalised layout (40 features + 4 label cols) so we
-    can verify windowing + label-column selection locally, without downloading
-    the real (large) mirror.
+    Simulates the OFFICIAL FI-2010 layout (144 features + 4 label cols at
+    144/145/146/147) so we can verify windowing + label-column selection
+    locally, without downloading the real (large) .mat.
     """
     import tempfile
     import os
-    from src.dataset import FI2010WindowDataset, K_TO_LABEL_COLUMN, WINDOW_SIZE
+    from src.dataset import FI2010WindowDataset, K_TO_LABEL_COLUMN, WINDOW_SIZE, NUM_FEATURES
 
     rng = np.random.default_rng(1)
     n = 500
-    # 40 features + 4 label columns; label col for k=10 is index 40.
-    fake = np.zeros((n, 44), dtype=np.float32)
-    fake[:, :40] = rng.standard_normal((n, 40)).astype(np.float32)
-    # labels for col 40: random 0/1/2 (after map), col 41: shifted pattern
-    fake[:, 40] = rng.integers(0, 3, n).astype(np.float32)
-    fake[:, 41] = rng.integers(0, 3, n).astype(np.float32)
+    # 144 features + 4 label columns; label col for k=10 is index 144.
+    fake = np.zeros((n, 148), dtype=np.float32)
+    fake[:, :NUM_FEATURES] = rng.standard_normal((n, NUM_FEATURES)).astype(np.float32)
+    # labels for col 144/145: random 1/2/3 (FI-2010 encoding), will map to 0/1/2
+    fake[:, 144] = rng.integers(1, 4, n).astype(np.float32)
+    fake[:, 145] = rng.integers(1, 4, n).astype(np.float32)
 
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "fake_fi2010.npy")
@@ -83,7 +83,7 @@ def test_fi2010_dataset_shape():
         for k in (10, 20):
             ds = FI2010WindowDataset(path, k=k, window_size=WINDOW_SIZE, split="train")
             x, y = ds[0]
-            assert x.shape == (1, WINDOW_SIZE, 40), x.shape
+            assert x.shape == (1, WINDOW_SIZE, NUM_FEATURES), x.shape
             assert y in (0, 1, 2), y
             # train split = first 70% of rows (350); windows = 350 - w + 1.
             tr_rows = int(n * 0.7)

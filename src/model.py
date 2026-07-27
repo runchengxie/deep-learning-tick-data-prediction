@@ -29,6 +29,10 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+# Default feature dim for official FI-2010 (144 features + 4 labels).
+# Kept in sync with dataset.NUM_FEATURES.
+NUM_FEATURES = 144
+
 
 class InceptionModule(nn.Module):
     """Inception block for LOB feature maps (paper Fig.4).
@@ -86,6 +90,7 @@ class DeepLOB(nn.Module):
         inception_channels: int = 32,
         lstm_units: int = 64,
         leak: float = 0.01,
+        num_features: int = NUM_FEATURES,
     ):
         super().__init__()
         self.window_size = window_size
@@ -96,17 +101,21 @@ class DeepLOB(nn.Module):
         # Leaky-ReLU with negative slope 0.01 (grid-searched on validation set).
         self.leaky = nn.LeakyReLU(negative_slope=leak)
 
+        # Two (1×2) strided convs halve the feature axis twice:
+        #   D -> D/2 -> D/4   (requires D divisible by 4; 144 -> 36, 40 -> 10)
+        # A final (1 x D/4) conv collapses the remaining axis to 1.
+        assert num_features % 4 == 0, f"num_features must be divisible by 4, got {num_features}"
+        feat_after_2 = num_features // 4
+
         self.conv1 = nn.Conv2d(
             1, conv_channels, kernel_size=(1, 2), stride=(1, 2), padding=(0, 0)
         )
         self.conv2 = nn.Conv2d(
             conv_channels, conv_channels, kernel_size=(1, 2), stride=(1, 2), padding=(0, 0)
         )
-        # After two (1×2) strided convs the feature/level axis collapses:
-        #   40 -> 20 -> 10.
-        # A (1×10) conv then collapses 10 -> 1, leaving a (T, 1) map.
+        # A (1 x feat_after_2) conv collapses feat_after_2 -> 1, leaving (T, 1) map.
         self.conv3 = nn.Conv2d(
-            conv_channels, conv_channels, kernel_size=(1, 10), stride=(1, 1), padding=(0, 0)
+            conv_channels, conv_channels, kernel_size=(1, feat_after_2), stride=(1, 1), padding=(0, 0)
         )
 
         # --- Inception module (Sec.IV-B.b) ---
@@ -156,9 +165,9 @@ class DeepLOB(nn.Module):
         return logits
 
 
-def build_model(num_classes: int = 3, window_size: int = 100) -> DeepLOB:
+def build_model(num_classes: int = 3, window_size: int = 100, num_features: int = NUM_FEATURES) -> DeepLOB:
     """Factory used by train.py / smoke_test.py."""
-    return DeepLOB(num_classes=num_classes, window_size=window_size)
+    return DeepLOB(num_classes=num_classes, window_size=window_size, num_features=num_features)
 
 
 if __name__ == "__main__":
@@ -166,7 +175,7 @@ if __name__ == "__main__":
     model = build_model()
     total = sum(p.numel() for p in model.parameters())
     print(f"DeepLOB total parameters: {total:,}")
-    print(f"  conv1  out: (B,16,T,20)")
+    print(f"  conv1  out: (B,16,T,{NUM_FEATURES//2})")
     print(f"  conv2  out: (B,16,T,10)")
     print(f"  conv3  out: (B,16,T,1)")
     print(f"  incept out: (B,32,T,1)")

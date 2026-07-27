@@ -34,18 +34,19 @@ CKPT_DIR = "/content/drive/MyDrive/DeepLOB/checkpoints"
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
-# 3. Download FI-2010 CSV and convert to float32 .npy (only once)
+# 3. Use FI-2010 data. Expected format: (N, 148) float32 npy at npy_path,
+#    with cols [0:144] = features and [144:148] = labels k=10/20/50/100.
+#    Prepare it LOCALLY with convert_fi2010.py (reads official .mat) and upload
+#    the .npy to MyDrive/DeepLOB/data/. If absent, training cannot start.
 npy_path = os.path.join(DATA_DIR, "FI2010_normalised.npy")
 if not os.path.exists(npy_path):
-    subprocess.run([
-        "wget", "-O", "fi2010_train.csv",
-        "https://huggingface.co/datasets/shanehans/FI2010/resolve/main/FI2010_train.csv"
-    ], check=True)
-    df = pd.read_csv("fi2010_train.csv", header=None)
-    arr = df.to_numpy(dtype=np.float32)
-    assert arr.shape[1] >= 44, f"expected >=44 cols, got {arr.shape[1]}"
-    np.save(npy_path, arr)
-    print("saved", npy_path, arr.shape, arr.dtype)
+    raise FileNotFoundError(
+        f"Missing {npy_path}. Prepare it locally:\n"
+        "  python convert_fi2010.py --mat path/to/FI-2010.mat --out FI2010_normalised.npy\n"
+        "then upload FI2010_normalised.npy to MyDrive/DeepLOB/data/ on Drive.\n"
+        "Do NOT use the shanehans/FI2010 CSV mirror: it has 130 features + 15 junk "
+        "columns + dirty labels (150 cols), not the official 144+4 layout."
+    )
 else:
     print("reusing", npy_path)
 

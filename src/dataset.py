@@ -29,18 +29,21 @@ import torch
 from torch.utils.data import Dataset
 
 
-# FI-2010 normalised data layout (per the official dataset paper [1]):
-#   first 40 columns : normalised LOB features  [pa,va,pb,vb] x 10 levels
-#   next  4 columns  : 3-class labels for k = 10, 20, 50, 100  (and a raw col)
-# We expose the mapping so dataset code and configs stay in sync.
+# FI-2010 OFFICIAL data layout (Ntakaris et al. 2017, arXiv:1705.03233):
+#   The official .mat, once flattened to a 2D array, has:
+#     first 144 columns : normalised LOB features (4 normalisation versions x 36)
+#     last    4  columns : 3-class labels for k = 10, 20, 50, 100  (in that order)
+#   NOTE: third-party mirrors (e.g. shanehans/FI2010 CSV) have DIFFERENT layouts
+#   (we saw 130 features + 15 junk columns + 4 labels = 150). Always verify with
+#   np.unique on the real file before trusting these constants.
 K_TO_LABEL_COLUMN = {
-    10: 40,
-    20: 41,
-    50: 42,
-    100: 43,
+    10: 144,
+    20: 145,
+    50: 146,
+    100: 147,
 }
 WINDOW_SIZE = 100
-NUM_FEATURES = 40
+NUM_FEATURES = 144
 NUM_CLASSES = 3
 
 
