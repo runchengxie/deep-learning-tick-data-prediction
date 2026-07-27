@@ -56,8 +56,44 @@ def test_param_count():
     print(f"[ok] total params {total:,} (paper ~60k; skeleton band 20k-200k)")
 
 
+def test_fi2010_dataset_shape():
+    """Exercise FI2010WindowDataset with a synthetic 44-col .npy mirror.
+
+    Simulates the FI-2010 normalised layout (40 features + 4 label cols) so we
+    can verify windowing + label-column selection locally, without downloading
+    the real (large) mirror.
+    """
+    import tempfile
+    import os
+    from src.dataset import FI2010WindowDataset, K_TO_LABEL_COLUMN, WINDOW_SIZE
+
+    rng = np.random.default_rng(1)
+    n = 500
+    # 40 features + 4 label columns; label col for k=10 is index 40.
+    fake = np.zeros((n, 44), dtype=np.float32)
+    fake[:, :40] = rng.standard_normal((n, 40)).astype(np.float32)
+    # labels for col 40: random 0/1/2 (after map), col 41: shifted pattern
+    fake[:, 40] = rng.integers(0, 3, n).astype(np.float32)
+    fake[:, 41] = rng.integers(0, 3, n).astype(np.float32)
+
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "fake_fi2010.npy")
+        np.save(path, fake)
+
+        for k in (10, 20):
+            ds = FI2010WindowDataset(path, k=k, window_size=WINDOW_SIZE, split="train")
+            x, y = ds[0]
+            assert x.shape == (1, WINDOW_SIZE, 40), x.shape
+            assert y in (0, 1, 2), y
+            # train split = first 70% of rows (350); windows = 350 - w + 1.
+            tr_rows = int(n * 0.7)
+            assert len(ds) == tr_rows - WINDOW_SIZE + 1, len(ds)
+    print(f"[ok] FI2010WindowDataset: windows (1,100,40), labels {{0,1,2}}, k->col {K_TO_LABEL_COLUMN}")
+
+
 if __name__ == "__main__":
     test_forward_shape()
     test_grad_flow()
     test_param_count()
+    test_fi2010_dataset_shape()
     print("\nAll smoke tests passed.")

@@ -85,6 +85,10 @@ def f1_metrics(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int = NUM_CL
 
 
 def make_dataloaders(cfg: Config):
+    if cfg.dataset == "fi2010" and not cfg.data_path:
+        raise ValueError(
+            "dataset='fi2010' requires --data_path (path to FI-2010 .npy/.csv mirror)"
+        )
     if cfg.dataset == "random":
         train_ds = RandomLOBDataset(num_samples=2000, seed=cfg.seed)
         val_ds = RandomLOBDataset(num_samples=400, seed=cfg.seed + 1)

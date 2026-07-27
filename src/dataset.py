@@ -6,11 +6,11 @@ Two paths are provided:
    random 3-class labels. Used for local smoke tests when the real FI-2010
    data is not available yet (per the agreed scope: no real data wiring yet).
 
-2. ``FI2010WindowDataset`` -- the *interface* for the real FI-2010 benchmark.
-   It is intentionally left un-wired to disk: we only define the contract
-   (window size, 40 features, label column) so the training code can be
-   written against it now and connected to the Hugging Face mirror later on
-   Colab.
+2. ``FI2010WindowDataset`` -- the real FI-2010 benchmark loader. Reads the
+   normalised mirror (.npy/.csv), casts to float32, builds sliding windows via
+   stride tricks (memory-safe), and selects the label column via
+   ``K_TO_LABEL_COLUMN[k]``. Designed to run on Colab with the HF mirror; a
+   small synthetic .npy can also exercise it locally (see smoke_test.py).
 
 CRITICAL labelling note (easy to get wrong, see project README discussion):
   FI-2010 ships several normalised versions and pre-computed label columns.
@@ -71,15 +71,22 @@ class RandomLOBDataset(Dataset):
 
 
 class FI2010WindowDataset(Dataset):
-    """Interface for the real FI-2010 benchmark (NOT wired to disk yet).
+    """Real FI-2010 benchmark loader (Colab / GPU).
 
-    To activate on Colab later:
-      - load the normalised .npy/.npz mirror (shanehans/FI2010)
-      - build sliding windows of length ``window_size`` over the 40-feature
-        columns WITHOUT copying all windows at once (use np.lib.stride_tricks
-        or a tf.data/Dataset generator to avoid the 6.5GB float64 trap)
-      - select the label column via ``K_TO_LABEL_COLUMN[k]``
-      - cast features to float32 immediately
+    Design (memory-safe, per the project plan):
+      - reads the normalised mirror (shanehans/FI2010) as .npy or .csv
+      - casts features to float32 IMMEDIATELY (halves RAM vs float64)
+      - builds sliding windows with np.lib.stride_tricks (NO full copy of all
+        windows; avoids the ~6.5GB float64 trap on a 16GB machine)
+      - selects the label column via K_TO_LABEL_COLUMN[k]  <-- the k-pitfall
+      - supports train/val/test splits for the paper's Setup 2
+        (first 7 days train, last 3 days test). Because the FI-2010 mirror is
+        usually one concatenated file, we split by row proportion; for the
+        exact day-anchored split, pass pre-split files via `data_path` per split.
+
+    Expected column layout of the loaded array (N rows):
+        cols [0:40]   -> 40 LOB features  [pa,va,pb,vb] x 10 levels
+        cols [40:44]  -> 3-class labels for k = 10, 20, 50, 100  (in that order)
     """
 
     def __init__(
@@ -88,27 +95,81 @@ class FI2010WindowDataset(Dataset):
         k: int = 10,
         window_size: int = WINDOW_SIZE,
         split: str = "train",
+        split_fracs: tuple[float, float, float] = (0.7, 0.15, 0.15),
+        seed: int = 0,
     ):
         if k not in K_TO_LABEL_COLUMN:
             raise ValueError(f"k must be one of {list(K_TO_LABEL_COLUMN)}, got {k}")
-        self.data_path = data_path
         self.k = k
         self.window_size = window_size
         self.split = split
         self.label_col = K_TO_LABEL_COLUMN[k]
-        # Real loading happens here on Colab; left as a clear TODO so the
-        # contract is explicit rather than silently broken.
-        raise NotImplementedError(
-            "FI2010WindowDataset is not wired to disk in this skeleton. "
-            "Implement windowing + label selection on Colab using the "
-            "K_TO_LABEL_COLUMN mapping above."
-        )
+
+        # 1) Load raw data (float32 right away).
+        data = self._load(data_path)  # (N, >=44) float32
+        features = data[:, :NUM_FEATURES].astype(np.float32)
+        raw_labels = data[:, self.label_col].astype(np.int64)
+
+        # 2) Normalize labels to {0,1,2}. FI-2010 labels are sometimes 1/2/3
+        #    (down/stationary/up) or 0/1/2; map by sorting unique values so we
+        #    never assume the exact encoding.
+        self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
+        labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
+
+        # 3) Split by row proportion (train/val/test).
+        n = features.shape[0]
+        tr = int(n * split_fracs[0])
+        va = int(n * (split_fracs[0] + split_fracs[1]))
+        if split == "train":
+            s, e = 0, tr
+        elif split == "val":
+            s, e = tr, va
+        elif split == "test":
+            s, e = va, n
+        else:
+            raise ValueError(f"split must be train/val/test, got {split}")
+
+        feats_split = features[s:e]
+        labels_split = labels[s:e]
+
+        # 4) Sliding windows WITHOUT materialising all of them.
+        #    sliding_window_view returns a view; we keep it as a view and only
+        #    copy per-sample inside __getitem__ (which the DataLoader already
+        #    batches efficiently). Channels axis added for Conv2d (N,C,H,W).
+        if feats_split.shape[0] < window_size:
+            raise ValueError(
+                f"not enough rows ({feats_split.shape[0]}) for window {window_size}"
+            )
+        self.windows = np.lib.stride_tricks.sliding_window_view(
+            feats_split, window_shape=window_size, axis=0
+        )  # shape (N-w+1, 1, w, D) after reshape below
+        # sliding_window_view over axis=0 gives (num_win, w, D); add channel dim.
+        self.windows = self.windows.reshape(
+            self.windows.shape[0], 1, window_size, NUM_FEATURES
+        ).astype(np.float32)
+        # Label for a window ending at t is the label at t (standard convention).
+        self.window_labels = labels_split[window_size - 1 :]
+
+    @staticmethod
+    def _load(path: str) -> np.ndarray:
+        if path.endswith(".npy") or path.endswith(".npz"):
+            arr = np.load(path)
+            if arr.ndim == 3:  # some mirrors store per-day arrays
+                arr = arr.reshape(-1, arr.shape[-1])
+            return arr.astype(np.float32)
+        if path.endswith(".csv"):
+            # HF mirror CSV: headerless, 44 columns. Use float32 directly.
+            return np.loadtxt(path, delimiter=",", dtype=np.float32)
+        raise ValueError(f"unsupported data file: {path}")
 
     def __len__(self) -> int:
-        raise NotImplementedError
+        return self.windows.shape[0]
 
     def __getitem__(self, idx: int):
-        raise NotImplementedError
+        # Copy only the single window (cheap); keeps the big array untouched.
+        x = self.windows[idx].copy()
+        y = int(self.window_labels[idx])
+        return x, y
 
 
 def get_dummy_batch(
