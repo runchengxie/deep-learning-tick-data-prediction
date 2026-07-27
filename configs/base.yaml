@@ -1,0 +1,15 @@
+# Base training config for DeepLOB reproduction.
+# Override per experiment: k10.yaml, k20.yaml, etc.
+
+dataset: random          # "random" for local smoke; "fi2010" on Colab
+data_path: null           # path to FI-2010 .npy mirror on Colab/Drive
+k: 10                     # prediction horizon -> label column (see dataset.py)
+epochs: 3                 # raise to ~100 (FI-2010) / ~40 (LSE) on Colab
+batch_size: 32
+lr: 0.01
+eps: 1.0                  # Adam epsilon (paper)
+patience: 20              # early-stop patience on val accuracy
+seed: 0
+device: cpu               # "cuda" on Colab GPU
+checkpoint_dir: ./checkpoints
+checkpoint_name: best.pt

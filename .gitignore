@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local experiment artifacts (do NOT commit multi-GB data / weights)
+checkpoints/
+*.pt
+*.keras
+*.h5
+logs/
+predictions/
+results/
+
+# Data files (live on Google Drive, not in git)
+data/
+*.npy
+*.npz
+*.csv
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
