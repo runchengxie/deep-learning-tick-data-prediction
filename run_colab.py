@@ -12,20 +12,19 @@ from google.colab import drive
 
 REPO = "https://github.com/runchengxie/deeplob-reproduction.git"
 
-# 1. Clone / update code (force-clean to avoid stale .git locks)
+# 1. Fetch code via GitHub ZIP download (avoids git HTTPS credential
+#    prompts that fail on Colab: "could not read Username").
 os.chdir("/content")
 local = "deeplob-reproduction"
-if os.path.isdir(local):
-    # try a normal pull first; if it fails, wipe and re-clone
-    r = subprocess.run(["git", "-C", local, "pull"], capture_output=True, text=True)
-    if r.returncode != 0:
-        print("pull failed, re-cloning:", r.stderr[-300:])
-        subprocess.run(["rm", "-rf", local], check=True)
-if not os.path.isdir(local):
-    r = subprocess.run(["git", "clone", REPO, local], capture_output=True, text=True)
-    if r.returncode != 0:
-        print("CLONE STDERR:", r.stderr[-800:])
-        raise RuntimeError("git clone failed; see STDERR above")
+ZIP_URL = "https://github.com/runchengxie/deeplob-reproduction/archive/refs/heads/main.zip"
+# Always re-fetch latest (cheap, and avoids stale state).
+subprocess.run(["rm", "-rf", local, local + "-main"], check=True)
+r = subprocess.run(["curl", "-L", "-o", "repo.zip", ZIP_URL], capture_output=True, text=True)
+if r.returncode != 0:
+    print("DOWNLOAD STDERR:", r.stderr[-800:])
+    raise RuntimeError("failed to download repo zip")
+subprocess.run(["unzip", "-q", "repo.zip"], check=True)
+os.rename(local + "-main", local)
 os.chdir(local)
 
 # 2. Mount Drive
