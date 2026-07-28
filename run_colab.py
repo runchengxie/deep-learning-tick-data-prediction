@@ -1,16 +1,31 @@
 """DeepLOB on Colab - single entry point.
 
-Run this from a Colab cell with:  !python run_colab.py
-All logic lives in this .py file so notebook line-wrapping cannot
-turn it into one commented-out line.
+Run it from a Colab code cell. IMPORTANT: because google.colab.drive.mount()
+only works inside the notebook's MAIN kernel (not in a `!python` subprocess),
+the mount must happen in the notebook cell BEFORE this script runs. The
+recommended notebook cell is:
+
+    from google.colab import drive
+    drive.mount('/content/drive')
+    !curl -L -o /content/run_colab.py https://raw.githubusercontent.com/runchengxie/deeplob-reproduction/main/run_colab.py
+    !python /content/run_colab.py
+
+This script assumes /content/drive is already mounted and simply checks it.
 """
 import os
 import subprocess
-import numpy as np
-import pandas as pd
-from google.colab import drive
 
 REPO = "https://github.com/runchengxie/deeplob-reproduction.git"
+
+# 0. Make sure Drive is already mounted (done in the notebook cell, not here).
+DATA_ROOT = "/content/drive/MyDrive"
+if not os.path.isdir(DATA_ROOT):
+    raise SystemExit(
+        "Drive is not mounted. In the Colab cell, run BEFORE this script:\n"
+        "    from google.colab import drive\n"
+        "    drive.mount('/content/drive')\n"
+        "then re-run !python /content/run_colab.py"
+    )
 
 # 1. Fetch code via GitHub ZIP download (avoids git HTTPS credential
 #    prompts that fail on Colab: "could not read Username").
@@ -27,10 +42,9 @@ subprocess.run(["unzip", "-q", "repo.zip"], check=True)
 os.rename(local + "-main", local)
 os.chdir(local)
 
-# 2. Mount Drive
-drive.mount("/content/drive")
-DATA_DIR = "/content/drive/MyDrive/DeepLOB/data"
-CKPT_DIR = "/content/drive/MyDrive/DeepLOB/checkpoints"
+# 2. Drive paths (already mounted by the notebook cell above).
+DATA_DIR = os.path.join(DATA_ROOT, "DeepLOB", "data")
+CKPT_DIR = os.path.join(DATA_ROOT, "DeepLOB", "checkpoints")
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
