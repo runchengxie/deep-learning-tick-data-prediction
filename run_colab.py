@@ -72,6 +72,17 @@ else:
 # 4. Install deps
 subprocess.run(["pip", "install", "-r", "requirements.txt"], check=True)
 
+# 4b. Decide device. If the Colab runtime has no GPU enabled, fall back to CPU
+#     (slow, but it runs) instead of crashing on .to('cuda').
+import torch  # available after the pip install above
+device = "cuda" if torch.cuda.is_available() else "cpu"
+if device == "cpu":
+    print("=" * 60)
+    print("WARNING: CUDA not available -> training on CPU (very slow).")
+    print("To use the T4 GPU: Runtime -> Change runtime type -> Hardware")
+    print("accelerator = GPU -> Save, then re-run this cell.")
+    print("=" * 60)
+
 # 5. Train. If the fold-id array is present we run 9-fold CV (paper Setup 2);
 #    otherwise we fall back to the simple 70/15/15 proportional split.
 train_cmd = [
@@ -81,7 +92,7 @@ train_cmd = [
     "--k", "10",
     "--epochs", "100",
     "--batch_size", "32",
-    "--device", "cuda",
+    "--device", device,
     "--checkpoint_dir", CKPT_DIR,
 ]
 if os.path.exists(folds_path):
