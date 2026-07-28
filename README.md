@@ -83,6 +83,7 @@ pip install numpy
 python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets/BenchmarkDatasets \
     --auction NoAuction --norm z-score --folds 1 2 3 4 5 6 7 8 9 \
     --out FI2010_normalised.npy
+# This ALSO writes FI2010_folds.npy (per-row fold id 0..8) used for 9-fold CV.
 # inspect-only first to verify the real shape (expect (N, 149)) on a sample:
 python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets/BenchmarkDatasets --inspect-only
 ```
@@ -121,23 +122,30 @@ It mounts Drive, finds the prepared `.npy`, installs deps, and trains.
 
 The DeepLOB paper reports F1 on the FI-2010 **9-fold anchored
 cross-validation** protocol (their "Setup 2"): for each fold, train on the
-other 8 folds' Training data and test on that fold's data, then average the 9
-folds. The current `FI2010WindowDataset` / `run_colab.py` instead naively
-splits the concatenated `.npy` into 70/15/15 train/val/test by row. That is
-fine for a **pipeline smoke test** (confirm the model learns a signal) but its
-numbers are NOT directly comparable to the paper's Table II.
+other 8 folds' data and test on that fold's data, then average the 9 folds.
 
-To faithfully reproduce Table II you must:
-1. Convert each fold's Training/Testing `.txt` separately (or split the merged
-   `.npy` back into the 9 folds by row ranges — each fold has a known number of
-   samples), and
-2. Train 9 models, one per fold, evaluating on that fold's held-out data.
+**This repo now implements it.** `convert_fi2010.py` writes `FI2010_folds.npy`
+(a per-row fold id 0..8). `train.py --cv` runs the 9-fold loop and prints
+`mean_macro_f1 ± std_macro_f1` (plus per-fold). `run_colab.py` auto-detects
+`FI2010_folds.npy` on Drive and switches to CV mode. So the numbers you get
+WITH the fold file ARE comparable to the paper's Table II.
 
-This 9-fold wiring is the next step after the single-seed pipeline is verified
-on Colab.
+If `FI2010_folds.npy` is absent, `run_colab.py` falls back to the naive
+70/15/15 split — those numbers are NOT comparable, just a pipeline check.
+
+**RE-UPLOAD REQUIRED:** the older `FI2010_normalised.npy` you already uploaded
+has no fold ids. To use CV you must re-run `convert_fi2010.py` (it now also
+emits `FI2010_folds.npy`) and upload BOTH files to `MyDrive/DeepLOB/data/`.
+
+### Resume (Colab disconnects)
+
+Training is resumable: each fold's full state (model + optimizer + epoch) is
+saved to `best.keras.fold<N>.pt` under the checkpoint dir. Re-running
+`run_colab.py` after a Colab disconnect auto-resumes from the last saved epoch
+(default `--resume`). This is why you can switch tabs / get disconnected
+without losing all progress.
 
 ## What is intentionally NOT included yet
 
 - Crypto data / Transformer baselines / backtest (phase 2, after baseline works).
-- Multi-seed runs (add after the single-seed pipeline is verified).
-- 9-fold anchored cross-validation wiring (see above; needed for Table II).
+- Multi-seed runs (single seed is the default; add `--seed` loops later).

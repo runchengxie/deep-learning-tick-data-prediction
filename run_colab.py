@@ -54,13 +54,15 @@ os.makedirs(CKPT_DIR, exist_ok=True)
 #    convert_fi2010.py (reads the official .txt files) and upload the .npy to
 #    MyDrive/DeepLOB/data/. If absent, training cannot start.
 npy_path = os.path.join(DATA_DIR, "FI2010_normalised.npy")
+folds_path = os.path.join(DATA_DIR, "FI2010_folds.npy")
 if not os.path.exists(npy_path):
     raise FileNotFoundError(
         f"Missing {npy_path}. Prepare it locally:\n"
         "  python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets \\\n"
         "      --auction NoAuction --norm z-score --folds 1 2 3 4 5 6 7 8 9 \\\n"
         "      --out FI2010_normalised.npy\n"
-        "then upload FI2010_normalised.npy to MyDrive/DeepLOB/data/ on Drive.\n"
+        "then upload BOTH FI2010_normalised.npy AND FI2010_folds.npy to\n"
+        "MyDrive/DeepLOB/data/ on Drive.\n"
         "Do NOT use the shanehans/FI2010 CSV mirror: it has 130 features + 15 junk "
         "columns + dirty labels (150 cols), not the official 144+5 layout."
     )
@@ -70,16 +72,25 @@ else:
 # 4. Install deps
 subprocess.run(["pip", "install", "-r", "requirements.txt"], check=True)
 
-# 5. Train (Setup 2: 70/15/15 train/val/test; k selects label column)
-subprocess.run([
+# 5. Train. If the fold-id array is present we run 9-fold CV (paper Setup 2);
+#    otherwise we fall back to the simple 70/15/15 proportional split.
+train_cmd = [
     "python", "src/train.py",
     "--dataset", "fi2010",
-    "--data_path", os.path.join(DATA_DIR, "FI2010_normalised.npy"),
+    "--data_path", npy_path,
     "--k", "10",
     "--epochs", "100",
     "--batch_size", "32",
     "--device", "cuda",
     "--checkpoint_dir", CKPT_DIR,
-], check=True)
+]
+if os.path.exists(folds_path):
+    print("fold-id array found -> running 9-fold cross-validation")
+    train_cmd += ["--cv", "--folds_path", folds_path, "--num_folds", "9"]
+else:
+    print("WARNING: FI2010_folds.npy not found -> using 70/15/15 split "
+          "(numbers NOT comparable to the paper's Table II).")
 
-print("DONE. Best weights at:", os.path.join(CKPT_DIR, "best.pt"))
+subprocess.run(train_cmd, check=True)
+
+print("DONE. Checkpoints at:", CKPT_DIR)

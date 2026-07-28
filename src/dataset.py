@@ -82,15 +82,21 @@ class FI2010WindowDataset(Dataset):
     """Real FI-2010 benchmark loader (Colab / GPU).
 
     Design (memory-safe, per the project plan):
-      - reads the normalised mirror (shanehans/FI2010) as .npy or .csv
-      - casts features to float32 IMMEDIATELY (halves RAM vs float64)
-      - builds sliding windows with np.lib.stride_tricks (NO full copy of all
-        windows; avoids the ~6.5GB float64 trap on a 16GB machine)
+      - reads the normalised .npy (official FI-2010 layout) produced by
+        convert_fi2010.py
+      - keeps features float32; builds sliding windows via stride tricks
+        (NO full copy of all windows -> avoids the ~77 GiB OOM trap)
       - selects the label column via K_TO_LABEL_COLUMN[k]  <-- the k-pitfall
-      - supports train/val/test splits for the paper's Setup 2
-        (first 7 days train, last 3 days test). Because the FI-2010 mirror is
-        usually one concatenated file, we split by row proportion; for the
-        exact day-anchored split, pass pre-split files via `data_path` per split.
+
+    Two split modes:
+      * Proportional (default): splits the concatenated .npy into
+        train/val/test by row fraction. Good for a quick pipeline smoke test,
+        but NOT the paper's protocol.
+      * Fold-based (pass `folds_path` + `test_fold`): uses the fold-id array
+        saved by convert_fi2010.py. `test_fold` rows become the test set;
+        all OTHER folds become train (and a `val_frac` slice of train is held
+        out for early stopping). This matches the paper's Setup 2 (9-fold
+        anchored cross-validation): run once per fold i, average the 9 tests.
 
     Expected column layout of the loaded array (N rows):
         cols [0:144]  -> 144 LOB features  (FI-2010 official .txt format)
@@ -105,6 +111,9 @@ class FI2010WindowDataset(Dataset):
         split: str = "train",
         split_fracs: tuple[float, float, float] = (0.7, 0.15, 0.15),
         seed: int = 0,
+        folds_path: str | None = None,
+        test_fold: int | None = None,
+        val_frac: float = 0.1,
     ):
         if k not in K_TO_LABEL_COLUMN:
             raise ValueError(f"k must be one of {list(K_TO_LABEL_COLUMN)}, got {k}")
@@ -114,7 +123,7 @@ class FI2010WindowDataset(Dataset):
         self.label_col = K_TO_LABEL_COLUMN[k]
 
         # 1) Load raw data (float32 right away).
-        data = self._load(data_path)  # (N, >=44) float32
+        data = self._load(data_path)  # (N, 149) float32
         features = data[:, :NUM_FEATURES].astype(np.float32)
         raw_labels = data[:, self.label_col].astype(np.int64)
 
@@ -124,21 +133,47 @@ class FI2010WindowDataset(Dataset):
         self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
         labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
 
-        # 3) Split by row proportion (train/val/test).
-        n = features.shape[0]
-        tr = int(n * split_fracs[0])
-        va = int(n * (split_fracs[0] + split_fracs[1]))
-        if split == "train":
-            s, e = 0, tr
-        elif split == "val":
-            s, e = tr, va
-        elif split == "test":
-            s, e = va, n
+        # 3) Pick row indices for this split.
+        if folds_path is not None:
+            if test_fold is None:
+                raise ValueError("folds_path given but test_fold is None")
+            fold_ids = np.load(os.path.expanduser(folds_path))
+            if fold_ids.shape[0] != features.shape[0]:
+                raise ValueError(
+                    f"folds array length {fold_ids.shape[0]} != data rows "
+                    f"{features.shape[0]}"
+                )
+            test_idx = np.where(fold_ids == test_fold)[0]
+            train_idx = np.where(fold_ids != test_fold)[0]
+            # hold out val_frac of train for early stopping
+            rng = np.random.default_rng(seed)
+            train_idx = rng.permutation(train_idx)
+            n_val = int(len(train_idx) * val_frac)
+            if split == "train":
+                sel = train_idx[n_val:]
+            elif split == "val":
+                sel = train_idx[:n_val]
+            elif split == "test":
+                sel = test_idx
+            else:
+                raise ValueError(f"split must be train/val/test, got {split}")
         else:
-            raise ValueError(f"split must be train/val/test, got {split}")
+            # Proportional split (backward compatible smoke-test mode).
+            n = features.shape[0]
+            tr = int(n * split_fracs[0])
+            va = int(n * (split_fracs[0] + split_fracs[1]))
+            if split == "train":
+                s, e = 0, tr
+            elif split == "val":
+                s, e = tr, va
+            elif split == "test":
+                s, e = va, n
+            else:
+                raise ValueError(f"split must be train/val/test, got {split}")
+            sel = np.arange(s, e)
 
-        feats_split = features[s:e]
-        labels_split = labels[s:e]
+        feats_split = features[sel]
+        labels_split = labels[sel]
 
         # 4) Sliding windows WITHOUT materialising all of them.
         #    Slide a length-`window_size` window over the TIME axis (rows).
@@ -181,7 +216,7 @@ class FI2010WindowDataset(Dataset):
         # gives (w, D). Add channel dim -> (1, w, D), matching Conv2d (N,C,H,W)
         # after the DataLoader stacks a batch into (B, 1, w, D). The data is
         # already float32 (from _load), so no cast is needed here.
-        x = np.expand_dims(self.windows[idx], axis=0)  # (1, w, D)
+        x = np.expand_dims(self.windows[idx].copy(), axis=0)  # (1, w, D), copy->writable
         y = int(self.window_labels[idx])
         return x, y
 

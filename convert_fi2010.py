@@ -141,6 +141,12 @@ def main():
         help="fold numbers to include (1-9)",
     )
     ap.add_argument("--out", help="output .npy path (not needed with --inspect-only)")
+    ap.add_argument(
+        "--out_folds",
+        default=None,
+        help="output fold-id array (.npy). Defaults to <out> with '_folds' infix, "
+             "e.g. FI2010_normalised.npy -> FI2010_folds.npy. Needed for 9-fold CV.",
+    )
     ap.add_argument("--inspect-only", action="store_true")
     args = ap.parse_args()
 
@@ -167,12 +173,23 @@ def main():
     if not args.out:
         raise SystemExit("--out is required for full conversion.")
 
+    # Build the fold-id array. Each CF_<N> file (Training OR Testing) gets the
+    # same 0-based fold id = N-1, so "fold i" = all samples from the i-th
+    # dataset (its Training + Testing), matching the paper's Setup 2.
+    import re
+
     rows = []
+    fold_ids = []
     for f in files:
         arr = _read_txt(f)  # (N_f, 149)
+        m = re.search(r"CF_(\d+)\.txt$", os.path.basename(f))
+        n = int(m.group(1)) if m else len(rows) + 1
         rows.append(arr)
+        fold_ids.append(np.full(arr.shape[0], n - 1, dtype=np.int16))
+
     data = np.vstack(rows).astype(np.float32)
-    print("combined shape:", data.shape)
+    folds = np.concatenate(fold_ids)
+    print("combined shape:", data.shape, "| folds:", np.unique(folds))
 
     n_cols = data.shape[1]
     if n_cols != EXPECTED_ROWS:
@@ -180,7 +197,10 @@ def main():
             f"expected {EXPECTED_ROWS} columns after transpose, got {n_cols}."
         )
     np.save(args.out, data)
+    out_folds = args.out_folds or re.sub(r"\.npy$", "_folds.npy", args.out)
+    np.save(out_folds, folds)
     print(f"saved {args.out} shape={data.shape} dtype={data.dtype}")
+    print(f"saved {out_folds} shape={folds.shape} dtype={folds.dtype}")
     print("  features: cols 0-143 (144), labels k=10/20/50/100: cols 144-147")
 
 
