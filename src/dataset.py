@@ -25,6 +25,8 @@ CRITICAL labelling note (easy to get wrong, see project README discussion):
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -139,25 +141,27 @@ class FI2010WindowDataset(Dataset):
         labels_split = labels[s:e]
 
         # 4) Sliding windows WITHOUT materialising all of them.
-        #    sliding_window_view returns a view; we keep it as a view and only
-        #    copy per-sample inside __getitem__ (which the DataLoader already
-        #    batches efficiently). Channels axis added for Conv2d (N,C,H,W).
+        #    Slide a length-`window_size` window over the TIME axis (rows).
+        #    feats_split is (N, D). sliding_window_view on axis=0 with
+        #    window_shape=w yields (num_win, D, w); we transpose to
+        #    (num_win, w, D) which is what the model/DataLoader expect.
+        #    CRITICAL: we must NOT call .reshape().astype() on it here -- that
+        #    would force a full copy (204w * 100 * 144 float32 = ~77 GiB) and
+        #    OOM. We keep the view and extract one window per __getitem__.
         if feats_split.shape[0] < window_size:
             raise ValueError(
                 f"not enough rows ({feats_split.shape[0]}) for window {window_size}"
             )
-        self.windows = np.lib.stride_tricks.sliding_window_view(
+        win = np.lib.stride_tricks.sliding_window_view(
             feats_split, window_shape=window_size, axis=0
-        )  # shape (N-w+1, 1, w, D) after reshape below
-        # sliding_window_view over axis=0 gives (num_win, w, D); add channel dim.
-        self.windows = self.windows.reshape(
-            self.windows.shape[0], 1, window_size, NUM_FEATURES
-        ).astype(np.float32)
+        )  # (num_win, D, w)
+        self.windows = np.transpose(win, (0, 2, 1))  # (num_win, w, D)
         # Label for a window ending at t is the label at t (standard convention).
         self.window_labels = labels_split[window_size - 1 :]
 
     @staticmethod
     def _load(path: str) -> np.ndarray:
+        path = os.path.expanduser(path)
         if path.endswith(".npy") or path.endswith(".npz"):
             arr = np.load(path)
             if arr.ndim == 3:  # some mirrors store per-day arrays
@@ -172,8 +176,12 @@ class FI2010WindowDataset(Dataset):
         return self.windows.shape[0]
 
     def __getitem__(self, idx: int):
-        # Copy only the single window (cheap); keeps the big array untouched.
-        x = self.windows[idx].copy()
+        # Extract ONE window on demand (no full copy of all windows).
+        # self.windows is a float32 view of shape (num_win, w, D); indexing
+        # gives (w, D). Add channel dim -> (1, w, D), matching Conv2d (N,C,H,W)
+        # after the DataLoader stacks a batch into (B, 1, w, D). The data is
+        # already float32 (from _load), so no cast is needed here.
+        x = np.expand_dims(self.windows[idx], axis=0)  # (1, w, D)
         y = int(self.window_labels[idx])
         return x, y
 

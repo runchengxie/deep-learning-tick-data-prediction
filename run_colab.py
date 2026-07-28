@@ -43,8 +43,8 @@ npy_path = os.path.join(DATA_DIR, "FI2010_normalised.npy")
 if not os.path.exists(npy_path):
     raise FileNotFoundError(
         f"Missing {npy_path}. Prepare it locally:\n"
-        "  python convert_fi2010.py --txt_dir /path/to/BenchmarkDatasets \\\n"
-        "      --norm z-score --auction without --folds 1 2 3 4 5 6 7 8 9 \\\n"
+        "  python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets \\\n"
+        "      --auction NoAuction --norm z-score --folds 1 2 3 4 5 6 7 8 9 \\\n"
         "      --out FI2010_normalised.npy\n"
         "then upload FI2010_normalised.npy to MyDrive/DeepLOB/data/ on Drive.\n"
         "Do NOT use the shanehans/FI2010 CSV mirror: it has 130 features + 15 junk "
