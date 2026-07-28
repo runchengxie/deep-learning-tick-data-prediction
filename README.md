@@ -6,6 +6,14 @@ for Limit Order Books** (Zhang, Zohren, Roberts 2018).
 - Paper: https://arxiv.org/abs/1808.03668
 - Original code (reference): https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books
 
+## References / 论文资料
+
+论文原文与中文整理笔记已归置于 [`references/`](references/) 目录：
+
+- `references/1808.03668v6.pdf` — 论文原文（arXiv v6）
+- `references/DeepLOB-论文整理.md` — 结构化中文读书笔记（模型架构 / 数据处理 / 实验结果）
+- `references/README_论文资料.md` — 资料索引
+
 ## Scope of this skeleton
 
 This repository is a **lightweight, verifiable training/eval framework** built
