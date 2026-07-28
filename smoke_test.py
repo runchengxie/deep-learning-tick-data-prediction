@@ -57,11 +57,11 @@ def test_param_count():
 
 
 def test_fi2010_dataset_shape():
-    """Exercise FI2010WindowDataset with a synthetic 148-col .npy mirror.
+    """Exercise FI2010WindowDataset with a synthetic 149-col .npy mirror.
 
-    Simulates the OFFICIAL FI-2010 layout (144 features + 4 label cols at
-    144/145/146/147) so we can verify windowing + label-column selection
-    locally, without downloading the real (large) .mat.
+    Simulates the OFFICIAL FI-2010 .txt layout (144 features + 5 label cols at
+    144/145/146/147/148) so we can verify windowing + label-column selection
+    locally, without downloading the real (large) data.
     """
     import tempfile
     import os
@@ -69,8 +69,8 @@ def test_fi2010_dataset_shape():
 
     rng = np.random.default_rng(1)
     n = 500
-    # 144 features + 4 label columns; label col for k=10 is index 144.
-    fake = np.zeros((n, 148), dtype=np.float32)
+    # 144 features + 5 label columns; label col for k=10 is index 144.
+    fake = np.zeros((n, 149), dtype=np.float32)
     fake[:, :NUM_FEATURES] = rng.standard_normal((n, NUM_FEATURES)).astype(np.float32)
     # labels for col 144/145: random 1/2/3 (FI-2010 encoding), will map to 0/1/2
     fake[:, 144] = rng.integers(1, 4, n).astype(np.float32)
@@ -83,12 +83,15 @@ def test_fi2010_dataset_shape():
         for k in (10, 20):
             ds = FI2010WindowDataset(path, k=k, window_size=WINDOW_SIZE, split="train")
             x, y = ds[0]
+            # dataset stores windows as (num_win, 1, T, D); a single sample
+            # therefore comes out as (1, T, D) == (1, 100, 144). The DataLoader
+            # stacks these into the 4-D (N, 1, T, D) that Conv2d expects.
             assert x.shape == (1, WINDOW_SIZE, NUM_FEATURES), x.shape
             assert y in (0, 1, 2), y
             # train split = first 70% of rows (350); windows = 350 - w + 1.
             tr_rows = int(n * 0.7)
             assert len(ds) == tr_rows - WINDOW_SIZE + 1, len(ds)
-    print(f"[ok] FI2010WindowDataset: windows (1,100,40), labels {{0,1,2}}, k->col {K_TO_LABEL_COLUMN}")
+    print(f"[ok] FI2010WindowDataset: windows (1,100,144), labels {{0,1,2}}, k->col {K_TO_LABEL_COLUMN}")
 
 
 if __name__ == "__main__":

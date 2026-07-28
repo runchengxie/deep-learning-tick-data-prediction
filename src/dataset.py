@@ -16,10 +16,11 @@ CRITICAL labelling note (easy to get wrong, see project README discussion):
   FI-2010 ships several normalised versions and pre-computed label columns.
   The paper's prediction horizons k = 10, 20, 50, 100 are INDICES into the
   label columns of the normalised file, NOT the number of raw events. The
-  last 4 columns of the FI-2010 normalised data are the 3-class labels for
-  k = 10, 20, 50, 100 (in that order) plus a stationary/raw column. Pick the
-  correct column for the experiment you want to reproduce, otherwise you may
-  happily reproduce a *different* task.
+  OFFICIAL FI-2010 .txt files carry 5 label columns (cols 145-149) holding the
+  3-class labels for k = 10, 20, 50, 100 plus one extra horizon. We map
+  k -> 0-indexed column in K_TO_LABEL_COLUMN. Pick the correct column for the
+  experiment you want to reproduce, otherwise you may happily reproduce a
+  *different* task.
 """
 
 from __future__ import annotations
@@ -30,11 +31,13 @@ from torch.utils.data import Dataset
 
 
 # FI-2010 OFFICIAL data layout (Ntakaris et al. 2017, arXiv:1705.03233):
-#   The official .mat, once flattened to a 2D array, has:
-#     first 144 columns : normalised LOB features (4 normalisation versions x 36)
-#     last    4  columns : 3-class labels for k = 10, 20, 50, 100  (in that order)
+#   Official .txt files: each row has 144 features + 5 label columns (cols 145-149).
+#   Label encoding: 1=up, 2=stationary, 3=down. The 5 columns are 5 classification
+#   horizons; the FIRST label column (col 145, 0-indexed 144) is k=10 used in the
+#   paper's main Table II. We map k -> 0-indexed column below. If your file's label
+#   order differs, adjust these indices.
 #   NOTE: third-party mirrors (e.g. shanehans/FI2010 CSV) have DIFFERENT layouts
-#   (we saw 130 features + 15 junk columns + 4 labels = 150). Always verify with
+#   (we saw 130 features + 15 junk columns + dirty labels = 150). Always verify with
 #   np.unique on the real file before trusting these constants.
 K_TO_LABEL_COLUMN = {
     10: 144,
@@ -88,8 +91,8 @@ class FI2010WindowDataset(Dataset):
         exact day-anchored split, pass pre-split files via `data_path` per split.
 
     Expected column layout of the loaded array (N rows):
-        cols [0:40]   -> 40 LOB features  [pa,va,pb,vb] x 10 levels
-        cols [40:44]  -> 3-class labels for k = 10, 20, 50, 100  (in that order)
+        cols [0:144]  -> 144 LOB features  (FI-2010 official .txt format)
+        cols [144:149] -> 5 label columns; k=10/20/50/100 -> cols 144/145/146/147
     """
 
     def __init__(

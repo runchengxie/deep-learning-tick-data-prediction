@@ -34,18 +34,21 @@ CKPT_DIR = "/content/drive/MyDrive/DeepLOB/checkpoints"
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
-# 3. Use FI-2010 data. Expected format: (N, 148) float32 npy at npy_path,
-#    with cols [0:144] = features and [144:148] = labels k=10/20/50/100.
-#    Prepare it LOCALLY with convert_fi2010.py (reads official .mat) and upload
-#    the .npy to MyDrive/DeepLOB/data/. If absent, training cannot start.
+# 3. Use FI-2010 data. Expected format: (N, 149) float32 npy at npy_path,
+#    with cols [0:144] = features and [144:149] = 5 label columns
+#    (k=10/20/50/100 map to cols 144/145/146/147). Prepare it LOCALLY with
+#    convert_fi2010.py (reads the official .txt files) and upload the .npy to
+#    MyDrive/DeepLOB/data/. If absent, training cannot start.
 npy_path = os.path.join(DATA_DIR, "FI2010_normalised.npy")
 if not os.path.exists(npy_path):
     raise FileNotFoundError(
         f"Missing {npy_path}. Prepare it locally:\n"
-        "  python convert_fi2010.py --mat path/to/FI-2010.mat --out FI2010_normalised.npy\n"
+        "  python convert_fi2010.py --txt_dir /path/to/BenchmarkDatasets \\\n"
+        "      --norm z-score --auction without --folds 1 2 3 4 5 6 7 8 9 \\\n"
+        "      --out FI2010_normalised.npy\n"
         "then upload FI2010_normalised.npy to MyDrive/DeepLOB/data/ on Drive.\n"
         "Do NOT use the shanehans/FI2010 CSV mirror: it has 130 features + 15 junk "
-        "columns + dirty labels (150 cols), not the official 144+4 layout."
+        "columns + dirty labels (150 cols), not the official 144+5 layout."
     )
 else:
     print("reusing", npy_path)

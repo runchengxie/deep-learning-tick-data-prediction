@@ -2,8 +2,10 @@
 
 Architecture mapping to the paper (Zhang, Zohren, Roberts 2020, arXiv:1808.03668):
 
-  Input  X ∈ R^{B, 1, T=100, D=40}
-    │  40 features = [pa(i), va(i), pb(i), vb(i)] for i=1..10  (Eq.6)
+  Input  X ∈ R^{B, 1, T=100, D=144}
+    │  For the official FI-2010 .txt data, D=144 LOB features.
+    │  (The paper's Eq.6 uses 40 = [pa(i),va(i),pb(i),vb(i)] x10 levels; the
+    │   official benchmark ships a 144-dim normalised feature vector instead.)
     │
     ├─ Conv2d(1×2, stride 1×2) @16   ← pairs {p(i), v(i)} per level   (Sec.IV-B.a)
     ├─ Conv2d(1×2, stride 1×2) @16   ← integrates across levels → micro-price-like (Eq.7)
@@ -29,7 +31,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-# Default feature dim for official FI-2010 (144 features + 4 labels).
+# Default feature dim for official FI-2010 (144 features + 5 label columns).
 # Kept in sync with dataset.NUM_FEATURES.
 NUM_FEATURES = 144
 
@@ -145,9 +147,9 @@ class DeepLOB(nn.Module):
         """
         # Conv front-end. Convs operate on (H=T, W=D); we keep H fixed via the
         # natural geometry: (1×2) stride halves W, padding keeps H.
-        x = self.leaky(self.conv1(x))  # (B,16,T,20)
-        x = self.leaky(self.conv2(x))  # (B,16,T,10)
-        x = self.leaky(self.conv3(x))  # (B,16,T,1)
+        x = self.leaky(self.conv1(x))  # (B,16,T,72)   [144/2]
+        x = self.leaky(self.conv2(x))  # (B,16,T,36)   [72/2]
+        x = self.leaky(self.conv3(x))  # (B,16,T,1)    [36->1]
 
         # Inception: (B,16,T,1) -> (B,32,T,1)
         x = self.inception(x)
@@ -176,7 +178,7 @@ if __name__ == "__main__":
     total = sum(p.numel() for p in model.parameters())
     print(f"DeepLOB total parameters: {total:,}")
     print(f"  conv1  out: (B,16,T,{NUM_FEATURES//2})")
-    print(f"  conv2  out: (B,16,T,10)")
+    print(f"  conv2  out: (B,16,T,{NUM_FEATURES//4})")
     print(f"  conv3  out: (B,16,T,1)")
     print(f"  incept out: (B,32,T,1)")
     print(f"  lstm  out: (B,T,64) -> last (B,64) -> fc (B,3)")

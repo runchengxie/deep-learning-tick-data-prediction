@@ -1,127 +1,108 @@
-"""Convert official FI-2010 .mat to a clean float32 .npy for training.
+"""Convert official FI-2010 .txt files to clean float32 .npy for training.
 
-Run LOCALLY (not on Colab): your machine has the RAM and a real Python
-env to inspect the .mat structure. The resulting .npy goes to Google Drive
-so Colab only trains.
+Run LOCALLY (not on Colab). The official data (Ntakaris et al. 2017,
+arXiv:1705.03233) is distributed as .txt files from:
+  https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649
+  (file: BenchmarkDatasets.zip, 1.74 GB)
 
-Official data: Ntakaris et al. 2017, arXiv:1705.03233
-  Zenodo: https://zenodo.org/records/5603905  (file: FI-2010.mat or similar)
+Layout per the authors' description:
+  columns 1-144  -> 144 LOB features
+  columns 145-149 -> 5 label columns (classification problems).
+  Label encoding: 1 = up, 2 = stationary, 3 = down.
 
-Expected layout after flattening:
-  columns [0:144]   -> 144 LOB features
-  columns [144:148] -> 3-class labels for k = 10, 20, 50, 100
+We keep all 5 label columns in the saved .npy so train.py can pick one via k.
+By convention the first label column (row 145) corresponds to k=10, the
+horizon used in the paper's main Table II comparison.
 
 Usage:
-  python convert_fi2010.py --mat path/to/FI-2010.mat --out FI2010_normalised.npy
+  # Convert a single fold's training file (example):
+  python convert_fi2010.py --txt_dir /path/to/BenchmarkDatasets \\
+      --norm z-score --auction without --folds 1 2 3 4 5 6 7 8 9 \\
+      --out FI2010_normalised.npy
+
+  # Or if you already unzipped and have specific file names, use --files.
 """
 
 from __future__ import annotations
 import argparse
+import glob
+import os
 import numpy as np
-import scipy.io
 
 
-def inspect(mat_path: str) -> dict:
-    """Print the .mat top-level structure so we know the variable name."""
-    mat = scipy.io.loadmat(mat_path)
-    keys = [k for k in mat.keys() if not k.startswith("__")]
-    print(f".mat top-level variables ({len(keys)}):")
-    info = {}
-    for k in keys:
-        v = mat[k]
-        print(f"  {k}: shape={getattr(v,'shape',None)} dtype={getattr(v,'dtype',None)}")
-        info[k] = v
-    return info
-
-
-def flatten_to_2d(info: dict) -> np.ndarray:
-    """Heuristic: find the big 2D array (samples x features+labels).
-
-    FI-2010 .mat typically stores data as a cell array of days, or one big
-    matrix. We try common patterns:
-      1. a single 2D variable whose width is ~148
-      2. a cell array of day-matrices -> vstack
+def find_files(txt_dir: str, norm: str, auction: str, folds) -> list[str]:
+    """Locate FI-2010 .txt files by the naming convention:
+    <train|test>_with|without_auction_<norm>_fold<N>.txt
     """
-    # case 1: direct 2D matrix
-    for k, v in info.items():
-        if isinstance(v, np.ndarray) and v.ndim == 2 and v.shape[1] in (144, 148, 150, 152):
-            print(f"using variable '{k}' as direct 2D matrix, shape={v.shape}")
-            return v.astype(np.float32)
-
-    # case 2: cell array of days (object dtype, each element a 2D day matrix)
-    for k, v in info.items():
-        if isinstance(v, np.ndarray) and v.dtype == object:
-            rows = []
-            for i in range(v.shape[0]):
-                day = v[i, 0] if v.shape[1] == 1 else v[0, i]
-                day = np.asarray(day, dtype=np.float32)
-                if day.ndim == 2:
-                    rows.append(day)
-            if rows:
-                out = np.vstack(rows).astype(np.float32)
-                print(f"stacked {len(rows)} days from cell '{k}', shape={out.shape}")
-                return out
-
-    raise RuntimeError(
-        "Could not auto-detect the data matrix. Inspect printed keys and "
-        "adjust flatten_to_2d(), or print mat[name].shape manually."
-    )
-
-
-def clean_labels(labels: np.ndarray) -> np.ndarray:
-    """Map arbitrary label encoding to {0,1,2}.
-
-    FI-2010 labels are usually 1/2/3 (down/stationary/up) or 0/1/2.
-    We map by sorted unique values so any consistent encoding works.
-    Rows with unexpected values are coerced to the majority (index 1).
-    """
-    uniq = np.unique(labels)
-    print(f"label raw unique values: {uniq[:10]} (n={len(uniq)})")
-    if len(uniq) > 3:
-        print(f"WARNING: >3 unique label values; coercing extras to class 1")
-    # build map: smallest->0, middle->1, largest->2 (sorted)
-    sorted_u = np.sort(uniq)
-    # if more than 3, map all beyond the first 3 to class 1
-    mapper = {v: i for i, v in enumerate(sorted_u[:3])}
-    out = np.zeros(labels.shape, dtype=np.int64)
-    for v in sorted_u[:3]:
-        out[labels == v] = mapper[v]
-    # any leftover (unexpected) -> class 1
-    out[~np.isin(labels, sorted_u[:3])] = 1
-    return out
+    found = []
+    for split in ("training", "testing"):
+        for f in folds:
+            pattern = os.path.join(
+                txt_dir, f"{split}_{auction}_auction_{norm}_fold{f}.txt"
+            )
+            matches = sorted(glob.glob(pattern))
+            if not matches:
+                # try alternate naming seen in some mirrors
+                pattern2 = os.path.join(
+                    txt_dir, f"{split}_{auction}auction_{norm}_fold{f}.txt"
+                )
+                matches = sorted(glob.glob(pattern2))
+            if not matches:
+                print(f"WARNING: no file for {pattern}")
+                continue
+            found.extend(matches)
+    return found
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mat", required=True, help="path to FI-2010 .mat")
-    ap.add_argument("--out", required=True, help="output .npy path")
-    ap.add_argument("--inspect-only", action="store_true",
-                    help="only print structure, do not convert")
+    ap.add_argument("--txt_dir", help="directory with unzipped FI-2010 .txt files")
+    ap.add_argument("--norm", default="z-score", choices=["z-score", "min-max", "decimal"])
+    ap.add_argument("--auction", default="without", choices=["with", "without"])
+    ap.add_argument("--folds", type=int, nargs="+", default=list(range(1, 10)),
+                    help="fold numbers to include (1-9)")
+    ap.add_argument("--out", help="output .npy path (not needed with --inspect-only)")
+    ap.add_argument("--inspect-only", action="store_true")
     args = ap.parse_args()
 
-    mat = scipy.io.loadmat(args.mat)
-    info = inspect(args.mat)
+    files = find_files(args.txt_dir, args.norm, args.auction, args.folds)
+    if not files:
+        raise SystemExit("No .txt files matched. Check --txt_dir / --norm / --auction.")
+    print(f"Found {len(files)} files:")
+    for f in files[:10]:
+        print("  ", os.path.basename(f))
+    if len(files) > 10:
+        print(f"  ... (+{len(files)-10} more)")
+
     if args.inspect_only:
+        if not args.out:
+            args.out = "inspect_only_dummy.npy"  # not actually written
+        # load just the first file's head to verify column count
+        sample = np.loadtxt(files[0], delimiter=" ", max_rows=5)
+        print(f"sample shape (5 rows): {sample.shape}")
+        print("First row head:", sample[0, :5])
+        print("Last 6 columns of row0:", sample[0, -6:])
         return
 
-    arr = flatten_to_2d(info)
-    print("flattened shape:", arr.shape)
+    rows = []
+    for f in files:
+        # delimiter is whitespace; dtype float32 to save RAM
+        arr = np.loadtxt(f, delimiter=" ", dtype=np.float32)
+        rows.append(arr)
+    data = np.vstack(rows).astype(np.float32)
+    print("combined shape:", data.shape)
 
-    n_cols = arr.shape[1]
-    if n_cols < 148:
+    n_cols = data.shape[1]
+    if n_cols < 149:
         raise ValueError(
-            f"expected >=148 columns (144 features + 4 labels), got {n_cols}. "
-            "The .mat layout differs; check inspect output."
+            f"expected >=149 columns (144 features + 5 labels), got {n_cols}. "
+            "Verify the .txt format."
         )
-    features = arr[:, :144].astype(np.float32)
-    # last 4 columns are k=10,20,50,100 labels
-    labels_all = arr[:, -4:].astype(np.int64)
-
-    # save a combined (N, 148) npy: 144 features + 4 labels, matching dataset.py
-    combined = np.hstack([features, labels_all.astype(np.float32)]).astype(np.float32)
-    np.save(args.out, combined)
-    print(f"saved {args.out} shape={combined.shape} dtype={combined.dtype}")
-    print("  features: cols 0-143 (144), labels k=10/20/50/100: cols 144-147")
+    # keep 144 features + 5 labels = 149 columns
+    out = data[:, :149].astype(np.float32)
+    np.save(args.out, out)
+    print(f"saved {args.out} shape={out.shape} dtype={out.dtype}")
+    print("  features: cols 0-143 (144), labels k-problems: cols 144-148")
 
 
 if __name__ == "__main__":
