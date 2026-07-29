@@ -128,3 +128,39 @@ python src/train.py --config configs/base.yaml --epochs 100 --device cuda
 Colab 入口 `run_colab.py` 使用 `configs/colab.yaml`（epochs=100、device=cuda），再在运行时覆盖 `data_path`、`device`、`checkpoint_dir` 等动态值。本地调试可复制一份改参数。
 
 pandas 和 matplotlib 目前代码未用到，仅作后续绘图准备（见 `plot_curves.py`）。
+
+## 开发与质量门禁
+
+项目用 ruff（lint）、ty（类型检查）、pytest（测试）三道门禁，团队 PR 前自动跑。
+
+### 安装开发依赖
+
+```bash
+pip install -r requirements.txt   # 含 pytest / ruff / ty
+```
+
+### 本地跑检查
+
+```bash
+ruff check .          # lint，应全过
+ty check              # 类型检查，应全过
+python -m pytest -q   # 测试，10 个用例全过（无需真实数据）
+```
+
+`pyproject.toml` 里集中放了这三项的配置（ruff 规则、ty 检查范围、pytest 的 pythonpath 与 testpaths）。
+
+### 提交前自动卡质量
+
+```bash
+pip install pre-commit
+pre-commit install    # 安装 git 钩子，每次 commit 自动跑 ruff + ty
+```
+
+之后每次 `git commit` 会先执行钩子，ruff 和 ty 都通过才允许提交。CI 上可用 `pre-commit run --all-files` 复跑同一份配置。
+
+### 目录约定
+
+- `tests/` 放结构化测试（pytest 发现），全部用合成数据，不依赖真实 FI-2010。
+- 根目录 `smoke_test.py` 是独立入口，不依赖 pytest 也能 `python smoke_test.py` 直接跑。
+- 训练曲线由 `plot_curves.py` 读取 `train_history*.json` 生成（见上文配置说明）。
+
