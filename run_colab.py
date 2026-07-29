@@ -83,15 +83,15 @@ if device == "cpu":
     print("accelerator = GPU -> Save, then re-run this cell.")
     print("=" * 60)
 
-# 5. Train. If the fold-id array is present we run 9-fold CV (paper Setup 2);
-#    otherwise we fall back to the simple 70/15/15 proportional split.
+# 5. Train. 用 configs/colab.yaml 作为基础配置（epochs=100、device=cuda 等），
+#    再覆盖运行时才确定的动态值（data_path、device、checkpoint_dir）。
+#    若 fold-id 数组存在则跑 9 折交叉验证（论文 Setup 2），否则退回到
+#    简单的 70/15/15 切分（数字不能与论文 Table II 比较）。
 train_cmd = [
     "python", "src/train.py",
+    "--config", "configs/colab.yaml",
     "--dataset", "fi2010",
     "--data_path", npy_path,
-    "--k", "10",
-    "--epochs", "100",
-    "--batch_size", "32",
     "--device", device,
     "--checkpoint_dir", CKPT_DIR,
 ]

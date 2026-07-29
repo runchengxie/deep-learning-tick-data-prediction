@@ -29,7 +29,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-
 # FI-2010 OFFICIAL data layout (Ntakaris et al. 2017, arXiv:1705.03233):
 #   Official .txt files: each row has 144 features + 5 label columns (0-indexed 144-148).
 #   Label encoding: 1=up, 2=stationary, 3=down. The 5 columns are 5 classification

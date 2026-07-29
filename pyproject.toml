@@ -24,10 +24,11 @@ ignore = ["E501"]  # 长行由格式化工具处理，这里只做静态检查
 [tool.ruff.lint.per-file-ignores]
 # 一次性/脚本类文件放宽部分规则
 "convert_fi2010.py" = ["B008"]
-"run_colab.py" = ["B008"]
+# run_colab.py 在 pip install 之后才 import torch，导入不在文件顶部是有意为之
+"run_colab.py" = ["B008", "E402", "I001"]
 
 [tool.basedpyright]
 typeCheckingMode = "basic"
-include = ["src", "convert_fi2010.py", "smoke_test.py", "run_colab.py", "train.py"]
+include = ["src", "convert_fi2010.py", "smoke_test.py", "run_colab.py", "train.py", "plot_curves.py"]
 reportMissingImports = true
 reportUnusedImports = true

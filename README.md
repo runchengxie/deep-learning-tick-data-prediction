@@ -123,4 +123,8 @@ DeepLOB 论文报告的 F1 基于 FI-2010 的 9 折锚定交叉验证协议（�
 python src/train.py --config configs/base.yaml --epochs 100 --device cuda
 ```
 
-不加 `--config` 时按命令行默认值运行（默认 `dataset=random`，本地冒烟）。pandas 和 matplotlib 目前代码未用到，仅作后续绘图准备。
+不加 `--config` 时按命令行默认值运行（默认 `dataset=random`，本地冒烟）。
+
+Colab 入口 `run_colab.py` 使用 `configs/colab.yaml`（epochs=100、device=cuda），再在运行时覆盖 `data_path`、`device`、`checkpoint_dir` 等动态值。本地调试可复制一份改参数。
+
+pandas 和 matplotlib 目前代码未用到，仅作后续绘图准备（见 `plot_curves.py`）。

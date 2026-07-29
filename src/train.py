@@ -23,8 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import dataclass, asdict, fields
-from typing import Optional
+from dataclasses import dataclass, fields
 
 import numpy as np
 import torch
@@ -36,17 +35,17 @@ try:
 except ImportError:  # yaml 仅在使用 --config 时需要
     yaml = None
 
+from dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE, RandomLOBDataset
 from model import build_model
-from dataset import RandomLOBDataset, WINDOW_SIZE, NUM_FEATURES, NUM_CLASSES
 
 
 @dataclass
 class Config:
     # data
     dataset: str = "random"          # "random" (smoke) or "fi2010" (Colab)
-    data_path: Optional[str] = None  # used when dataset == "fi2010"
+    data_path: str | None = None  # used when dataset == "fi2010"
     k: int = 10                       # prediction horizon (FI-2010 label column)
-    folds_path: Optional[str] = None  # fold-id .npy for 9-fold CV
+    folds_path: str | None = None  # fold-id .npy for 9-fold CV
     # training
     epochs: int = 3                  # smoke default; raise on Colab
     batch_size: int = 32
@@ -74,9 +73,9 @@ def set_seed(seed: int) -> None:
 def f1_metrics(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int = NUM_CLASSES):
     """Compute macro/weighted F1 and per-class precision/recall."""
     from sklearn.metrics import (
+        accuracy_score,
         f1_score,
         precision_recall_fscore_support,
-        accuracy_score,
     )
 
     acc = accuracy_score(y_true, y_pred)
@@ -94,7 +93,7 @@ def f1_metrics(y_true: np.ndarray, y_pred: np.ndarray, num_classes: int = NUM_CL
     }
 
 
-def make_dataloaders(cfg: Config, test_fold: Optional[int] = None):
+def make_dataloaders(cfg: Config, test_fold: int | None = None):
     if cfg.dataset == "fi2010" and not cfg.data_path:
         raise ValueError(
             "dataset='fi2010' requires --data_path (path to FI-2010 .npy mirror)"
@@ -141,7 +140,7 @@ def evaluate(model: nn.Module, dl: DataLoader, device: str):
     return f1_metrics(y_true, y_pred)
 
 
-def train(cfg: Config, test_fold: Optional[int] = None) -> dict:
+def train(cfg: Config, test_fold: int | None = None) -> dict:
     set_seed(cfg.seed)
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -222,6 +221,13 @@ def train(cfg: Config, test_fold: Optional[int] = None) -> dict:
     test_metrics = evaluate(model, test_dl, device)
     print("TEST:", json.dumps(test_metrics, indent=2))
 
+    # 把每 epoch 的训练历史落盘，供 plot_curves.py 画图。
+    history_path = os.path.join(
+        cfg.checkpoint_dir, f"train_history{fold_tag}.json"
+    )
+    with open(history_path, "w", encoding="utf-8") as fh:
+        json.dump(history, fh, indent=2)
+
     return {"history": history, "test": test_metrics, "best_val_acc": best_val_acc}
 
 
@@ -257,8 +263,13 @@ def run_cv(cfg: Config) -> dict:
     return summary
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
-    """从 Config 字段自动生成命令行参数，字段只在此定义一次。"""
+def _build_arg_parser(file_cfg: dict | None = None) -> argparse.ArgumentParser:
+    """从 Config 字段自动生成命令行参数。
+
+    file_cfg 是 yaml 里读到的字段（默认 None）。有 --config 时，yaml 的值
+    作为 argparse 的默认值，命令行显式传的参数会自然覆盖它。
+    """
+    file_cfg = file_cfg or {}
     p = argparse.ArgumentParser(description="DeepLOB training / evaluation")
     p.add_argument(
         "--config",
@@ -266,42 +277,47 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="yaml 配置文件路径；其中的字段作为默认值，命令行可覆盖",
     )
     for f in fields(Config):
+        default = file_cfg.get(f.name, f.default)
         if f.name == "dataset":
-            p.add_argument("--dataset", choices=["random", "fi2010"], default=f.default)
+            p.add_argument("--dataset", choices=["random", "fi2010"], default=default)
             continue
-        if f.type == bool or f.default is True or f.default is False:
+        if f.default is True or f.default is False:
             # bool 字段提供 --flag / --no-flag 两种写法
             p.add_argument(
                 f"--{f.name}",
                 action="store_true",
-                default=f.default,
+                default=default,
                 help=f"disable with --no-{f.name}",
             )
             p.add_argument(
-                f"--no-{f.name}", dest=f.name, action="store_false", default=f.default
+                f"--no-{f.name}", dest=f.name, action="store_false", default=default
             )
             continue
         type_ = str if f.default is None else type(f.default)
-        p.add_argument(f"--{f.name}", type=type_, default=f.default)
+        p.add_argument(f"--{f.name}", type=type_, default=default)
     return p
 
 
 def _load_config_from_args() -> Config:
-    p = _build_arg_parser()
-    args = p.parse_args()
-    values = {k: v for k, v in vars(args).items() if k != "config"}
+    # 先解析一次，只为拿到 --config 路径（此时用 Config 原默认值）
+    probe = argparse.ArgumentParser(add_help=False)
+    probe.add_argument("--config", default=None)
+    probe_args, _ = probe.parse_known_args()
 
-    if args.config:
+    file_cfg = None
+    if probe_args.config:
         if yaml is None:
             raise SystemExit("读取 --config 需要 PyYAML，请先 pip install pyyaml")
-        with open(args.config, encoding="utf-8") as fh:
+        with open(probe_args.config, encoding="utf-8") as fh:
             file_cfg = yaml.safe_load(fh) or {}
-        # 命令行显式传的值（非默认）覆盖 yaml
-        for name in list(file_cfg):
-            if name not in values:
+        for name in file_cfg:
+            if name not in {f.name for f in fields(Config)}:
                 raise SystemExit(f"yaml 中含未知字段：{name}")
-        values.update({k: v for k, v in file_cfg.items() if v is not None})
 
+    # yaml 值作为 argparse 默认值，命令行显式传的覆盖它
+    p = _build_arg_parser(file_cfg)
+    args = p.parse_args()
+    values = {k: v for k, v in vars(args).items() if k != "config"}
     return Config(**values)
 
 

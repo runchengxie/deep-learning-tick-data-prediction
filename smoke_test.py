@@ -14,8 +14,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from src.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE, get_dummy_batch
 from src.model import build_model
-from src.dataset import get_dummy_batch, WINDOW_SIZE, NUM_FEATURES, NUM_CLASSES
 
 
 def test_forward_shape():
@@ -63,9 +63,10 @@ def test_fi2010_dataset_shape():
     144/145/146/147/148) so we can verify windowing + label-column selection
     locally, without downloading the real (large) data.
     """
-    import tempfile
     import os
-    from src.dataset import FI2010WindowDataset, K_TO_LABEL_COLUMN, WINDOW_SIZE, NUM_FEATURES
+    import tempfile
+
+    from src.dataset import K_TO_LABEL_COLUMN, NUM_FEATURES, WINDOW_SIZE, FI2010WindowDataset
 
     rng = np.random.default_rng(1)
     n = 500
