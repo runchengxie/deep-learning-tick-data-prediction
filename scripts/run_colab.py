@@ -14,6 +14,10 @@ This script assumes /content/drive is already mounted and simply checks it.
 """
 import os
 import subprocess
+from pathlib import Path
+
+# 仓库根目录（scripts/ 的上一级），Colab 上 cwd 会变，用绝对路径最稳
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 REPO = "https://github.com/runchengxie/deeplob-reproduction.git"
 
@@ -88,8 +92,8 @@ if device == "cpu":
 #    若 fold-id 数组存在则跑 9 折交叉验证（论文 Setup 2），否则退回到
 #    简单的 70/15/15 切分（数字不能与论文 Table II 比较）。
 train_cmd = [
-    "python", "src/train.py",
-    "--config", "configs/colab.yaml",
+    "python", str(REPO_ROOT / "src" / "train.py"),
+    "--config", str(REPO_ROOT / "configs" / "colab.yaml"),
     "--dataset", "fi2010",
     "--data_path", npy_path,
     "--device", device,

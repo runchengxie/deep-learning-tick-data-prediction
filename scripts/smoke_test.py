@@ -7,8 +7,14 @@ Checks (the 80% of bugs caught before Colab):
   4. a 1-epoch dummy train step lowers loss (gradients flow)
 
 Run:
-    python smoke_test.py
+    python scripts/smoke_test.py
 """
+
+import sys
+from pathlib import Path
+
+# 让脚本无论从哪个目录运行都能找到仓库根的 src 包
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import torch
