@@ -141,9 +141,9 @@ class DeepLOB(nn.Module):
         """Forward pass.
 
         Args:
-            x: tensor of shape (B, 1, T, D)  with T=window_size, D=40.
+            x: tensor of shape (B, 1, T, D) with T=window_size, D=num_features.
         Returns:
-            log-probabilities of shape (B, num_classes).
+            logits of shape (B, num_classes).
         """
         # Conv front-end. Convs operate on (H=T, W=D); we keep H fixed via the
         # natural geometry: (1×2) stride halves W, padding keeps H.

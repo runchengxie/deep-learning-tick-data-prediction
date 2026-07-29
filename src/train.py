@@ -111,13 +111,9 @@ def make_dataloaders(cfg: Config, test_fold: Optional[int] = None):
         )
         if test_fold is not None:
             common["test_fold"] = test_fold
-            train_ds = FI2010WindowDataset(cfg.data_path, split="train", **common)
-            val_ds = FI2010WindowDataset(cfg.data_path, split="val", **common)
-            test_ds = FI2010WindowDataset(cfg.data_path, split="test", **common)
-        else:
-            train_ds = FI2010WindowDataset(cfg.data_path, split="train", **common)
-            val_ds = FI2010WindowDataset(cfg.data_path, split="val", **common)
-            test_ds = FI2010WindowDataset(cfg.data_path, split="test", **common)
+        train_ds = FI2010WindowDataset(cfg.data_path, split="train", **common)
+        val_ds = FI2010WindowDataset(cfg.data_path, split="val", **common)
+        test_ds = FI2010WindowDataset(cfg.data_path, split="test", **common)
 
     train_dl = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
     val_dl = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False)
@@ -143,8 +139,8 @@ def evaluate(model: nn.Module, dl: DataLoader, device: str):
 def train(cfg: Config, test_fold: Optional[int] = None) -> dict:
     set_seed(cfg.seed)
     os.makedirs(cfg.checkpoint_dir, exist_ok=True)
-    device = cfg.device if torch.cuda.is_available() or cfg.device != "cuda" else "cuda"
-    if cfg.device == "cuda" and not torch.cuda.is_available():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if cfg.device == "cuda" and device == "cpu":
         print("[warn] cuda requested but unavailable; falling back to cpu.")
 
     model = build_model(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, num_features=NUM_FEATURES).to(device)
@@ -240,10 +236,9 @@ def run_cv(cfg: Config) -> dict:
         res = train(cfg, test_fold=i)
         all_f1.append(res["test"]["macro_f1"])
         all_acc.append(res["test"]["accuracy"])
-    import numpy as _np
 
-    mean_f1, std_f1 = _np.mean(all_f1), _np.std(all_f1)
-    mean_acc, std_acc = _np.mean(all_acc), _np.std(all_acc)
+    mean_f1, std_f1 = np.mean(all_f1), np.std(all_f1)
+    mean_acc, std_acc = np.mean(all_acc), np.std(all_acc)
     summary = {
         "per_fold_macro_f1": all_f1,
         "per_fold_acc": all_acc,

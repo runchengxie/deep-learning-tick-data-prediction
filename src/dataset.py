@@ -12,15 +12,13 @@ Two paths are provided:
    ``K_TO_LABEL_COLUMN[k]``. Designed to run on Colab with the HF mirror; a
    small synthetic .npy can also exercise it locally (see smoke_test.py).
 
-CRITICAL labelling note (easy to get wrong, see project README discussion):
-  FI-2010 ships several normalised versions and pre-computed label columns.
-  The paper's prediction horizons k = 10, 20, 50, 100 are INDICES into the
-  label columns of the normalised file, NOT the number of raw events. The
-  OFFICIAL FI-2010 .txt files carry 5 label columns (cols 145-149) holding the
-  3-class labels for k = 10, 20, 50, 100 plus one extra horizon. We map
-  k -> 0-indexed column in K_TO_LABEL_COLUMN. Pick the correct column for the
-  experiment you want to reproduce, otherwise you may happily reproduce a
-  *different* task.
+标签列的关键说明（容易出错，详见项目 README）：
+  FI-2010 提供多种归一化版本和预先算好的标签列。论文的预测时间跨度
+  k = 10、20、50、100 是归一化文件里标签列的索引，不是原始事件个数。
+  官方 FI-2010 .txt 文件带有 5 个标签列（0-indexed 144-148），存放
+  k = 10、20、50、100 的三分类标签以及一额外时间跨度。用 K_TO_LABEL_COLUMN
+  把 k 映射到 0-indexed 列。复现哪个实验就取对应列，取错列会静默地训练出
+  一个不同的任务。
 """
 
 from __future__ import annotations
@@ -33,9 +31,9 @@ from torch.utils.data import Dataset
 
 
 # FI-2010 OFFICIAL data layout (Ntakaris et al. 2017, arXiv:1705.03233):
-#   Official .txt files: each row has 144 features + 5 label columns (cols 145-149).
+#   Official .txt files: each row has 144 features + 5 label columns (0-indexed 144-148).
 #   Label encoding: 1=up, 2=stationary, 3=down. The 5 columns are 5 classification
-#   horizons; the FIRST label column (col 145, 0-indexed 144) is k=10 used in the
+#   horizons; the FIRST label column (0-indexed 144) is k=10 used in the
 #   paper's main Table II. We map k -> 0-indexed column below. If your file's label
 #   order differs, adjust these indices.
 #   NOTE: third-party mirrors (e.g. shanehans/FI2010 CSV) have DIFFERENT layouts

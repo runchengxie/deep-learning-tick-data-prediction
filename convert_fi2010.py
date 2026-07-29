@@ -65,6 +65,11 @@ def _norm_token(norm: str) -> str:
     return table[norm]
 
 
+# 目录名用 Zscore，但文件名里写成 ZScore（首字母大写）。下面把目录 token
+# 映射到文件名 token，find_files 用它拼出真实文件名。
+FILE_NORM_TOKEN = {"Zscore": "ZScore", "MinMax": "MinMax", "DecPre": "DecPre"}
+
+
 def find_files(base_dir: str, norm: str, auction: str, folds) -> list[str]:
     """Locate FI-2010 .txt files by the VERIFIED real naming convention.
 
@@ -83,12 +88,7 @@ def find_files(base_dir: str, norm: str, auction: str, folds) -> list[str]:
         for f in folds:
             subdir = f"{auction}_{norm_tok}_{split}"
             # e.g. Train_Dst_NoAuction_ZScore_CF_1.txt
-            # Note: the file uses the capitalised norm token (ZScore not Zscore)
-            file_norm_tok = {
-                "Zscore": "ZScore",
-                "MinMax": "MinMax",
-                "DecPre": "DecPre",
-            }[norm_tok]
+            file_norm_tok = FILE_NORM_TOKEN[norm_tok]
             split_prefix = "Train" if split == "Training" else "Test"
             fname = f"{split_prefix}_Dst_{auction}_{file_norm_tok}_CF_{f}.txt"
             pattern = os.path.join(base_dir, auction, folder, subdir, fname)
