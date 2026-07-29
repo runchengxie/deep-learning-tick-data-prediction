@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deeplob-reproduction"
+version = "0.1.0"
+description = "PyTorch reproduction of DeepLOB (Zhang, Zohren, Roberts 2018)"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# E: pycodestyle (格式/空白)
+# F: pyflakes (未使用导入、未定义名等)
+# I: isort (导入排序)
+# UP: pyupgrade (现代语法，如 | None)
+# B: flake8-bugbear (易错写法)
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # 长行由格式化工具处理，这里只做静态检查
+
+[tool.ruff.lint.per-file-ignores]
+# 一次性/脚本类文件放宽部分规则
+"convert_fi2010.py" = ["B008"]
+"run_colab.py" = ["B008"]
+
+[tool.basedpyright]
+typeCheckingMode = "basic"
+include = ["src", "convert_fi2010.py", "smoke_test.py", "run_colab.py", "train.py"]
+reportMissingImports = true
+reportUnusedImports = true

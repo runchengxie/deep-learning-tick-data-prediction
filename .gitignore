@@ -8,8 +8,6 @@ env/
 # Local experiment artifacts (do NOT commit multi-GB data / weights)
 checkpoints/
 *.pt
-*.keras
-*.h5
 logs/
 predictions/
 results/

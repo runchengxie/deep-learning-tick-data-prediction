@@ -108,7 +108,7 @@ DeepLOB 论文报告的 F1 基于 FI-2010 的 9 折锚定交叉验证协议（�
 
 ## 断点续训（应对 Colab 断连）
 
-训练可以续训：每一折的完整状态（模型、优化器、epoch）会保存到检查点目录下的 `best.keras.fold<N>.pt`。Colab 断连后重跑 `run_colab.py` 会从上次的 epoch 继续（默认 `--resume`）。切走标签页或断连都不会丢失进度。
+训练可以续训：每一折的完整状态（模型、优化器、epoch）会保存到检查点目录下的 `best.fold<N>.pt`。Colab 断连后重跑 `run_colab.py` 会从上次的 epoch 继续（默认 `--resume`）。切走标签页或断连都不会丢失进度。
 
 ## 暂未包含的内容
 
@@ -117,4 +117,10 @@ DeepLOB 论文报告的 F1 基于 FI-2010 的 9 折锚定交叉验证协议（�
 
 ## 配置说明
 
-`configs/base.yaml` 目前仅作为参考示例，代码运行以 `train.py` 的命令行参数和 `Config` 数据类为准，修改 yaml 不会直接影响训练。需要集中管理参数时，建议以后让 `train.py` 支持读取 yaml。
+`train.py` 的命令行参数和 `configs/base.yaml` 都来自同一个 `Config` 数据类，字段只定义一次。可以用 yaml 集中管理参数，再用命令行覆盖：
+
+```bash
+python src/train.py --config configs/base.yaml --epochs 100 --device cuda
+```
+
+不加 `--config` 时按命令行默认值运行（默认 `dataset=random`，本地冒烟）。pandas 和 matplotlib 目前代码未用到，仅作后续绘图准备。

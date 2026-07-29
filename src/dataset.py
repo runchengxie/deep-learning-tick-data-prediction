@@ -2,7 +2,7 @@
 
 Two paths are provided:
 
-1. ``RandomLOBDataset`` -- generates synthetic (B, 1, T, 40) windows and
+1. ``RandomLOBDataset`` -- generates synthetic (B, 1, T, 144) windows and
    random 3-class labels. Used for local smoke tests when the real FI-2010
    data is not available yet (per the agreed scope: no real data wiring yet).
 
@@ -194,16 +194,15 @@ class FI2010WindowDataset(Dataset):
 
     @staticmethod
     def _load(path: str) -> np.ndarray:
+        # 只接受官方 FI-2010 的 .npy/.npz（由 convert_fi2010.py 产出）。
+        # 第三方 CSV 镜像布局不同且标签被污染，本项目不使用。
         path = os.path.expanduser(path)
-        if path.endswith(".npy") or path.endswith(".npz"):
-            arr = np.load(path)
-            if arr.ndim == 3:  # some mirrors store per-day arrays
-                arr = arr.reshape(-1, arr.shape[-1])
-            return arr.astype(np.float32)
-        if path.endswith(".csv"):
-            # HF mirror CSV: headerless, 44 columns. Use float32 directly.
-            return np.loadtxt(path, delimiter=",", dtype=np.float32)
-        raise ValueError(f"unsupported data file: {path}")
+        if not (path.endswith(".npy") or path.endswith(".npz")):
+            raise ValueError(f"只支持 .npy/.npz 文件，不支持：{path}")
+        arr = np.load(path)
+        if arr.ndim == 3:  # 个别存档按天存成 3 维，展平成 (N, 149)
+            arr = arr.reshape(-1, arr.shape[-1])
+        return arr.astype(np.float32)
 
     def __len__(self) -> int:
         return self.windows.shape[0]

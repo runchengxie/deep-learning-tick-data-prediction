@@ -17,7 +17,7 @@ Architecture mapping to the paper (Zhang, Zohren, Roberts 2020, arXiv:1808.03668
     │
     └─ Linear(64 → 3) + LogSoftmax   ← P(Down)/P(Stationary)/P(Up)
 
-Channels evolve:
+Channels evolve (论文原始 40 维输入的对照；本项目输入为 144 维，见下方卷积层注释):
   40 -> 16 (after first conv, T kept via padding) -> 16 -> 1 (after 1×10 conv)
   -> 32 (inception) -> LSTM 64 -> 3.
 

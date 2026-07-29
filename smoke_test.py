@@ -2,7 +2,7 @@
 
 Checks (the 80% of bugs caught before Colab):
   1. model builds and prints parameter count
-  2. a random (B,1,T=100,D=40) batch produces (B,3) logits
+  2. a random (B,1,T=100,D=144) batch produces (B,3) logits
   3. softmax over the 3 classes sums to ~1 per row
   4. a 1-epoch dummy train step lowers loss (gradients flow)
 

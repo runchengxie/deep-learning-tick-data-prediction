@@ -23,13 +23,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, fields
 from typing import Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+
+try:
+    import yaml
+except ImportError:  # yaml 仅在使用 --config 时需要
+    yaml = None
 
 from model import build_model
 from dataset import RandomLOBDataset, WINDOW_SIZE, NUM_FEATURES, NUM_CLASSES
@@ -55,7 +60,7 @@ class Config:
     num_folds: int = 9               # number of folds for CV
     # io
     checkpoint_dir: str = "./checkpoints"
-    checkpoint_name: str = "best.keras"  # .pt really; name kept for Drive habit
+    checkpoint_name: str = "best"  # 实际保存为 <name>.pt / <name>.fold<N>.pt
     device: str = "cpu"
 
 
@@ -252,42 +257,56 @@ def run_cv(cfg: Config) -> dict:
     return summary
 
 
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--dataset", choices=["random", "fi2010"], default="random")
-    p.add_argument("--data_path", default=None)
-    p.add_argument("--folds_path", default=None, help="FI2010_folds.npy for 9-fold CV")
-    p.add_argument("--k", type=int, default=10)
-    p.add_argument("--epochs", type=int, default=3)
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--lr", type=float, default=0.01)
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--val_frac", type=float, default=0.1)
-    p.add_argument("--resume", action="store_true", default=True,
-                   help="resume from checkpoint if present (default on)")
-    p.add_argument("--no-resume", dest="resume", action="store_false")
-    p.add_argument("--cv", action="store_true", help="run 9-fold cross-validation")
-    p.add_argument("--num_folds", type=int, default=9)
-    p.add_argument("--device", default="cpu")
-    p.add_argument("--checkpoint_dir", default="./checkpoints")
-    args = p.parse_args()
-
-    cfg = Config(
-        dataset=args.dataset,
-        data_path=args.data_path,
-        folds_path=args.folds_path,
-        k=args.k,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        seed=args.seed,
-        val_frac=args.val_frac,
-        resume=args.resume,
-        cv=args.cv,
-        num_folds=args.num_folds,
-        device=args.device,
-        checkpoint_dir=args.checkpoint_dir,
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """从 Config 字段自动生成命令行参数，字段只在此定义一次。"""
+    p = argparse.ArgumentParser(description="DeepLOB training / evaluation")
+    p.add_argument(
+        "--config",
+        default=None,
+        help="yaml 配置文件路径；其中的字段作为默认值，命令行可覆盖",
     )
+    for f in fields(Config):
+        if f.name == "dataset":
+            p.add_argument("--dataset", choices=["random", "fi2010"], default=f.default)
+            continue
+        if f.type == bool or f.default is True or f.default is False:
+            # bool 字段提供 --flag / --no-flag 两种写法
+            p.add_argument(
+                f"--{f.name}",
+                action="store_true",
+                default=f.default,
+                help=f"disable with --no-{f.name}",
+            )
+            p.add_argument(
+                f"--no-{f.name}", dest=f.name, action="store_false", default=f.default
+            )
+            continue
+        type_ = str if f.default is None else type(f.default)
+        p.add_argument(f"--{f.name}", type=type_, default=f.default)
+    return p
+
+
+def _load_config_from_args() -> Config:
+    p = _build_arg_parser()
+    args = p.parse_args()
+    values = {k: v for k, v in vars(args).items() if k != "config"}
+
+    if args.config:
+        if yaml is None:
+            raise SystemExit("读取 --config 需要 PyYAML，请先 pip install pyyaml")
+        with open(args.config, encoding="utf-8") as fh:
+            file_cfg = yaml.safe_load(fh) or {}
+        # 命令行显式传的值（非默认）覆盖 yaml
+        for name in list(file_cfg):
+            if name not in values:
+                raise SystemExit(f"yaml 中含未知字段：{name}")
+        values.update({k: v for k, v in file_cfg.items() if v is not None})
+
+    return Config(**values)
+
+
+def main():
+    cfg = _load_config_from_args()
     if cfg.cv:
         run_cv(cfg)
     else:
