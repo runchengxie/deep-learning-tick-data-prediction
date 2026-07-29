@@ -71,8 +71,8 @@ class RandomLOBDataset(Dataset):
     def __len__(self) -> int:
         return self.x.shape[0]
 
-    def __getitem__(self, idx: int):
-        return self.x[idx], self.y[idx]
+    def __getitem__(self, index: int):
+        return self.x[index], self.y[index]
 
 
 class FI2010WindowDataset(Dataset):
@@ -206,14 +206,14 @@ class FI2010WindowDataset(Dataset):
     def __len__(self) -> int:
         return self.windows.shape[0]
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, index: int):
         # Extract ONE window on demand (no full copy of all windows).
         # self.windows is a float32 view of shape (num_win, w, D); indexing
         # gives (w, D). Add channel dim -> (1, w, D), matching Conv2d (N,C,H,W)
         # after the DataLoader stacks a batch into (B, 1, w, D). The data is
         # already float32 (from _load), so no cast is needed here.
-        x = np.expand_dims(self.windows[idx].copy(), axis=0)  # (1, w, D), copy->writable
-        y = int(self.window_labels[idx])
+        x = np.expand_dims(self.windows[index].copy(), axis=0)  # (1, w, D), copy->writable
+        y = int(self.window_labels[index])
         return x, y
 
 

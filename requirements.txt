@@ -9,3 +9,10 @@ matplotlib>=3.7
 pyyaml>=6.0
 # For Colab notebook convenience (optional locally):
 # jupyterlab>=4.0
+
+# 开发 / 测试 / 质量门禁（团队协同时建议安装）
+# pip install -r requirements.txt -r requirements-dev.txt 或直接装下面这些
+pytest>=8.0
+ruff>=0.16.0
+ty>=0.0.64
+

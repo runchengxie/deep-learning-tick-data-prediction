@@ -1,0 +1,18 @@
+# 统一仓库内换行符为 LF，避免 Windows（core.autocrlf=true）下
+# 检出时把 LF 转成 CRLF 导致的无意义 diff 和警告。
+* text=auto eol=lf
+
+# 这些文件永远按文本处理
+*.py text
+*.md text
+*.toml text
+*.yaml text
+*.yml text
+*.ipynb text
+
+# 二进制文件不转换
+*.pdf binary
+*.png binary
+*.npy binary
+*.npz binary
+*.pt binary

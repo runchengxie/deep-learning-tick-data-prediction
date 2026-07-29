@@ -27,8 +27,15 @@ ignore = ["E501"]  # 长行由格式化工具处理，这里只做静态检查
 # run_colab.py 在 pip install 之后才 import torch，导入不在文件顶部是有意为之
 "run_colab.py" = ["B008", "E402", "I001"]
 
-[tool.basedpyright]
-typeCheckingMode = "basic"
-include = ["src", "convert_fi2010.py", "smoke_test.py", "run_colab.py", "train.py", "plot_curves.py"]
-reportMissingImports = true
-reportUnusedImports = true
+
+[tool.pytest.ini_options]
+# 让 pytest 能直接 import src 下的模块（无需手动改 PYTHONPATH）
+pythonpath = ["."]
+testpaths = ["."]
+
+[tool.ty]
+
+[[tool.ty.overrides]]
+# colab.ipynb 是 Colab 专用，引用本地不存在的 google.colab，跳过该导入检查
+include = ["notebooks/**"]
+rules = { unresolved-import = "ignore" }
