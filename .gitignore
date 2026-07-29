@@ -4,6 +4,8 @@ __pycache__/
 .venv/
 venv/
 env/
+*.egg-info/
+uv.lock
 
 # Local experiment artifacts (do NOT commit multi-GB data / weights)
 checkpoints/

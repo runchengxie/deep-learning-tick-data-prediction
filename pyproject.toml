@@ -31,9 +31,11 @@ ignore = ["E501"]  # 长行由格式化工具处理，这里只做静态检查
 [tool.pytest.ini_options]
 # 让 pytest 能直接 import src 下的模块（无需手动改 PYTHONPATH）
 pythonpath = ["."]
-testpaths = ["."]
+testpaths = ["tests", "."]
 
 [tool.ty]
+# 可选依赖（yaml/matplotlib）与 Colab 专用包本地无，unresolved-import 降级忽略
+rules = { unresolved-import = "ignore" }
 
 [[tool.ty.overrides]]
 # colab.ipynb 是 Colab 专用，引用本地不存在的 google.colab，跳过该导入检查
