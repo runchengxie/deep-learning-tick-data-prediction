@@ -134,41 +134,55 @@ class FI2010WindowDataset(Dataset):
         self.split = split
         self.label_col = K_TO_LABEL_COLUMN[k]
 
-        # 1) Load raw data (float32 right away).
-        data = self._load(data_path)  # (N, 149) float32
-        features = data[:, :NUM_FEATURES].astype(np.float32)
-        raw_labels = data[:, self.label_col].astype(np.int64)
-
-        # 2) Normalize labels to {0,1,2}. FI-2010 labels are sometimes 1/2/3
-        #    (down/stationary/up) or 0/1/2; map by sorting unique values so we
-        #    never assume the exact encoding.
-        self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
-        labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
+        # 1) Load raw data. mmap_mode="r" -> not loaded into RAM as a whole
+        #    (see _load); builders slice only the rows they actually need.
+        data = self._load(data_path)  # mmap'd (N, 149)
 
         # 3) Select which segments feed this split, then build windows.
         if meta_path is not None:
+            # meta path: builder slices only the needed segments from the mmap
+            # (light_setup2 ~1/9 of rows, standard9 ~8/9 train + 1/9 test), so
+            # peak RAM stays tiny. Label normalization happens inside too.
             windows, win_labels = self._build_from_meta(
-                features, labels, meta_path, protocol, split, val_frac,
+                data, meta_path, protocol, split, val_frac,
                 test_fold, test_cf, light_test_cf,
             )
-        elif folds_path is not None:
-            # Deprecated backward-compatible path.
-            windows, win_labels = self._build_from_folds(
-                features, labels, folds_path, split, val_frac, seed, test_fold,
-            )
         else:
-            # Proportional split (backward compatible smoke-test mode).
-            windows, win_labels = self._build_proportional(
-                features, labels, split, split_fracs
-            )
+            # Legacy paths still need the full feature/label arrays.
+            features = data[:, :NUM_FEATURES].astype(np.float32)
+            raw_labels = data[:, self.label_col].astype(np.int64)
+            self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
+            labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
+            if folds_path is not None:
+                # Deprecated backward-compatible path.
+                windows, win_labels = self._build_from_folds(
+                    features, labels, folds_path, split, val_frac, seed, test_fold,
+                )
+            else:
+                # Proportional split (backward compatible smoke-test mode).
+                windows, win_labels = self._build_proportional(
+                    features, labels, split, split_fracs
+                )
+            # Legacy builders return a single concatenated (num_win, w, D)
+            # array; wrap it into the list-of-segments shape the rest of the
+            # class expects.
+            windows = [windows]
+            win_labels = [win_labels]
 
-        if windows.shape[0] == 0:
+        if len(windows) == 0:
             raise ValueError(
                 f"no windows for split={split!r} (protocol={protocol}, "
                 f"test_fold={test_fold}, test_cf={test_cf}). Check meta/segment selection."
             )
-        self.windows = windows  # (num_win, w, D) float32
-        self.window_labels = win_labels  # (num_win,)
+        # windows / win_labels are LISTS (one entry per segment), NOT
+        # concatenated. Each entry is a (num_seg_win, w, D) float32 view. We
+        # index across them lazily in __getitem__, so peak RAM stays at ONE
+        # segment's windows instead of every window at once (which for
+        # light_setup2 test = ~229k x 100 x 144 x 4B ≈ 12.3 GiB and OOMs Colab).
+        self._windows = windows          # list[np.ndarray], each (n_i, w, D)
+        self._window_labels = win_labels  # list[np.ndarray], each (n_i,)
+        self._seg_lens = [w.shape[0] for w in windows]
+        self._seg_offsets = np.concatenate(([0], np.cumsum(self._seg_lens)))
 
     # ------------------------------------------------------------------
     # Window builder helpers
@@ -213,7 +227,14 @@ class FI2010WindowDataset(Dataset):
         return tr_w, tr_l, va_w, va_l
 
     def _assemble(self, seg_list, features, labels, split, val_frac):
-        """Concatenate per-segment windows for the requested `split`."""
+        """Build per-segment windows for the requested `split`.
+
+        Returns (windows_list, labels_list) where each entry is the window
+        array / label array of ONE segment. We deliberately DO NOT concatenate
+        across segments here: concatenation of all windows for the test split of
+        light_setup2 would materialise ~12.3 GiB at once and OOM Colab. Instead
+        the lists are indexed lazily in __getitem__ (one window copied on demand).
+        """
         tr_w = []
         tr_l = []
         va_w = []
@@ -227,10 +248,6 @@ class FI2010WindowDataset(Dataset):
             tr_l.append(tl)
             va_w.append(vw)
             va_l.append(vl)
-        tr_w = np.concatenate(tr_w) if tr_w else np.empty((0, self.window_size, features.shape[1]), dtype=np.float32)
-        tr_l = np.concatenate(tr_l) if tr_l else np.empty((0,), dtype=np.int64)
-        va_w = np.concatenate(va_w) if va_w else np.empty((0, self.window_size, features.shape[1]), dtype=np.float32)
-        va_l = np.concatenate(va_l) if va_l else np.empty((0,), dtype=np.int64)
         if split == "train":
             return tr_w, tr_l
         if split == "val":
@@ -239,7 +256,7 @@ class FI2010WindowDataset(Dataset):
         return tr_w, tr_l
 
     def _build_from_meta(
-        self, features, labels, meta_path, protocol, split, val_frac,
+        self, data, meta_path, protocol, split, val_frac,
         test_fold, test_cf, light_test_cf=None,
     ):
         import json
@@ -271,9 +288,30 @@ class FI2010WindowDataset(Dataset):
         else:
             raise ValueError(f"unknown protocol {protocol!r}")
 
+        # Only the segments this split needs are materialised from the mmap.
+        needed = test_segs if split == "test" else train_segs
+        blocks = [np.ascontiguousarray(data[s["start"] : s["end"]]) for s in needed]
+        if not blocks:
+            local = np.empty((0, data.shape[1]), dtype=np.float32)
+        else:
+            local = np.concatenate(blocks, axis=0)  # (M, 149), M = needed rows only
+        # Local segment coordinates (contiguous 0..M) for _assemble.
+        local_segs = []
+        off = 0
+        for s in needed:
+            n = s["end"] - s["start"]
+            local_segs.append({"start": off, "end": off + n})
+            off += n
+
+        features = local[:, :NUM_FEATURES].astype(np.float32)
+        raw_labels = local[:, self.label_col].astype(np.int64)
+        # Normalize labels to {0,1,2} (FI-2010 may use 1/2/3 or 0/1/2).
+        self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
+        labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
+
         if split == "test":
-            return self._assemble(test_segs, features, labels, "test", val_frac)
-        return self._assemble(train_segs, features, labels, split, val_frac)
+            return self._assemble(local_segs, features, labels, "test", val_frac)
+        return self._assemble(local_segs, features, labels, split, val_frac)
 
     def _build_from_folds(
         self, features, labels, folds_path, split, val_frac, seed, test_fold
@@ -340,25 +378,36 @@ class FI2010WindowDataset(Dataset):
     def _load(path: str) -> np.ndarray:
         # 只接受官方 FI-2010 的 .npy/.npz（由 convert_fi2010.py 产出）。
         # 第三方 CSV 镜像布局不同且标签被污染，本项目不使用。
+        # 用 mmap_mode="r"：文件不整块读进 RAM，按需从磁盘映射读取，避免
+        # 204 万行（~1.2GB）一次性加载把 Colab 默认内存顶爆（SIGKILL/OOM）。
         path = os.path.expanduser(path)
         if not (path.endswith(".npy") or path.endswith(".npz")):
             raise ValueError(f"只支持 .npy/.npz 文件，不支持：{path}")
-        arr = np.load(path)
+        arr = np.load(path, mmap_mode="r")
         if arr.ndim == 3:  # 个别存档按天存成 3 维，展平成 (N, 149)
             arr = arr.reshape(-1, arr.shape[-1])
-        return arr.astype(np.float32)
+        return arr
 
     def __len__(self) -> int:
-        return self.windows.shape[0]
+        return int(self._seg_offsets[-1])
+
+    def _locate(self, index: int) -> tuple[int, int]:
+        """Map a global window index to (segment_idx, local_index)."""
+        # np.searchsorted finds the first offset > index; subtract 1 -> owning seg.
+        seg_idx = int(np.searchsorted(self._seg_offsets, index, side="right") - 1)
+        local = int(index - self._seg_offsets[seg_idx])
+        return seg_idx, local
 
     def __getitem__(self, index: int):
-        # Extract ONE window on demand (no full copy of all windows).
-        # self.windows is a float32 view of shape (num_win, w, D); indexing
-        # gives (w, D). Add channel dim -> (1, w, D), matching Conv2d (N,C,H,W)
-        # after the DataLoader stacks a batch into (B, 1, w, D). The data is
-        # already float32 (from _load), so no cast is needed here.
-        x = np.expand_dims(self.windows[index].copy(), axis=0)  # (1, w, D), copy->writable
-        y = int(self.window_labels[index])
+        # Extract ONE window on demand (no full copy of all windows). Only the
+        # owning segment's window array is touched; the global index is mapped
+        # to (segment, local) via the prefix-sum offsets. self._windows[i] is a
+        # float32 view of shape (n_i, w, D); indexing gives (w, D). Add channel
+        # dim -> (1, w, D) to match Conv2d (N,C,H,W) after the DataLoader stacks
+        # a batch. .copy() makes it writable; data is already float32.
+        seg_idx, local = self._locate(index)
+        x = np.expand_dims(self._windows[seg_idx][local].copy(), axis=0)  # (1, w, D)
+        y = int(self._window_labels[seg_idx][local])
         return x, y
 
 
