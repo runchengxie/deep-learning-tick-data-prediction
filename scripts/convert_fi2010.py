@@ -38,8 +38,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import glob
+import json
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -91,10 +92,11 @@ def find_files(base_dir: str, norm: str, auction: str, folds) -> list[str]:
             file_norm_tok = FILE_NORM_TOKEN[norm_tok]
             split_prefix = "Train" if split == "Training" else "Test"
             fname = f"{split_prefix}_Dst_{auction}_{file_norm_tok}_CF_{f}.txt"
-            pattern = os.path.join(base_dir, auction, folder, subdir, fname)
-            matches = sorted(glob.glob(pattern))
+            # Use pathlib for OS-agnostic globbing (handles / vs \ on Windows).
+            p = Path(base_dir) / auction / folder / subdir / fname
+            matches = sorted(str(x) for x in p.parent.glob(p.name))
             if not matches:
-                print(f"WARNING: no file for {pattern}")
+                print(f"WARNING: no file for {p}")
                 continue
             found.extend(matches)
     return found
@@ -148,6 +150,12 @@ def main():
              "e.g. FI2010_normalised.npy -> FI2010_folds.npy. Needed for 9-fold CV.",
     )
     ap.add_argument("--inspect-only", action="store_true")
+    ap.add_argument(
+        "--emit_meta",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="写出 FI2010_meta.json（每段 cf/role/start/end），供 dataset 防跨段泄漏",
+    )
     args = ap.parse_args()
 
     files = find_files(args.base_dir, args.norm, args.auction, args.folds)
@@ -173,23 +181,36 @@ def main():
     if not args.out:
         raise SystemExit("--out is required for full conversion.")
 
-    # Build the fold-id array. Each CF_<N> file (Training OR Testing) gets the
-    # same 0-based fold id = N-1, so "fold i" = all samples from the i-th
-    # dataset (its Training + Testing), matching the paper's Setup 2.
+    # Build the combined array AND a per-segment meta table.
+    # Each .txt file (Training OR Testing of a given CF_<N>) becomes one
+    # contiguous segment. We record cf / role / split / start / end so the
+    # dataset can build sliding windows WITHOUT ever crossing a segment
+    # boundary (which would mix two different stocks / days).
     import re
 
     rows = []
     fold_ids = []
+    segments = []
+    offset = 0
     for f in files:
         arr = _read_txt(f)  # (N_f, 149)
         m = re.search(r"CF_(\d+)\.txt$", os.path.basename(f))
         n = int(m.group(1)) if m else len(rows) + 1
+        n_rows = arr.shape[0]
         rows.append(arr)
-        fold_ids.append(np.full(arr.shape[0], n - 1, dtype=np.int16))
+        fold_ids.append(np.full(n_rows, n - 1, dtype=np.int16))
+        # role: Training files -> train, Testing files -> test.
+        role = "test" if "Testing" in f else "train"
+        split = "Testing" if "Testing" in f else "Training"
+        segments.append(
+            {"cf": n, "role": role, "split": split, "start": offset, "end": offset + n_rows}
+        )
+        offset += n_rows
 
     data = np.vstack(rows).astype(np.float32)
     folds = np.concatenate(fold_ids)
     print("combined shape:", data.shape, "| folds:", np.unique(folds))
+    print("segments:", len(segments), "(expect 18 = 9 CF x {Training,Testing})")
 
     n_cols = data.shape[1]
     if n_cols != EXPECTED_ROWS:
@@ -202,6 +223,19 @@ def main():
     print(f"saved {args.out} shape={data.shape} dtype={data.dtype}")
     print(f"saved {out_folds} shape={folds.shape} dtype={folds.dtype}")
     print("  features: cols 0-143 (144), labels k=10/20/50/100: cols 144-147")
+
+    # Meta: lets dataset.py build windows per-segment (no cross-boundary leak).
+    if args.emit_meta:
+        meta = {
+            "rows": int(data.shape[0]),
+            "n_features": NUM_FEATURES,
+            "n_label_cols": NUM_LABEL_COLS,
+            "segments": segments,
+        }
+        out_meta = re.sub(r"\.npy$", "_meta.json", args.out)
+        with open(out_meta, "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, indent=2)
+        print(f"saved {out_meta} ({len(segments)} segments)")
 
 
 if __name__ == "__main__":

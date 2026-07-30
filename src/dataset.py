@@ -85,15 +85,26 @@ class FI2010WindowDataset(Dataset):
         (NO full copy of all windows -> avoids the ~77 GiB OOM trap)
       - selects the label column via K_TO_LABEL_COLUMN[k]  <-- the k-pitfall
 
-    Two split modes:
-      * Proportional (default): splits the concatenated .npy into
-        train/val/test by row fraction. Good for a quick pipeline smoke test,
-        but NOT the paper's protocol.
-      * Fold-based (pass `folds_path` + `test_fold`): uses the fold-id array
-        saved by convert_fi2010.py. `test_fold` rows become the test set;
-        all OTHER folds become train (and a `val_frac` slice of train is held
-        out for early stopping). This matches the paper's Setup 2 (9-fold
-        anchored cross-validation): run once per fold i, average the 9 tests.
+    Two protocol modes (chosen by `protocol`, requires `meta_path`):
+
+      * "standard9" (paper Table II, 9-fold anchored CV):
+          for a given test fold i, train on the Training segments of all
+          OTHER 8 folds, test on the Testing segment of fold i. The validation
+          set is the time-last `val_frac` of each training segment (NO random
+          permutation -> preserves time order, no leakage).
+
+      * "light_setup2" (cheaper, ~20w train / 14w test):
+          train on the Training segment of CF_7 only; test on the Testing
+          segments of CF_7/8/9. Good for a quick credible run before the full
+          9-fold sweep.
+
+    Anti-leakage guarantee: windows are built PER SEGMENT. A 100-row window is
+    never allowed to straddle two segments (i.e. two different stocks/days),
+    so no future information leaks across boundaries.
+
+    Backward-compatible mode: if `meta_path` is None but `folds_path` is given,
+    the OLD fold-id logic runs (random-permuted train/val). Deprecated but kept
+    so existing Drive checkpoints keep loading.
 
     Expected column layout of the loaded array (N rows):
         cols [0:144]  -> 144 LOB features  (FI-2010 official .txt format)
@@ -111,6 +122,10 @@ class FI2010WindowDataset(Dataset):
         folds_path: str | None = None,
         test_fold: int | None = None,
         val_frac: float = 0.1,
+        protocol: str = "standard9",
+        meta_path: str | None = None,
+        test_cf: int | None = None,
+        light_test_cf: list[int] | None = None,
     ):
         if k not in K_TO_LABEL_COLUMN:
             raise ValueError(f"k must be one of {list(K_TO_LABEL_COLUMN)}, got {k}")
@@ -130,66 +145,196 @@ class FI2010WindowDataset(Dataset):
         self.label_map = {v: i for i, v in enumerate(sorted(np.unique(raw_labels)))}
         labels = np.array([self.label_map[v] for v in raw_labels], dtype=np.int64)
 
-        # 3) Pick row indices for this split.
-        if folds_path is not None:
-            if test_fold is None:
-                raise ValueError("folds_path given but test_fold is None")
-            fold_ids = np.load(os.path.expanduser(folds_path))
-            if fold_ids.shape[0] != features.shape[0]:
-                raise ValueError(
-                    f"folds array length {fold_ids.shape[0]} != data rows "
-                    f"{features.shape[0]}"
-                )
-            test_idx = np.where(fold_ids == test_fold)[0]
-            train_idx = np.where(fold_ids != test_fold)[0]
-            # hold out val_frac of train for early stopping
-            rng = np.random.default_rng(seed)
-            train_idx = rng.permutation(train_idx)
-            n_val = int(len(train_idx) * val_frac)
-            if split == "train":
-                sel = train_idx[n_val:]
-            elif split == "val":
-                sel = train_idx[:n_val]
-            elif split == "test":
-                sel = test_idx
-            else:
-                raise ValueError(f"split must be train/val/test, got {split}")
+        # 3) Select which segments feed this split, then build windows.
+        if meta_path is not None:
+            windows, win_labels = self._build_from_meta(
+                features, labels, meta_path, protocol, split, val_frac,
+                test_fold, test_cf, light_test_cf,
+            )
+        elif folds_path is not None:
+            # Deprecated backward-compatible path.
+            windows, win_labels = self._build_from_folds(
+                features, labels, folds_path, split, val_frac, seed, test_fold,
+            )
         else:
             # Proportional split (backward compatible smoke-test mode).
-            n = features.shape[0]
-            tr = int(n * split_fracs[0])
-            va = int(n * (split_fracs[0] + split_fracs[1]))
-            if split == "train":
-                s, e = 0, tr
-            elif split == "val":
-                s, e = tr, va
-            elif split == "test":
-                s, e = va, n
-            else:
-                raise ValueError(f"split must be train/val/test, got {split}")
-            sel = np.arange(s, e)
+            windows, win_labels = self._build_proportional(
+                features, labels, split, split_fracs
+            )
 
+        if windows.shape[0] == 0:
+            raise ValueError(
+                f"no windows for split={split!r} (protocol={protocol}, "
+                f"test_fold={test_fold}, test_cf={test_cf}). Check meta/segment selection."
+            )
+        self.windows = windows  # (num_win, w, D) float32
+        self.window_labels = win_labels  # (num_win,)
+
+    # ------------------------------------------------------------------
+    # Window builder helpers
+    # ------------------------------------------------------------------
+    def _windows_in_block(
+        self, block_feat: np.ndarray, block_lab: np.ndarray, val_frac: float, hold_val: bool
+    ):
+        """Build non-leaking windows inside ONE contiguous segment.
+
+        Returns (train_windows, train_labels, val_windows, val_labels). When
+        `hold_val` is False, all windows go to train and val is empty. The
+        validation windows are the TIME-LAST `val_frac` of the segment (never
+        randomly shuffled). Because each call handles exactly one segment, a
+        window can never cross a segment boundary.
+        """
+        w = self.window_size
+        if block_feat.shape[0] < w:
+            empty = np.empty((0, w, block_feat.shape[1]), dtype=np.float32)
+            return empty, np.empty((0,), dtype=np.int64), empty, np.empty((0,), dtype=np.int64)
+        win = np.lib.stride_tricks.sliding_window_view(
+            block_feat, window_shape=w, axis=0
+        )  # (num_win, D, w)
+        win = np.transpose(win, (0, 2, 1))  # (num_win, w, D)
+        win_lab = block_lab[w - 1 :]  # (num_win,)
+        n_val = int(len(win) * val_frac) if hold_val else 0
+        # Train = earlier windows, Val = time-last n_val windows. To keep the
+        # two sets ROW-DISJOINT (no leakage), trim the trailing (w-1) train
+        # windows: a train window ending at row r must end before the first val
+        # window starts. On real FI-2010 segments (tens of thousands of rows)
+        # this drops a negligible 99 windows; if a segment is too small to spare
+        # them, we fall back to a plain window split (no trim).
+        cut = len(win) - n_val
+        if hold_val:
+            train_end = cut - (w - 1)
+            if train_end < 1:
+                train_end = cut  # segment too small; accept boundary overlap
+            tr_w, tr_l = win[:train_end], win_lab[:train_end]
+            va_w, va_l = win[cut:], win_lab[cut:]
+        else:
+            tr_w, tr_l = win, win_lab
+            va_w, va_l = win[:0], win_lab[:0]
+        return tr_w, tr_l, va_w, va_l
+
+    def _assemble(self, seg_list, features, labels, split, val_frac):
+        """Concatenate per-segment windows for the requested `split`."""
+        tr_w = []
+        tr_l = []
+        va_w = []
+        va_l = []
+        for seg in seg_list:
+            bf = features[seg["start"] : seg["end"]]
+            bl = labels[seg["start"] : seg["end"]]
+            hold_val = split in ("train", "val")
+            tw, tl, vw, vl = self._windows_in_block(bf, bl, val_frac, hold_val)
+            tr_w.append(tw)
+            tr_l.append(tl)
+            va_w.append(vw)
+            va_l.append(vl)
+        tr_w = np.concatenate(tr_w) if tr_w else np.empty((0, self.window_size, features.shape[1]), dtype=np.float32)
+        tr_l = np.concatenate(tr_l) if tr_l else np.empty((0,), dtype=np.int64)
+        va_w = np.concatenate(va_w) if va_w else np.empty((0, self.window_size, features.shape[1]), dtype=np.float32)
+        va_l = np.concatenate(va_l) if va_l else np.empty((0,), dtype=np.int64)
+        if split == "train":
+            return tr_w, tr_l
+        if split == "val":
+            return va_w, va_l
+        # test: take the train-side windows (hold_val=False -> all windows)
+        return tr_w, tr_l
+
+    def _build_from_meta(
+        self, features, labels, meta_path, protocol, split, val_frac,
+        test_fold, test_cf, light_test_cf=None,
+    ):
+        import json
+
+        with open(os.path.expanduser(meta_path), encoding="utf-8") as fh:
+            meta = json.load(fh)
+        segments = meta["segments"]
+
+        if protocol == "standard9":
+            if test_fold is None:
+                raise ValueError("protocol=standard9 requires test_fold")
+            train_segs = [
+                s for s in segments if s["role"] == "train" and s["cf"] != test_fold + 1
+            ]
+            # test segment: the Testing segment of the test fold (cf is 1-based)
+            test_segs = [
+                s for s in segments if s["role"] == "test" and s["cf"] == test_fold + 1
+            ]
+        elif protocol == "light_setup2":
+            if test_cf is None:
+                raise ValueError("protocol=light_setup2 requires test_cf (the CF to train on)")
+            test_cf_list = light_test_cf or [7, 8, 9]
+            # Train on the Training segment of `test_cf`; test on the Testing
+            # segments of every CF in the test list (default 7/8/9).
+            train_segs = [s for s in segments if s["role"] == "train" and s["cf"] == test_cf]
+            test_segs = [
+                s for s in segments if s["role"] == "test" and s["cf"] in test_cf_list
+            ]
+        else:
+            raise ValueError(f"unknown protocol {protocol!r}")
+
+        if split == "test":
+            return self._assemble(test_segs, features, labels, "test", val_frac)
+        return self._assemble(train_segs, features, labels, split, val_frac)
+
+    def _build_from_folds(
+        self, features, labels, folds_path, split, val_frac, seed, test_fold
+    ):
+        if test_fold is None:
+            raise ValueError("folds_path given but test_fold is None")
+        fold_ids = np.load(os.path.expanduser(folds_path))
+        if fold_ids.shape[0] != features.shape[0]:
+            raise ValueError(
+                f"folds array length {fold_ids.shape[0]} != data rows {features.shape[0]}"
+            )
+        test_idx = np.where(fold_ids == test_fold)[0]
+        train_idx = np.where(fold_ids != test_fold)[0]
+        rng = np.random.default_rng(seed)
+        train_idx = rng.permutation(train_idx)
+        n_val = int(len(train_idx) * val_frac)
+        if split == "train":
+            sel = train_idx[n_val:]
+        elif split == "val":
+            sel = train_idx[:n_val]
+        elif split == "test":
+            sel = test_idx
+        else:
+            raise ValueError(f"split must be train/val/test, got {split}")
         feats_split = features[sel]
         labels_split = labels[sel]
-
-        # 4) Sliding windows WITHOUT materialising all of them.
-        #    Slide a length-`window_size` window over the TIME axis (rows).
-        #    feats_split is (N, D). sliding_window_view on axis=0 with
-        #    window_shape=w yields (num_win, D, w); we transpose to
-        #    (num_win, w, D) which is what the model/DataLoader expect.
-        #    CRITICAL: we must NOT call .reshape().astype() on it here -- that
-        #    would force a full copy (204w * 100 * 144 float32 = ~77 GiB) and
-        #    OOM. We keep the view and extract one window per __getitem__.
-        if feats_split.shape[0] < window_size:
+        if feats_split.shape[0] < self.window_size:
             raise ValueError(
-                f"not enough rows ({feats_split.shape[0]}) for window {window_size}"
+                f"not enough rows ({feats_split.shape[0]}) for window {self.window_size}"
             )
         win = np.lib.stride_tricks.sliding_window_view(
-            feats_split, window_shape=window_size, axis=0
-        )  # (num_win, D, w)
-        self.windows = np.transpose(win, (0, 2, 1))  # (num_win, w, D)
-        # Label for a window ending at t is the label at t (standard convention).
-        self.window_labels = labels_split[window_size - 1 :]
+            feats_split, window_shape=self.window_size, axis=0
+        )
+        windows = np.transpose(win, (0, 2, 1))
+        win_labels = labels_split[self.window_size - 1 :]
+        return windows, win_labels
+
+    def _build_proportional(self, features, labels, split, split_fracs):
+        n = features.shape[0]
+        tr = int(n * split_fracs[0])
+        va = int(n * (split_fracs[0] + split_fracs[1]))
+        if split == "train":
+            s, e = 0, tr
+        elif split == "val":
+            s, e = tr, va
+        elif split == "test":
+            s, e = va, n
+        else:
+            raise ValueError(f"split must be train/val/test, got {split}")
+        feats_split = features[s:e]
+        labels_split = labels[s:e]
+        if feats_split.shape[0] < self.window_size:
+            raise ValueError(
+                f"not enough rows ({feats_split.shape[0]}) for window {self.window_size}"
+            )
+        win = np.lib.stride_tricks.sliding_window_view(
+            feats_split, window_shape=self.window_size, axis=0
+        )
+        windows = np.transpose(win, (0, 2, 1))
+        win_labels = labels_split[self.window_size - 1 :]
+        return windows, win_labels
 
     @staticmethod
     def _load(path: str) -> np.ndarray:

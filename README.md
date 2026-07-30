@@ -76,9 +76,11 @@ python scripts/convert_fi2010.py --base_dir /path/to/BenchmarkDatasets/Benchmark
 
 ```
 MyDrive/DeepLOB/data/FI2010_normalised.npy
+MyDrive/DeepLOB/data/FI2010_meta.json   # convert_fi2010.py 自动产出，必须一起上传
 ```
 
-Colab 里的 `scripts/run_colab.py` 会在此处找到它，跳过下载。
+Colab 里的 `scripts/run_colab.py` 会在此处找到它们。`FI2010_meta.json` 记录了每个
+CF_N 的 Training/Testing 段边界，dataset 据此构建**不跨段**的滑动窗口，杜绝跨股票/跨日期泄漏。
 
 ## 工作流（本地开发 → Colab GPU）
 
@@ -88,23 +90,30 @@ Colab 里的 `scripts/run_colab.py` 会在此处找到它，跳过下载。
 
 代码放在 GitHub，数据和模型权重放在 Google Drive。多 GB 的 FI-2010 数据不要提交进 git。
 
-在 Colab 里执行 `git pull`（或重新下载压缩包）后运行：
+在 Colab 里执行（notebook `colab.ipynb` 已内置这几步）：
 
 ```python
-!python deeplob-reproduction/scripts/run_colab.py
+from google.colab import drive
+drive.mount('/content/drive')
+!git clone https://github.com/runchengxie/deeplob-reproduction.git /content/deeplob-reproduction
+%cd /content/deeplob-reproduction
+!python scripts/run_colab.py
 ```
 
-它会挂载 Drive、找到处理好的 `.npy`、安装依赖并开始训练。
+它会挂载 Drive、找到处理好的 `.npy` 与 `meta.json`、安装依赖并以 `protocol=standard9` 开始 9 折训练。
 
 ## 复现论文数字（对照 Table II 前先读这段）
 
-DeepLOB 论文报告的 F1 基于 FI-2010 的 9 折锚定交叉验证协议（论文中的 Setup 2）：对每一折，用其余 8 折训练、在该折上测试，最后对 9 折取平均。
+DeepLOB 论文报告的 F1 基于 FI-2010 的 **9 折锚定交叉验证协议**（论文 Table II）：对每一折 i，用其余 8 折的 Training 段训练、在该折的 Testing 段测试，最后对 9 折取平均。本仓库用 `--protocol` 切换两套口径：
 
-本仓库已经实现这套协议。`scripts/convert_fi2010.py` 写出 `FI2010_folds.npy`（每行一个折编号 0..8）。`train.py` 加 `--cv` 会跑 9 折循环并打印 `mean_macro_f1 ± std_macro_f1`（含每一折的结果）。`scripts/run_colab.py` 在 Drive 上检测到 `FI2010_folds.npy` 时会自动切换到交叉验证模式。带上折编号文件得到的数字才可与论文 Table II 比较。
+* **`standard9`（默认，对 Table II）**：严格 9 折 anchored CV。需要 `FI2010_meta.json`。`train.py` 加 `--protocol standard9` 会跑 9 折循环并打印 `mean_macro_f1 ± std_macro_f1`（含每一折）。这是与论文 Table II 直接可比的口径。
+* **`light_setup2`（轻量）**：用 CF_7 的 Training 段训练，在 CF_7/8/9 的 Testing 段上测试并取平均（约 20 万训练 / 14 万测试）。规模小很多，适合先跑通再上完整 9 折。数字口径与 Table II 的 9 折均值不同，论文比较时要注明。
 
-如果 `FI2010_folds.npy` 缺失，`scripts/run_colab.py` 会退回到简单的 70/15/15 切分，得到的数字只是流程自查，不能与论文比较。
+`scripts/convert_fi2010.py` 自动写出 `FI2010_meta.json`（每段 cf/role/start/end）。dataset 据此**按段构建滑动窗口**，一个 100 行窗口绝不会横跨两个不同股票/日期，从数据结构上杜绝泄漏。验证集取每个训练段**时间末尾**的 `val_frac`，不再随机打乱破坏时序。
 
-重新上传提醒：你之前上传的 `FI2010_normalised.npy` 不带折编号。要用交叉验证，需要重新跑一次 `scripts/convert_fi2010.py`（现在会同时生成 `FI2010_folds.npy`），并把两个文件都上传到 `MyDrive/DeepLOB/data/`。
+如果 `FI2010_meta.json` 缺失，`scripts/run_colab.py` 会退回到简单的 70/15/15 切分，得到的数字只是流程自查，不能与论文比较。
+
+重新上传提醒：要用上述协议，需要重新跑一次 `scripts/convert_fi2010.py`（现在会同时生成 `FI2010_meta.json`），并把 `FI2010_normalised.npy` 和 `FI2010_meta.json` 都上传到 `MyDrive/DeepLOB/data/`。
 
 ## 断点续训（应对 Colab 断连）
 

@@ -43,7 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import Any
 
 import numpy as np
@@ -97,9 +97,14 @@ class Config:
 
     resume: bool = True              # resume from checkpoint if present
 
-    cv: bool = False                 # 9-fold cross-validation over folds_path
+    cv: bool = False                 # 9-fold cross-validation over folds_path (legacy)
 
-    num_folds: int = 9               # number of folds for CV
+    num_folds: int = 9               # number of folds for CV (legacy fold-id mode)
+
+    # protocol selection (requires meta_path produced by convert_fi2010.py)
+    protocol: str = "standard9"      # "standard9" (Table II) | "light_setup2"
+    meta_path: str | None = None     # FI2010_meta.json from convert_fi2010.py
+    light_test_cf: list[int] = field(default_factory=lambda: [7, 8, 9])
 
     # io
 
@@ -203,6 +208,14 @@ def make_dataloaders(cfg: Config, test_fold: int | None = None):
 
 
 
+        # protocol plumbing: standard9 keys off test_fold (0-based);
+        # light_setup2 keys off a concrete CF number. When protocol is light,
+        # the caller passes the CF via `test_fold` and we forward it as test_cf.
+
+        test_cf = test_fold if cfg.protocol == "light_setup2" else None
+
+
+
         train_ds = FI2010WindowDataset(
 
             data_path,
@@ -220,6 +233,14 @@ def make_dataloaders(cfg: Config, test_fold: int | None = None):
             seed=cfg.seed,
 
             test_fold=test_fold,
+
+            protocol=cfg.protocol,
+
+            meta_path=cfg.meta_path,
+
+            test_cf=test_cf,
+
+            light_test_cf=cfg.light_test_cf,
 
         )
 
@@ -241,6 +262,14 @@ def make_dataloaders(cfg: Config, test_fold: int | None = None):
 
             test_fold=test_fold,
 
+            protocol=cfg.protocol,
+
+            meta_path=cfg.meta_path,
+
+            test_cf=test_cf,
+
+            light_test_cf=cfg.light_test_cf,
+
         )
 
         test_ds = FI2010WindowDataset(
@@ -260,6 +289,14 @@ def make_dataloaders(cfg: Config, test_fold: int | None = None):
             seed=cfg.seed,
 
             test_fold=test_fold,
+
+            protocol=cfg.protocol,
+
+            meta_path=cfg.meta_path,
+
+            test_cf=test_cf,
+
+            light_test_cf=cfg.light_test_cf,
 
         )
 
@@ -491,7 +528,7 @@ def train(cfg: Config, test_fold: int | None = None) -> dict:
 
 def run_cv(cfg: Config) -> dict:
 
-    """9-fold anchored cross-validation (paper Setup 2).
+    """Standard 9-fold anchored CV (paper Table II, protocol="standard9").
 
 
 
@@ -505,9 +542,9 @@ def run_cv(cfg: Config) -> dict:
 
     """
 
-    if not cfg.folds_path:
+    if not cfg.meta_path:
 
-        raise ValueError("--cv requires --folds_path (the FI2010_folds.npy)")
+        raise ValueError("--protocol standard9 requires --meta_path (FI2010_meta.json)")
 
     all_f1, all_acc = [], []
 
@@ -551,6 +588,66 @@ def run_cv(cfg: Config) -> dict:
 
 
 
+def run_light(cfg: Config) -> dict:
+
+    """Light Setup 2: train on CF_7 Training, test on CF_7/8/9 Testing.
+
+
+
+    A cheaper protocol for an early credible run before the full 9-fold sweep.
+    For each CF in `light_test_cf` we train once (CF_7) and evaluate on that
+    CF's Testing segment, then average. With the default [7,8,9] this reports
+    the mean over three test days, which is comparable in spirit to the paper's
+    "first 7 days train / last 3 days test" Setup 2.
+
+    """
+
+    if not cfg.meta_path:
+
+        raise ValueError("--protocol light_setup2 requires --meta_path (FI2010_meta.json)")
+
+    all_f1, all_acc = [], []
+
+    for cf in cfg.light_test_cf:
+
+        print(f"\n===== LIGHT SETUP2: test on CF_{cf} (train CF_7) =====")
+
+        res = train(cfg, test_fold=cf)
+
+        all_f1.append(res["test"]["macro_f1"])
+
+        all_acc.append(res["test"]["accuracy"])
+
+
+
+    mean_f1, std_f1 = np.mean(all_f1), np.std(all_f1)
+
+    mean_acc, std_acc = np.mean(all_acc), np.std(all_acc)
+
+    summary = {
+
+        "per_cf_macro_f1": all_f1,
+
+        "per_cf_acc": all_acc,
+
+        "mean_macro_f1": float(mean_f1),
+
+        "std_macro_f1": float(std_f1),
+
+        "mean_acc": float(mean_acc),
+
+        "std_acc": float(std_acc),
+
+    }
+
+    print("\n===== LIGHT SETUP2 SUMMARY =====")
+
+    print(json.dumps(summary, indent=2))
+
+    return summary
+
+
+
 
 
 def _build_arg_parser(file_cfg: dict | None = None) -> argparse.ArgumentParser:
@@ -586,6 +683,32 @@ def _build_arg_parser(file_cfg: dict | None = None) -> argparse.ArgumentParser:
         if f.name == "dataset":
 
             p.add_argument("--dataset", choices=["random", "fi2010"], default=default)
+
+            continue
+
+        if f.name == "protocol":
+
+            p.add_argument(
+
+                "--protocol", choices=["standard9", "light_setup2"], default=default
+
+            )
+
+            continue
+
+        if f.name == "light_test_cf":
+
+            # comma-separated ints, e.g. --light_test_cf 7,8,9
+
+            p.add_argument(
+
+                "--light_test_cf",
+
+                type=lambda s: [int(x) for x in str(s).split(",")],
+
+                default=default,
+
+            )
 
             continue
 
@@ -673,8 +796,17 @@ def main():
 
     cfg = _load_config_from_args()
 
-    if cfg.cv:
+    if cfg.protocol == "standard9":
 
+        run_cv(cfg)
+
+    elif cfg.protocol == "light_setup2":
+
+        run_light(cfg)
+
+    elif cfg.cv:
+
+        # legacy fold-id mode (deprecated; prefer standard9 + meta_path)
         run_cv(cfg)
 
     else:
