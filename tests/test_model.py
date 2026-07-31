@@ -1,28 +1,42 @@
-"""模型结构测试，用随机输入，不需要真实数据。"""
+"""DeepLOB 网络结构测试。"""
 
+import pytest
 import torch
 import torch.nn.functional as F
 
-from src.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE
-from src.model import build_model
+from deeplob.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE
+from deeplob.model import InceptionModule, build_model
 
 
 def test_forward_shape():
     model = build_model()
-    x = torch.randn(8, 1, WINDOW_SIZE, NUM_FEATURES)
-    logits = model(x)
+    features = torch.randn(8, 1, WINDOW_SIZE, NUM_FEATURES)
+    logits = model(features)
     assert logits.shape == (8, NUM_CLASSES)
 
 
 def test_softmax_sums_to_one():
     model = build_model()
-    x = torch.randn(8, 1, WINDOW_SIZE, NUM_FEATURES)
-    probs = F.softmax(model(x), dim=1)
-    row_sums = probs.sum(dim=1)
-    assert torch.allclose(row_sums, torch.ones(8), atol=1e-5)
+    features = torch.randn(8, 1, WINDOW_SIZE, NUM_FEATURES)
+    probabilities = F.softmax(model(features), dim=1)
+    assert torch.allclose(
+        probabilities.sum(dim=1),
+        torch.ones(8),
+        atol=1e-5,
+    )
 
 
-def test_param_count_in_sane_range():
-    total = sum(p.numel() for p in build_model().parameters())
-    # 骨架模型，参数量远小于论文全量，设一个宽松区间防回归
-    assert 20_000 < total < 200_000
+def test_architecture_matches_paper_scale():
+    model = build_model()
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    assert 55_000 < parameter_count < 70_000
+    assert isinstance(model.inception, InceptionModule)
+    assert model.inception.output_channels == 96
+    assert model.lstm.input_size == 96
+    assert model.lstm.hidden_size == 64
+
+
+def test_rejects_non_paper_feature_shape():
+    model = build_model()
+    with pytest.raises(ValueError, match="40"):
+        model(torch.randn(2, 1, WINDOW_SIZE, 144))

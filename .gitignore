@@ -1,20 +1,22 @@
 # Python
 __pycache__/
 *.py[cod]
+.coverage
+.pytest_cache/
+.ruff_cache/
 .venv/
 venv/
 env/
 *.egg-info/
-uv.lock
 
-# Local experiment artifacts (do NOT commit multi-GB data / weights)
+# 本地实验产物
 checkpoints/
 *.pt
 logs/
 predictions/
 results/
 
-# Data files (live on Google Drive, not in git)
+# 数据文件保存在 Google Drive
 data/
 *.npy
 *.npz

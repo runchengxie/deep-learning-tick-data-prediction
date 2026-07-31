@@ -1,21 +1,21 @@
-# Colab GPU 训练配置。run_colab.py 使用此文件作为基础配置。
-# 与 base.yaml 的区别：epochs 调到 FI-2010 论文量级，device 默认 cuda。
-# data_path / folds_path / checkpoint_dir 由 run_colab.py 在运行时覆盖。
+# Colab GPU 训练配置。数据路径、元数据路径和检查点目录由
+# scripts/run_colab.py 在运行时传入。
 
 dataset: fi2010
-data_path: null           # 运行时由 run_colab.py 指向 Drive 上的 .npy
-folds_path: null          # 运行时若 fold 文件存在则覆盖
+data_path: null
+meta_path: null
+protocol: setup2
+setup1_cfs: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 k: 10
-epochs: 100               # FI-2010 论文量级（base.yaml 本地用 3）
+epochs: 100
 batch_size: 32
 lr: 0.01
 eps: 1.0
 patience: 20
 seed: 0
-val_frac: 0.1
+val_frac: 0.2
 resume: true
-cv: false                 # 运行时若 fold 文件存在，run_colab.py 会加 --cv
-num_folds: 9
-device: cuda              # Colab GPU
+num_workers: 2
+device: cuda
 checkpoint_dir: ./checkpoints
-checkpoint_name: best
+checkpoint_name: deeplob

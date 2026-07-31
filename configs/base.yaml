@@ -1,21 +1,21 @@
-# DeepLOB 训练基础配置。train.py 会读取此文件作为默认值，
-# 命令行参数可覆盖其中任意字段。
-# 用法：python src/train.py --config configs/base.yaml
+# 本地冒烟训练配置。命令行参数可以覆盖这些值。
+# 运行：deeplob-train --config configs/base.yaml
 
-dataset: random          # random 本地冒烟；fi2010 在 Colab 上跑真实数据
-data_path: null           # fi2010 时的 .npy 路径（Colab/Drive 上）
-folds_path: null          # 9 折交叉验证用的 FI2010_folds.npy 路径
-k: 10                     # 预测时间跨度，对应 dataset.K_TO_LABEL_COLUMN 的列
-epochs: 3                 # Colab 上跑 FI-2010 可调到 100 左右
+dataset: random
+data_path: null
+meta_path: null
+protocol: setup2
+setup1_cfs: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+k: 10
+epochs: 3
 batch_size: 32
 lr: 0.01
-eps: 1.0                  # Adam epsilon（论文取值）
-patience: 20              # 验证集准确率早停耐心值
+eps: 1.0
+patience: 20
 seed: 0
-val_frac: 0.1             # 训练集中留出做早停验证的比例
-resume: true              # 检查点存在时续训
-cv: false                 # 9 折交叉验证
-num_folds: 9              # 交叉验证折数
-device: cpu               # Colab GPU 上改为 cuda
+val_frac: 0.2
+resume: true
+num_workers: 0
+device: cpu
 checkpoint_dir: ./checkpoints
-checkpoint_name: best     # 实际保存为 best.pt / best.fold<N>.pt
+checkpoint_name: deeplob

@@ -1,14 +1,12 @@
-# 团队 PR 自动卡质量：提交时本地先跑 ruff + ty，CI 也可复用同一份配置。
-# 安装：pip install pre-commit && pre-commit install
-# CI 用法：pre-commit run --all-files
+# 提交前运行格式、静态检查和类型检查。
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.0  # 与本地 ruff --version 保持一致
+    rev: v0.16.0
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
+      - id: ruff-format
   - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: v0.0.64  # 与本地 ty --version 保持一致（ty 的 pre-commit 镜像仓库）
+    rev: v0.0.65
     hooks:
       - id: ty
-
