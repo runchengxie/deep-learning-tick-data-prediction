@@ -1,177 +1,206 @@
 # DeepLOB 复现项目
 
-这是论文 DeepLOB: Deep Convolutional Neural Networks for Limit Order Books（Zhang、Zohren、Roberts，2018）的 PyTorch 复现骨架。
+本项目使用 PyTorch 复现论文 DeepLOB: Deep Convolutional Neural Networks for
+Limit Order Books 的 FI-2010 实验。
 
-- 论文地址：https://arxiv.org/abs/1808.03668
-- 参考实现：https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books
+- 论文：[arXiv 1808.03668](https://arxiv.org/abs/1808.03668)
+- 作者公开实现：[GitHub 仓库](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
+- 数据集：[FI-2010 官方页面](https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649)
 
-## 论文资料
+## 当前状态
 
-论文原文和中文整理笔记放在 `references/` 目录：
+项目已经具备可运行的模型、数据转换、论文实验协议、训练恢复、指标汇总和测试。
+仓库暂未提交真实 FI-2010 的训练结果，因此还没有完成论文数值复现。当前代码可以用于
+启动 Table I 和 Table II 实验，训练完成后仍需核对各预测跨度的 Accuracy、Precision、
+Recall 和 F1。
 
-- `references/1808.03668v6.pdf`：论文原文（arXiv v6）
-- `references/DeepLOB-论文整理.md`：结构化中文读书笔记（模型架构、数据处理、实验结果）
-- `references/README_论文资料.md`：资料索引
+已经对齐的内容包括：
 
-## 项目范围
+- 输入窗口为最近 100 个订单簿状态，每个状态使用前 40 个原始订单簿特征
+- 三个卷积块、三分支 Inception 模块、64 单元 LSTM 和三分类输出
+- 模型参数量约 6 万
+- 预测跨度为 `10/20/30/50/100`
+- Adam 参数为 `lr=0.01` 和 `eps=1`
+- mini-batch 大小为 32
+- 验证准确率连续 20 个 epoch 未提升时早停
+- FI-2010 Setup 1 和 Setup 2 的官方 `CF` 文件口径
 
-本仓库围绕论文的官方模型结构，提供一个轻量且可验证的训练与评估框架。目前包含：
+详细核对结果见 [docs/复现核对.md](docs/复现核对.md)。
 
-- `src/model.py`：DeepLOB 模型（CNN、Inception、LSTM、softmax），使用 PyTorch。输入特征维度可配置，官方 FI-2010 默认 144。
-- `src/dataset.py`：`RandomLOBDataset`（无需数据的冒烟测试）和 `FI2010WindowDataset`（读取处理好的 `(N,149)` float32 .npy，含 144 个特征和 5 个标签列，对应 k=10/20/50/100 以及一个额外时间跨度）。
-- `src/train.py`：训练循环，固定随机种子，Adam 优化器（lr=0.01，eps=1），输出 macro/weighted F1，支持早停和断点续训。
-- `scripts/convert_fi2010.py`：本地脚本，把官方 `.txt` 转换成干净的 `.npy`。
-- `scripts/smoke_test.py`：本地检查，验证前向形状、softmax 求和为 1、梯度可回流。
-- `scripts/run_colab.py`：Colab GPU 入口。
+## 安装
 
-## 本地快速体验（无需数据）
+项目要求 Python 3.10 或更高版本。
 
-```bash
-py -3.10 -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-
-python src/model.py        # 打印参数量和形状追踪
-python scripts/smoke_test.py       # 前向与梯度冒烟检查
-python src/train.py        # 用合成数据做 3 个 epoch 的冒烟训练
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
 ```
 
-## 标签列的关键说明（容易出错）
+Linux、macOS 和 Colab 使用对应环境的虚拟环境激活命令。
 
-FI-2010 的预测时间跨度 k = 10、20、50、100 是归一化文件里标签列的索引，不是原始事件个数。官方数据中，最后 5 列是这 4 个 k 值的三分类标签（第 144/145/146/147 列）加上一个额外时间跨度。取标签时统一用 `dataset.K_TO_LABEL_COLUMN[k]`，选错列会静默地训练出一个不同的任务。
+## 本地快速检查
 
-第三方镜像（例如 Hugging Face 上的 `shanehans/FI2010` CSV）没有采用官方布局。那个 CSV 有 150 列，包含 130 个特征、15 个空列，以及标签值被污染的 4 个标签列（行号混进了标签列）。复现论文请只用官方数据。
+以下命令都不需要真实数据：
 
-## 数据准备（本地转好再上传到 Drive）
-
-官方 FI-2010 数据以 `.txt` 文件发布（Ntakaris 等人，2017，arXiv:1705.03233），托管在芬兰 FAIR 数据平台：
-
-- https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649
-- 下载 `BenchmarkDatasets.zip`（1.74 GB），解压两次到达 `BenchmarkDatasets/BenchmarkDatasets/`
-
-文件格式要点（已在真实下载中验证）：
-
-- 压缩包内的路径形如 `BenchmarkDatasets/{NoAuction,Auction}/<i>.<Auction>_<Norm>/<Auction>_<Norm>_{Training,Testing}/<Split>_Dst_<Auction>_<Norm>_CF_<N>.txt`，例如 `NoAuction/1.NoAuction_Zscore/NoAuction_Zscore_Training/Train_Dst_NoAuction_ZScore_CF_1.txt`。
-- 这里的 `<i>` 是归一化方法的索引（1=Zscore，2=MinMax，3=DecPre），不是折数。每个归一化文件夹里都包含全部 9 个折的文件（CF_1 到 CF_9）。
-- 每个 `.txt` 是一个矩阵，按（行=通道）乘（列=样本）存储：共 149 行（144 个特征行加 5 个标签行），标签取值为 1、2、3。`scripts/convert_fi2010.py` 在读取时会转置，使生成的 .npy 形状为 (N_samples, 149)。
-
-在本地转换（你的电脑有内存和完整的 Python 环境可以核对结构，Colab 不需要接触原始 `.txt`）：
-
-```bash
-pip install numpy
-python scripts/convert_fi2010.py --base_dir /path/to/BenchmarkDatasets/BenchmarkDatasets \
-    --auction NoAuction --norm z-score --folds 1 2 3 4 5 6 7 8 9 \
-    --out FI2010_normalised.npy
-# 该脚本同时写出 FI2010_folds.npy（每行一个折编号 0..8），供 9 折交叉验证使用
-# 想先确认真实形状（预期为 (N, 149)），可以只做检查：
-python scripts/convert_fi2010.py --base_dir /path/to/BenchmarkDatasets/BenchmarkDatasets --inspect-only
+```powershell
+python scripts/smoke_test.py
+deeplob-train --config configs/base.yaml
+python -m pytest -q
+ruff check .
+ruff format --check .
+ty check
 ```
 
-转换产物 `FI2010_normalised.npy` 的形状为 `(N, 149)` float32（NoAuction Z-score 全 9 折约 204 万行）：
+合成数据训练只验证代码链路，不产生可与论文比较的指标。
 
-- 第 `[0:144]` 列是 LOB 特征
-- 第 `[144:149]` 列是 5 个标签列，k=10/20/50/100 分别对应第 144/145/146/147 列
+## FI-2010 数据格式
 
-把 `FI2010_normalised.npy` 上传到 Google Drive：
+官方文本文件的形状为 `149 × N`，每列代表一个样本：
 
+- 第 0 至 39 行是十档买卖盘的价格和数量，也是 DeepLOB 的模型输入
+- 第 40 至 143 行是 104 个手工特征，本项目在转换文件中保留这些列
+- 第 144 至 148 行是五个预测标签
+
+标签列映射如下：
+
+| 预测跨度 | 转置后的列索引 |
+|---:|---:|
+| 10 | 144 |
+| 20 | 145 |
+| 30 | 146 |
+| 50 | 147 |
+| 100 | 148 |
+
+本项目使用论文采用的 `NoAuction` 和 `z-score` 版本。请使用官方
+`BenchmarkDatasets.zip`，第三方 CSV 镜像可能采用不同的列布局。
+
+## 数据转换
+
+解压官方数据后运行：
+
+```powershell
+python scripts/convert_fi2010.py `
+  --base-dir C:\path\to\BenchmarkDatasets\BenchmarkDatasets `
+  --auction NoAuction `
+  --norm z-score `
+  --folds 1 2 3 4 5 6 7 8 9 `
+  --out FI2010_normalised.npy
 ```
+
+转换脚本会生成：
+
+```text
+FI2010_normalised.npy
+FI2010_normalised_meta.json
+```
+
+NPY 文件使用 `float32`，形状为 `N × 149`。元数据记录每个 Training 和
+Testing 源文件在 NPY 中的行范围。训练时必须同时提供两个文件。
+
+转换过程逐个读取源文件并写入磁盘映射数组，内存占用主要取决于单个源文件，
+不会同时保留全部 18 个矩阵。
+
+## 论文实验协议
+
+### Setup 1，对应 Table I
+
+FI-2010 的 `CF_1` 至 `CF_9` 已经是锚定前向切分。第 `i` 次实验使用
+`Train_*_CF_i.txt` 训练，并使用 `Test_*_CF_i.txt` 测试。训练代码不会把
+其余八个 Training 文件并入当前训练集。
+
+```powershell
+deeplob-train `
+  --config configs/colab.yaml `
+  --data-path path\to\FI2010_normalised.npy `
+  --meta-path path\to\FI2010_normalised_meta.json `
+  --protocol setup1 `
+  --k 10 `
+  --device cuda
+```
+
+命令会依次运行九个 `CF`。调试时可以用
+`--setup1-cfs 7 8 9` 限制运行范围。
+
+### Setup 2，对应 Table II
+
+Setup 2 使用 `CF_7` 的 Training 文件训练，并把 `CF_7`、`CF_8` 和
+`CF_9` 的 Testing 文件作为测试集。
+
+```powershell
+deeplob-train `
+  --config configs/colab.yaml `
+  --data-path path\to\FI2010_normalised.npy `
+  --meta-path path\to\FI2010_normalised_meta.json `
+  --protocol setup2 `
+  --k 10 `
+  --device cuda
+```
+
+每个预测跨度需要单独运行一次。
+
+训练段最后 20% 用于验证。训练窗口和验证窗口之间留出 99 行间隔，因此两组窗口
+不会共享原始行。测试窗口也不会跨越三个 Testing 源文件的拼接位置。官方矩阵没有
+提供文件内部的股票和日期边界，本项目无法识别这类内部边界，详见复现核对文档。
+
+## Colab
+
+把以下文件上传到 Google Drive：
+
+```text
 MyDrive/DeepLOB/data/FI2010_normalised.npy
-MyDrive/DeepLOB/data/FI2010_meta.json   # convert_fi2010.py 自动产出，必须一起上传
+MyDrive/DeepLOB/data/FI2010_normalised_meta.json
 ```
 
-Colab 里的 `scripts/run_colab.py` 会在此处找到它们。`FI2010_meta.json` 记录了每个
-CF_N 的 Training/Testing 段边界，dataset 据此构建**不跨段**的滑动窗口，杜绝跨股票/跨日期泄漏。
-
-## 工作流（本地开发 → Colab GPU）
-
-```
-本地修改 → GitHub 推送 → Colab 拉取 → GPU 训练
-```
-
-代码放在 GitHub，数据和模型权重放在 Google Drive。多 GB 的 FI-2010 数据不要提交进 git。
-
-在 Colab 里执行（notebook `colab.ipynb` 已内置这几步）：
+在 Colab 主内核中运行：
 
 ```python
 from google.colab import drive
-drive.mount('/content/drive')
-!git clone https://github.com/runchengxie/deeplob-reproduction.git /content/deeplob-reproduction
-%cd /content/deeplob-reproduction
-!python scripts/run_colab.py
+
+drive.mount("/content/drive")
 ```
 
-它会挂载 Drive、找到处理好的 `.npy` 与 `meta.json`、安装依赖并以 `protocol=standard9` 开始 9 折训练。
+随后克隆仓库并启动训练：
 
-## 复现论文数字（对照 Table II 前先读这段）
-
-DeepLOB 论文报告的 F1 基于 FI-2010 的 **9 折锚定交叉验证协议**（论文 Table II）：对每一折 i，用其余 8 折的 Training 段训练、在该折的 Testing 段测试，最后对 9 折取平均。本仓库用 `--protocol` 切换两套口径：
-
-* **`standard9`（默认，对 Table II）**：严格 9 折 anchored CV。需要 `FI2010_meta.json`。`train.py` 加 `--protocol standard9` 会跑 9 折循环并打印 `mean_macro_f1 ± std_macro_f1`（含每一折）。这是与论文 Table II 直接可比的口径。
-* **`light_setup2`（轻量）**：用 CF_7 的 Training 段训练，在 CF_7/8/9 的 Testing 段上测试并取平均（约 20 万训练 / 14 万测试）。规模小很多，适合先跑通再上完整 9 折。数字口径与 Table II 的 9 折均值不同，论文比较时要注明。
-
-`scripts/convert_fi2010.py` 自动写出 `FI2010_meta.json`（每段 cf/role/start/end）。dataset 据此**按段构建滑动窗口**，一个 100 行窗口绝不会横跨两个不同股票/日期，从数据结构上杜绝泄漏。验证集取每个训练段**时间末尾**的 `val_frac`，不再随机打乱破坏时序。
-
-如果 `FI2010_meta.json` 缺失，`scripts/run_colab.py` 会退回到简单的 70/15/15 切分，得到的数字只是流程自查，不能与论文比较。
-
-重新上传提醒：要用上述协议，需要重新跑一次 `scripts/convert_fi2010.py`（现在会同时生成 `FI2010_meta.json`），并把 `FI2010_normalised.npy` 和 `FI2010_meta.json` 都上传到 `MyDrive/DeepLOB/data/`。
-
-## 断点续训（应对 Colab 断连）
-
-训练可以续训：每一折的完整状态（模型、优化器、epoch）会保存到检查点目录下的 `best.fold<N>.pt`。Colab 断连后重跑 `scripts/run_colab.py` 会从上次的 epoch 继续（默认 `--resume`）。切走标签页或断连都不会丢失进度。
-
-## 暂未包含的内容
-
-- 加密数据、Transformer 基线、回测（第二阶段，等基线跑通后再做）
-- 多随机种子运行（默认单种子，以后可加 `--seed` 循环）
-
-## 配置说明
-
-`train.py` 的命令行参数和 `configs/base.yaml` 都来自同一个 `Config` 数据类，字段只定义一次。可以用 yaml 集中管理参数，再用命令行覆盖：
-
-```bash
-python src/train.py --config configs/base.yaml --epochs 100 --device cuda
+```python
+!git clone https://github.com/runchengxie/deeplob-reproduction.git
+%cd deeplob-reproduction
+!python scripts/run_colab.py --protocol setup2 --k 10
 ```
 
-不加 `--config` 时按命令行默认值运行（默认 `dataset=random`，本地冒烟）。
+`scripts/run_colab.py` 会安装当前项目，检查数据和元数据，选择 CUDA，并把检查点
+保存到 `MyDrive/DeepLOB/checkpoints/`。
 
-Colab 入口 `scripts/run_colab.py` 使用 `configs/colab.yaml`（epochs=100、device=cuda），再在运行时覆盖 `data_path`、`device`、`checkpoint_dir` 等动态值。本地调试可复制一份改参数。
+## 检查点和训练记录
 
-pandas 和 matplotlib 目前代码未用到，仅作后续绘图准备（见 `scripts/plot_curves.py`）。
+每次实验会生成四类文件：
 
-## 开发与质量门禁
+- `*.last.pt` 保存最近一个 epoch 的模型、优化器、早停状态和训练历史
+- `*.best.pt` 保存验证准确率最高的状态
+- `train_history.*.json` 供查看和绘制训练曲线
+- `result.*.json` 保存配置、环境、耗时和测试指标
 
-项目用 ruff（lint）、ty（类型检查）、pytest（测试）三道门禁，团队 PR 前自动跑。
+开启 `resume` 后，训练从 `*.last.pt` 继续。实验配置与检查点不一致时会直接报错，
+避免误用其他预测跨度或协议的状态。
 
-### 安装开发依赖
+绘制曲线：
 
-```bash
-pip install -r requirements.txt   # 含 pytest / ruff / ty
+```powershell
+python scripts/plot_curves.py `
+  --checkpoint-dir ./checkpoints `
+  --out results/train_curves.png
 ```
 
-### 本地跑检查
+## 项目结构
 
-```bash
-ruff check .          # lint，应全过
-ty check              # 类型检查，应全过
-python -m pytest -q   # 测试，10 个用例全过（无需真实数据）
+```text
+src/deeplob/        模型、数据集和训练逻辑
+scripts/            数据转换、Colab 入口、冒烟检查和绘图
+tests/              不依赖真实数据的自动化测试
+configs/            本地和 Colab 配置
+docs/               复现核对与开发维护说明
+references/         论文原文和阅读笔记
+notebooks/          Colab 入口笔记本
 ```
 
-`pyproject.toml` 里集中放了这三项的配置（ruff 规则、ty 检查范围、pytest 的 pythonpath 与 testpaths）。
-
-### 提交前自动卡质量
-
-```bash
-pip install pre-commit
-pre-commit install    # 安装 git 钩子，每次 commit 自动跑 ruff + ty
-```
-
-之后每次 `git commit` 会先执行钩子，ruff 和 ty 都通过才允许提交。CI 上可用 `pre-commit run --all-files` 复跑同一份配置。
-
-### 目录约定
-
-- `src/` 放业务核心代码（model / dataset / train），可被测试和脚本复用导入。
-- `scripts/` 放可直接运行的脚本入口：`convert_fi2010.py`（数据转换）、`run_colab.py`（Colab 训练入口）、`plot_curves.py`（画训练曲线）、`smoke_test.py`（不依赖 pytest 的冒烟检查，可直接 `python scripts/smoke_test.py` 跑）。
-- `tests/` 放结构化测试（pytest 发现），全部用合成数据，不依赖真实 FI-2010。
-- `configs/` 放 yaml 配置（`base.yaml` 本地默认、`colab.yaml` Colab 用）。
-- `references/` 放论文 PDF 与中文整理笔记。
-
+开发约定和质量门禁见 [docs/开发维护.md](docs/开发维护.md)。

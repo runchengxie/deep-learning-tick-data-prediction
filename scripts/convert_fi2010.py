@@ -1,38 +1,13 @@
-"""Convert official FI-2010 .txt files to clean float32 .npy for training.
+"""把官方 FI-2010 文本文件转换成训练使用的 ``float32`` NPY。
 
-Run LOCALLY (not on Colab). The official data (Ntakaris et al. 2017,
-arXiv:1705.03233) is distributed as nested .txt files from:
-  https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649
-  (file: BenchmarkDatasets.zip, 1.74 GB)
+官方文件按 ``149 × N`` 保存，每一列是一个样本：
 
-Directory layout inside the zip (VERIFIED on the real download):
-  BenchmarkDatasets/
-    NoAuction/                          # or Auction/
-      1.NoAuction_Zscore/               # norm: Zscore | MinMax | DecPre
-        NoAuction_Zscore_Training/      # or ..._Testing/
-          Train_Dst_NoAuction_ZScore_CF_1.txt ... _9.txt   (9 folds)
-          Test_Dst_NoAuction_ZScore_CF_1.txt  ... _9.txt
+* 第 0 至 39 行是 DeepLOB 使用的十档订单簿价格和数量
+* 第 40 至 143 行是本项目保留但不送入模型的手工特征
+* 第 144 至 148 行是 ``k=10/20/30/50/100`` 的标签
 
-ACTUAL FILE FORMAT (critical, easy to get wrong):
-  Each .txt file is a matrix stored as (rows=channels) x (cols=samples):
-    - 149 rows total
-    - rows   0-143  -> 144 LOB features
-    - rows 144-148  -> 5 label columns (3-class, values {1,2,3})
-  We therefore TRANSPOSE on load, ending with (N_samples, 149):
-    cols [0:144] = features, cols [144:149] = 5 labels.
-  Label encoding: 1=up, 2=stationary, 3=down (dataset maps via sorted unique
-  so the exact ordering does not matter). The first label column (col 144,
-  0-indexed) is the k=10 horizon used in the paper's main Table II.
-
-Usage:
-  # Inspect one file's real shape/columns first (cheap, no full conversion):
-  python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets --inspect-only
-
-  # Full conversion of all 9 folds, NoAuction + Zscore (paper's Setup 2 uses
-  # the 9-fold anchored cross-validation; we concatenate train+test per fold):
-  python convert_fi2010.py --base_dir /path/to/BenchmarkDatasets \
-      --auction NoAuction --norm Zscore --folds 1 2 3 4 5 6 7 8 9 \
-      --out FI2010_normalised.npy
+转换结果按 ``N × 149`` 保存。脚本同时生成带有源文件边界的
+``<输出文件名>_meta.json``，训练时需要一起使用。
 """
 
 from __future__ import annotations
@@ -40,202 +15,199 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 
-# FI-2010 label encoding is {1,2,3}; we keep all 5 label rows.
-NUM_FEATURES = 144
-NUM_LABEL_COLS = 5
-EXPECTED_ROWS = NUM_FEATURES + NUM_LABEL_COLS  # 149
+RAW_FEATURE_COLUMNS = 144
+MODEL_FEATURE_COLUMNS = 40
+LABEL_COLUMNS = 5
+TOTAL_ROWS = RAW_FEATURE_COLUMNS + LABEL_COLUMNS
+HORIZONS = (10, 20, 30, 50, 100)
+
+NORMALISATION_TOKENS = {
+    "z-score": ("Zscore", "ZScore", 1),
+    "min-max": ("MinMax", "MinMax", 2),
+    "decimal": ("DecPre", "DecPre", 3),
+}
 
 
-def _norm_token(norm: str) -> str:
-    """Map our --norm flag to the substring used in the real directory name."""
-    table = {
-        "z-score": "Zscore",
-        "zscore": "Zscore",
-        "Zscore": "Zscore",
-        "min-max": "MinMax",
-        "minmax": "MinMax",
-        "MinMax": "MinMax",
-        "decimal": "DecPre",
-        "decpre": "DecPre",
-        "DecPre": "DecPre",
-    }
-    return table[norm]
-
-
-# 目录名用 Zscore，但文件名里写成 ZScore（首字母大写）。下面把目录 token
-# 映射到文件名 token，find_files 用它拼出真实文件名。
-FILE_NORM_TOKEN = {"Zscore": "ZScore", "MinMax": "MinMax", "DecPre": "DecPre"}
-
-
-def find_files(base_dir: str, norm: str, auction: str, folds) -> list[str]:
-    """Locate FI-2010 .txt files by the VERIFIED real naming convention.
-
-    <base>/<Auction>/<i>.<Auction>_<Norm>/
-        <Auction>_<Norm>_Training|Testing/<Split>_Dst_<Auction>_<Norm>_CF_<N>.txt
-    """
-    norm_tok = _norm_token(norm)
-    # The REAL folder name binds a numeric prefix to the norm method:
-    #   1.<Auction>_Zscore, 2.<Auction>_MinMax, 3.<Auction>_DecPre
-    # The prefix is the norm INDEX, NOT a fold number; each norm folder holds
-    # ALL 9 fold files (CF_1 .. CF_9).
-    norm_index = {"Zscore": 1, "MinMax": 2, "DecPre": 3}[norm_tok]
-    folder = f"{norm_index}.{auction}_{norm_tok}"
-    found = []
+def find_files(
+    base_dir: str,
+    norm: str,
+    auction: str,
+    folds: Sequence[int],
+) -> list[str]:
+    """按官方目录和文件名查找 Training 与 Testing 文件。"""
+    directory_token, filename_token, index = NORMALISATION_TOKENS[norm]
+    norm_root = f"{index}.{auction}_{directory_token}"
+    found: list[str] = []
     for split in ("Training", "Testing"):
-        for f in folds:
-            subdir = f"{auction}_{norm_tok}_{split}"
-            # e.g. Train_Dst_NoAuction_ZScore_CF_1.txt
-            file_norm_tok = FILE_NORM_TOKEN[norm_tok]
-            split_prefix = "Train" if split == "Training" else "Test"
-            fname = f"{split_prefix}_Dst_{auction}_{file_norm_tok}_CF_{f}.txt"
-            # Use pathlib for OS-agnostic globbing (handles / vs \ on Windows).
-            p = Path(base_dir) / auction / folder / subdir / fname
-            matches = sorted(str(x) for x in p.parent.glob(p.name))
-            if not matches:
-                print(f"WARNING: no file for {p}")
-                continue
-            found.extend(matches)
+        prefix = "Train" if split == "Training" else "Test"
+        directory = Path(base_dir) / auction / norm_root / f"{auction}_{directory_token}_{split}"
+        for fold in folds:
+            filename = f"{prefix}_Dst_{auction}_{filename_token}_CF_{fold}.txt"
+            path = directory / filename
+            if path.is_file():
+                found.append(str(path))
+            else:
+                print(f"缺少文件：{path}")
     return found
 
 
 def _read_txt(path: str) -> np.ndarray:
-    """Read one FI-2010 .txt and return it TRANSPOSED to (N, 149).
-
-    The raw file is (149 channels x N samples) with multi-space separators and
-    occasional leading whitespace. numpy.loadtxt with its DEFAULT delimiter
-    (any run of whitespace) handles both robustly and is ~100x faster than a
-    regex-separated pandas read.
-    """
-    arr = np.loadtxt(path, dtype=np.float32)  # (149, N)
-    if arr.shape[0] != EXPECTED_ROWS:
-        raise ValueError(
-            f"{path}: expected {EXPECTED_ROWS} rows (channels), got {arr.shape[0]}. "
-            "This file does not look like the official FI-2010 layout."
-        )
-    return arr.T.astype(np.float32)  # (N, 149)
+    """读取一个官方文本文件并转置为 ``N × 149``。"""
+    raw = np.loadtxt(path, dtype=np.float32)
+    if raw.ndim != 2 or raw.shape[0] != TOTAL_ROWS:
+        raise ValueError(f"{path} 应有 {TOTAL_ROWS} 行，实际形状为 {raw.shape}")
+    if not np.all(np.isfinite(raw)):
+        raise ValueError(f"{path} 包含 NaN 或无穷值")
+    labels = raw[RAW_FEATURE_COLUMNS:]
+    unexpected = set(np.unique(labels).tolist()) - {1.0, 2.0, 3.0}
+    if unexpected:
+        raise ValueError(f"{path} 含无效标签：{sorted(unexpected)}")
+    return np.ascontiguousarray(raw.T)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--base_dir",
+def _sample_count(path: str) -> int:
+    """从文件第一行取得样本数，避免为确定输出形状而加载整个文件。"""
+    with open(path, encoding="utf-8") as file:
+        for line in file:
+            if line.strip():
+                return len(line.split())
+    raise ValueError(f"{path} 是空文件")
+
+
+def _metadata_path(output: Path) -> Path:
+    return output.with_name(f"{output.stem}_meta.json")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="转换官方 FI-2010 数据")
+    parser.add_argument(
+        "--base-dir",
         required=True,
-        help="path to BenchmarkDatasets/ (contains NoAuction/ and Auction/)",
+        help="包含 NoAuction 和 Auction 目录的 BenchmarkDatasets 路径",
     )
-    ap.add_argument(
+    parser.add_argument(
         "--norm",
+        choices=list(NORMALISATION_TOKENS),
         default="z-score",
-        choices=["z-score", "min-max", "decimal"],
-        help="normalisation: z-score (paper default) | min-max | decimal",
+        help="归一化版本",
     )
-    ap.add_argument(
+    parser.add_argument(
         "--auction",
-        default="NoAuction",
         choices=["NoAuction", "Auction"],
-        help="NoAuction is the version used in the DeepLOB paper",
+        default="NoAuction",
+        help="是否包含竞价时段，论文使用 NoAuction",
     )
-    ap.add_argument(
-        "--folds", type=int, nargs="+", default=list(range(1, 10)),
-        help="fold numbers to include (1-9)",
+    parser.add_argument(
+        "--folds",
+        type=int,
+        nargs="+",
+        default=list(range(1, 10)),
+        help="需要转换的 CF 编号",
     )
-    ap.add_argument("--out", help="output .npy path (not needed with --inspect-only)")
-    ap.add_argument(
-        "--out_folds",
-        default=None,
-        help="output fold-id array (.npy). Defaults to <out> with '_folds' infix, "
-             "e.g. FI2010_normalised.npy -> FI2010_folds.npy. Needed for 9-fold CV.",
+    parser.add_argument("--out", help="输出 .npy 路径")
+    parser.add_argument(
+        "--inspect-only",
+        action="store_true",
+        help="只检查第一个匹配文件",
     )
-    ap.add_argument("--inspect-only", action="store_true")
-    ap.add_argument(
-        "--emit_meta",
-        default=True,
-        action=argparse.BooleanOptionalAction,
-        help="写出 FI2010_meta.json（每段 cf/role/start/end），供 dataset 防跨段泄漏",
-    )
-    args = ap.parse_args()
+    return parser
 
-    files = find_files(args.base_dir, args.norm, args.auction, args.folds)
+
+def main(argv: list[str] | None = None) -> None:
+    args = _build_parser().parse_args(argv)
+    folds = sorted(set(args.folds))
+    if not folds or any(fold not in range(1, 10) for fold in folds):
+        raise SystemExit("--folds 只能包含 1 至 9")
+
+    files = find_files(args.base_dir, args.norm, args.auction, folds)
     if not files:
-        raise SystemExit(
-            "No .txt files matched. Check --base_dir / --auction / --norm / --folds."
-        )
-    print(f"Found {len(files)} files:")
-    for f in files[:10]:
-        print("  ", os.path.basename(f))
-    if len(files) > 10:
-        print(f"  ... (+{len(files)-10} more)")
-
+        raise SystemExit("没有找到 FI-2010 文本文件，请检查 --base-dir 等参数")
     if args.inspect_only:
         sample = _read_txt(files[0])
-        print(f"transposed sample shape (one file): {sample.shape}")
-        print("feature row0 head:", sample[0, :5])
-        print("label col144 head (k=10):", sample[:10, 144])
-        print("unique labels in col144-148:", np.unique(sample[:, 144:149]))
-        print("=> expect shape (N, 149); features cols 0-143, labels 144-148.")
+        print(f"文件：{files[0]}")
+        print(f"转置后形状：{sample.shape}")
+        print("前 40 列用于模型，原始特征共 144 列")
+        print(f"标签列：{dict(zip(HORIZONS, range(144, 149), strict=True))}")
+        print(f"标签取值：{np.unique(sample[:, 144:149]).tolist()}")
         return
 
+    expected_files = len(folds) * 2
+    if len(files) != expected_files:
+        raise SystemExit(f"完整转换需要 {expected_files} 个文件，当前找到 {len(files)} 个")
     if not args.out:
-        raise SystemExit("--out is required for full conversion.")
+        raise SystemExit("完整转换需要 --out")
 
-    # Build the combined array AND a per-segment meta table.
-    # Each .txt file (Training OR Testing of a given CF_<N>) becomes one
-    # contiguous segment. We record cf / role / split / start / end so the
-    # dataset can build sliding windows WITHOUT ever crossing a segment
-    # boundary (which would mix two different stocks / days).
-    import re
-
-    rows = []
-    fold_ids = []
-    segments = []
+    output = Path(args.out).expanduser().resolve()
+    if output.suffix != ".npy":
+        raise SystemExit("--out 应使用 .npy 扩展名")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    sample_counts = [_sample_count(path) for path in files]
+    total_samples = sum(sample_counts)
+    temporary = output.with_suffix(".tmp.npy")
+    metadata_segments: list[dict[str, int | str]] = []
     offset = 0
-    for f in files:
-        arr = _read_txt(f)  # (N_f, 149)
-        m = re.search(r"CF_(\d+)\.txt$", os.path.basename(f))
-        n = int(m.group(1)) if m else len(rows) + 1
-        n_rows = arr.shape[0]
-        rows.append(arr)
-        fold_ids.append(np.full(n_rows, n - 1, dtype=np.int16))
-        # role: Training files -> train, Testing files -> test.
-        role = "test" if "Testing" in f else "train"
-        split = "Testing" if "Testing" in f else "Training"
-        segments.append(
-            {"cf": n, "role": role, "split": split, "start": offset, "end": offset + n_rows}
+    committed = False
+    try:
+        destination = np.lib.format.open_memmap(
+            temporary,
+            mode="w+",
+            dtype=np.float32,
+            shape=(total_samples, TOTAL_ROWS),
         )
-        offset += n_rows
+        for path, expected_samples in zip(files, sample_counts, strict=True):
+            array = _read_txt(path)
+            if array.shape[0] != expected_samples:
+                raise ValueError(
+                    f"{path} 首行记录 {expected_samples} 个样本，完整读取后得到 {array.shape[0]} 个"
+                )
+            end = offset + expected_samples
+            destination[offset:end] = array
+            match = re.search(r"CF_(\d+)\.txt$", Path(path).name)
+            if match is None:
+                raise ValueError(f"无法从文件名解析 CF 编号：{path}")
+            role = "test" if Path(path).name.startswith("Test_") else "train"
+            metadata_segments.append(
+                {
+                    "cf": int(match.group(1)),
+                    "role": role,
+                    "start": offset,
+                    "end": end,
+                    "source": Path(path).name,
+                }
+            )
+            offset = end
+            print(f"已写入：{Path(path).name}，累计 {offset:,} 行")
+        destination.flush()
+        del destination
+        os.replace(temporary, output)
+        committed = True
+    finally:
+        if not committed and temporary.exists():
+            temporary.unlink()
 
-    data = np.vstack(rows).astype(np.float32)
-    folds = np.concatenate(fold_ids)
-    print("combined shape:", data.shape, "| folds:", np.unique(folds))
-    print("segments:", len(segments), "(expect 18 = 9 CF x {Training,Testing})")
-
-    n_cols = data.shape[1]
-    if n_cols != EXPECTED_ROWS:
-        raise ValueError(
-            f"expected {EXPECTED_ROWS} columns after transpose, got {n_cols}."
-        )
-    np.save(args.out, data)
-    out_folds = args.out_folds or re.sub(r"\.npy$", "_folds.npy", args.out)
-    np.save(out_folds, folds)
-    print(f"saved {args.out} shape={data.shape} dtype={data.dtype}")
-    print(f"saved {out_folds} shape={folds.shape} dtype={folds.dtype}")
-    print("  features: cols 0-143 (144), labels k=10/20/50/100: cols 144-147")
-
-    # Meta: lets dataset.py build windows per-segment (no cross-boundary leak).
-    if args.emit_meta:
-        meta = {
-            "rows": int(data.shape[0]),
-            "n_features": NUM_FEATURES,
-            "n_label_cols": NUM_LABEL_COLS,
-            "segments": segments,
-        }
-        out_meta = re.sub(r"\.npy$", "_meta.json", args.out)
-        with open(out_meta, "w", encoding="utf-8") as fh:
-            json.dump(meta, fh, indent=2)
-        print(f"saved {out_meta} ({len(segments)} segments)")
+    metadata = {
+        "schema_version": 1,
+        "rows": total_samples,
+        "columns": TOTAL_ROWS,
+        "raw_feature_columns": RAW_FEATURE_COLUMNS,
+        "model_feature_columns": MODEL_FEATURE_COLUMNS,
+        "horizons": list(HORIZONS),
+        "auction": args.auction,
+        "normalisation": args.norm,
+        "folds": folds,
+        "segments": metadata_segments,
+    }
+    metadata_path = _metadata_path(output)
+    with open(metadata_path, "w", encoding="utf-8") as file:
+        json.dump(metadata, file, ensure_ascii=False, indent=2)
+    print(f"已保存数据：{output}，形状为 ({total_samples:,}, {TOTAL_ROWS})")
+    print(f"已保存元数据：{metadata_path}")
 
 
 if __name__ == "__main__":

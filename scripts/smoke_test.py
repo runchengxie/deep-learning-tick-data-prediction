@@ -1,109 +1,128 @@
-"""Local smoke test: verifies the model runs without real data.
+"""无需真实数据的本地冒烟检查。
 
-Checks (the 80% of bugs caught before Colab):
-  1. model builds and prints parameter count
-  2. a random (B,1,T=100,D=144) batch produces (B,3) logits
-  3. softmax over the 3 classes sums to ~1 per row
-  4. a 1-epoch dummy train step lowers loss (gradients flow)
+运行方式：
 
-Run:
     python scripts/smoke_test.py
 """
 
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-# 让脚本无论从哪个目录运行都能找到仓库根的 src 包
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import json
+import sys
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE, get_dummy_batch
-from src.model import build_model
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
+
+from deeplob.dataset import (
+    K_TO_LABEL_COLUMN,
+    NUM_CLASSES,
+    NUM_FEATURES,
+    TOTAL_COLUMNS,
+    WINDOW_SIZE,
+    FI2010WindowDataset,
+    get_dummy_batch,
+)
+from deeplob.model import build_model
 
 
-def test_forward_shape():
+def check_forward_pass() -> None:
     model = build_model()
-    x, _ = get_dummy_batch(batch_size=8)
-    assert x.shape == (8, 1, WINDOW_SIZE, NUM_FEATURES), x.shape
-    logits = model(x)
-    assert logits.shape == (8, NUM_CLASSES), logits.shape
-    probs = F.softmax(logits, dim=1)
-    row_sums = probs.sum(dim=1)
-    assert torch.allclose(row_sums, torch.ones(8), atol=1e-5), row_sums
-    print("[ok] forward shape (8,3) and softmax rows sum to 1")
+    features, _ = get_dummy_batch(batch_size=8)
+    logits = model(features)
+    probabilities = F.softmax(logits, dim=1)
+    assert features.shape == (8, 1, WINDOW_SIZE, NUM_FEATURES)
+    assert logits.shape == (8, NUM_CLASSES)
+    assert torch.allclose(probabilities.sum(dim=1), torch.ones(8), atol=1e-5)
+    print("通过：前向传播形状和 softmax 概率")
 
 
-def test_grad_flow():
+def check_gradient_flow() -> None:
     model = build_model()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    criterion = torch.nn.NLLLoss()
-    x, y = get_dummy_batch(batch_size=16)
-    logits = model(x)
-    loss1 = criterion(F.log_softmax(logits, dim=1), y)
-    optimizer.zero_grad()
-    loss1.backward()
-    optimizer.step()
-    logits2 = model(x)
-    loss2 = criterion(F.log_softmax(logits2, dim=1), y)
-    assert loss2.item() < loss1.item() + 1e-3, (loss1.item(), loss2.item())
-    print(f"[ok] one grad step: loss {loss1.item():.4f} -> {loss2.item():.4f}")
+    features, labels = get_dummy_batch(batch_size=16)
+    loss = torch.nn.CrossEntropyLoss()(model(features), labels)
+    loss.backward()
+    gradients = [parameter.grad for parameter in model.parameters() if parameter.requires_grad]
+    assert gradients
+    assert all(gradient is not None for gradient in gradients)
+    assert all(torch.isfinite(gradient).all() for gradient in gradients if gradient is not None)
+    print(f"通过：梯度存在且为有限值，损失为 {loss.item():.4f}")
 
 
-def test_param_count():
-    model = build_model()
-    total = sum(p.numel() for p in model.parameters())
-    # Paper reports ~60k params. Our Inception splits 32 channels across 4
-    # branches (8 each), so we land near ~30k; that is fine for a skeleton and
-    # even lighter on memory. Raise the band if you widen the Inception branches.
-    assert 20_000 < total < 200_000, total
-    print(f"[ok] total params {total:,} (paper ~60k; skeleton band 20k-200k)")
+def check_parameter_count() -> None:
+    parameter_count = sum(parameter.numel() for parameter in build_model().parameters())
+    assert 55_000 < parameter_count < 70_000
+    print(f"通过：模型参数量为 {parameter_count:,}，符合论文约 60k 的规模")
 
 
-def test_fi2010_dataset_shape():
-    """Exercise FI2010WindowDataset with a synthetic 149-col .npy mirror.
-
-    Simulates the OFFICIAL FI-2010 .txt layout (144 features + 5 label cols at
-    144/145/146/147/148) so we can verify windowing + label-column selection
-    locally, without downloading the real (large) data.
-    """
-    import os
-    import tempfile
-
-    from src.dataset import K_TO_LABEL_COLUMN, NUM_FEATURES, WINDOW_SIZE, FI2010WindowDataset
-
+def check_fi2010_dataset() -> None:
+    segment_length = 500
+    segments = [
+        {"cf": 7, "role": "train", "start": 0, "end": segment_length},
+        {
+            "cf": 7,
+            "role": "test",
+            "start": segment_length,
+            "end": segment_length * 2,
+        },
+        {
+            "cf": 8,
+            "role": "test",
+            "start": segment_length * 2,
+            "end": segment_length * 3,
+        },
+        {
+            "cf": 9,
+            "role": "test",
+            "start": segment_length * 3,
+            "end": segment_length * 4,
+        },
+    ]
+    rows = segment_length * 4
     rng = np.random.default_rng(1)
-    n = 500
-    # 144 features + 5 label columns; label col for k=10 is index 144.
-    fake = np.zeros((n, 149), dtype=np.float32)
-    fake[:, :NUM_FEATURES] = rng.standard_normal((n, NUM_FEATURES)).astype(np.float32)
-    # labels for col 144/145: random 1/2/3 (FI-2010 encoding), will map to 0/1/2
-    fake[:, 144] = rng.integers(1, 4, n).astype(np.float32)
-    fake[:, 145] = rng.integers(1, 4, n).astype(np.float32)
+    data = np.zeros((rows, TOTAL_COLUMNS), dtype=np.float32)
+    data[:, :NUM_FEATURES] = rng.standard_normal(
+        (rows, NUM_FEATURES),
+        dtype=np.float32,
+    )
+    labels = np.resize(np.array([1, 2, 3], dtype=np.float32), rows)
+    for column in K_TO_LABEL_COLUMN.values():
+        data[:, column] = labels
 
-    with tempfile.TemporaryDirectory() as d:
-        path = os.path.join(d, "fake_fi2010.npy")
-        np.save(path, fake)
+    with tempfile.TemporaryDirectory() as directory:
+        data_path = Path(directory) / "fi2010.npy"
+        meta_path = Path(directory) / "fi2010_meta.json"
+        np.save(data_path, data)
+        meta_path.write_text(
+            json.dumps({"rows": rows, "segments": segments}),
+            encoding="utf-8",
+        )
+        for horizon in K_TO_LABEL_COLUMN:
+            with FI2010WindowDataset(
+                str(data_path),
+                str(meta_path),
+                k=horizon,
+                split="train",
+                protocol="setup2",
+            ) as dataset:
+                features, label = dataset[0]
+                assert features.shape == (1, WINDOW_SIZE, NUM_FEATURES)
+                assert label in {0, 1, 2}
+    print("通过：五个预测跨度的数据窗口和标签")
 
-        for k in (10, 20):
-            ds = FI2010WindowDataset(path, k=k, window_size=WINDOW_SIZE, split="train")
-            x, y = ds[0]
-            # dataset stores windows as (num_win, 1, T, D); a single sample
-            # therefore comes out as (1, T, D) == (1, 100, 144). The DataLoader
-            # stacks these into the 4-D (N, 1, T, D) that Conv2d expects.
-            assert x.shape == (1, WINDOW_SIZE, NUM_FEATURES), x.shape
-            assert y in (0, 1, 2), y
-            # train split = first 70% of rows (350); windows = 350 - w + 1.
-            tr_rows = int(n * 0.7)
-            assert len(ds) == tr_rows - WINDOW_SIZE + 1, len(ds)
-    print(f"[ok] FI2010WindowDataset: windows (1,100,144), labels {{0,1,2}}, k->col {K_TO_LABEL_COLUMN}")
+
+def main() -> None:
+    check_forward_pass()
+    check_gradient_flow()
+    check_parameter_count()
+    check_fi2010_dataset()
+    print("全部冒烟检查通过。")
 
 
 if __name__ == "__main__":
-    test_forward_shape()
-    test_grad_flow()
-    test_param_count()
-    test_fi2010_dataset_shape()
-    print("\nAll smoke tests passed.")
+    main()
