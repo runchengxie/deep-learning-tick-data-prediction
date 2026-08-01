@@ -152,6 +152,8 @@ MyDrive/DeepLOB/data/FI2010_normalised.npy
 MyDrive/DeepLOB/data/FI2010_normalised_meta.json
 ```
 
+`scripts/run_colab.py` 也兼容已有的 `FI2010_meta.json` 文件名。
+
 在 Colab 主内核中运行：
 
 ```python
