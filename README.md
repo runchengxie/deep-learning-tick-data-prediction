@@ -35,6 +35,7 @@ Recall 和 F1。
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+pre-commit install
 ```
 
 Linux、macOS 和 Colab 使用对应环境的虚拟环境激活命令。
@@ -42,6 +43,15 @@ Linux、macOS 和 Colab 使用对应环境的虚拟环境激活命令。
 ## 本地快速检查
 
 以下命令都不需要真实数据：
+
+```powershell
+python scripts/check.py
+```
+
+`pre-commit install` 会同时安装提交前和推送前 hook。每次 `git push` 前自动执行完整
+本地质量门禁。确需临时跳过时可以显式使用 `git push --no-verify`。
+
+也可以单独运行：
 
 ```powershell
 python scripts/smoke_test.py
@@ -151,6 +161,8 @@ deeplob-train `
 MyDrive/DeepLOB/data/FI2010_normalised.npy
 MyDrive/DeepLOB/data/FI2010_normalised_meta.json
 ```
+
+`scripts/run_colab.py` 也兼容已有的 `FI2010_meta.json` 文件名。
 
 在 Colab 主内核中运行：
 

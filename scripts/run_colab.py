@@ -18,6 +18,16 @@ import torch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DRIVE_ROOT = Path("/content/drive/MyDrive")
+META_FILENAMES = ("FI2010_normalised_meta.json", "FI2010_meta.json")
+
+
+def _resolve_meta_path(data_dir: Path) -> Path:
+    """优先使用标准名称，同时兼容已有的简写元数据文件名。"""
+    for filename in META_FILENAMES:
+        path = data_dir / filename
+        if path.is_file():
+            return path
+    return data_dir / META_FILENAMES[0]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -55,12 +65,13 @@ def main(argv: list[str] | None = None) -> None:
     data_dir = drive_root / "DeepLOB" / "data"
     checkpoint_dir = drive_root / "DeepLOB" / "checkpoints"
     data_path = data_dir / "FI2010_normalised.npy"
-    meta_path = data_dir / "FI2010_normalised_meta.json"
+    meta_path = _resolve_meta_path(data_dir)
     missing = [path for path in (data_path, meta_path) if not path.is_file()]
     if missing:
         joined = "\n".join(str(path) for path in missing)
         raise SystemExit(
             f"缺少以下文件：\n{joined}\n"
+            "元数据也可以使用兼容名称 FI2010_meta.json。\n"
             "请先用 scripts/convert_fi2010.py 转换官方数据，再上传到 Drive。"
         )
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
