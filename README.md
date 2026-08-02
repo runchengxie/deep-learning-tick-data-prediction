@@ -181,7 +181,16 @@ drive.mount("/content/drive")
 ```
 
 `scripts/run_colab.py` 会安装当前项目，检查数据和元数据，选择 CUDA，并把检查点
-保存到 `MyDrive/DeepLOB/checkpoints/`。
+保存到 `MyDrive/DeepLOB/checkpoints/`。脚本默认先把数据和元数据顺序复制到 Colab
+本地目录 `/content/DeepLOB/data/`，训练期间不再通过挂载的 Google Drive 反复读取。
+同一运行时内再次启动会复用未变化的本地副本。Colab 运行时重置后，本地副本会消失，
+脚本会重新复制，Drive 中的检查点不受影响。
+
+本地盘空间不足或需要对比 Drive 读取性能时，可以关闭复制：
+
+```python
+!python scripts/run_colab.py --protocol setup2 --k 10 --no-local-copy
+```
 
 ## 检查点和训练记录
 
@@ -191,6 +200,9 @@ drive.mount("/content/drive")
 - `*.best.pt` 保存验证准确率最高的状态
 - `train_history.*.json` 供查看和绘制训练曲线
 - `result.*.json` 保存配置、环境、耗时和测试指标
+
+训练记录还包含每个 epoch 的训练秒数、验证秒数和训练吞吐量，便于判断 GPU 是否在
+等待数据。复制数据时会显示文件大小、耗时和平均吞吐量。
 
 开启 `resume` 后，训练从 `*.last.pt` 继续。实验配置与检查点不一致时会直接报错，
 避免误用其他预测跨度或协议的状态。

@@ -304,9 +304,11 @@ def train(config: Config, *, test_cf: int | None = None) -> dict[str, Any]:
         print(f"从第 {start_epoch} 个 epoch 后继续训练：{last_path}")
 
     for epoch in range(start_epoch, config.epochs):
+        epoch_started_at = time.perf_counter()
         model.train()
         total_loss = 0.0
         sample_count = 0
+        training_started_at = time.perf_counter()
         for features, labels in train_loader:
             features = features.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
@@ -317,11 +319,19 @@ def train(config: Config, *, test_cf: int | None = None) -> dict[str, Any]:
             total_loss += loss.item() * features.shape[0]
             sample_count += features.shape[0]
 
+        training_seconds = time.perf_counter() - training_started_at
         train_loss = total_loss / sample_count
+        validation_started_at = time.perf_counter()
         validation_metrics = evaluate(model, validation_loader, device)
+        validation_seconds = time.perf_counter() - validation_started_at
+        epoch_seconds = time.perf_counter() - epoch_started_at
         epoch_record = {
             "epoch": epoch + 1,
             "train_loss": train_loss,
+            "training_seconds": training_seconds,
+            "validation_seconds": validation_seconds,
+            "epoch_seconds": epoch_seconds,
+            "training_samples_per_second": sample_count / training_seconds,
             **{f"val_{name}": value for name, value in validation_metrics.items()},
         }
         history.append(epoch_record)
@@ -350,7 +360,9 @@ def train(config: Config, *, test_cf: int | None = None) -> dict[str, Any]:
         print(
             f"epoch {epoch + 1:03d}｜训练损失 {train_loss:.4f}｜"
             f"验证准确率 {validation_accuracy:.4f}｜"
-            f"验证 macro F1 {float(validation_metrics['macro_f1']):.4f}"
+            f"验证 macro F1 {float(validation_metrics['macro_f1']):.4f}｜"
+            f"训练 {training_seconds:.1f}s｜验证 {validation_seconds:.1f}s｜"
+            f"{sample_count / training_seconds:.0f} samples/s"
         )
         if epochs_without_improvement >= config.patience:
             print(f"验证准确率连续 {config.patience} 个 epoch 未提升，停止训练。")
