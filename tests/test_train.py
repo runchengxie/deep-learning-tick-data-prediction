@@ -119,6 +119,9 @@ def test_training_checkpoint_and_resume(tmp_path, monkeypatch):
     assert second["environment"]["python"]
     assert second["duration_seconds"] > 0
     assert [record["epoch"] for record in history] == [1, 2]
+    assert all(record["training_seconds"] > 0 for record in history)
+    assert all(record["validation_seconds"] > 0 for record in history)
+    assert all(record["training_samples_per_second"] > 0 for record in history)
 
     config.lr = 0.02
     with pytest.raises(ValueError, match="实验配置"):
