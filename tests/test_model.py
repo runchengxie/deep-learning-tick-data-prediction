@@ -13,6 +13,7 @@ def test_forward_shape():
     features = torch.randn(8, 1, WINDOW_SIZE, NUM_FEATURES)
     logits = model(features)
     assert logits.shape == (8, NUM_CLASSES)
+    assert model.encode(features).shape == (8, model.embedding_size)
 
 
 def test_softmax_sums_to_one():

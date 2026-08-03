@@ -1,7 +1,7 @@
 # DeepLOB 复现项目
 
 本项目使用 PyTorch 复现论文 DeepLOB: Deep Convolutional Neural Networks for
-Limit Order Books 的 FI-2010 实验。
+Limit Order Books 的 FI-2010 实验，并提供独立的 tick/LOB 到次日横截面方向研究链路。
 
 - 论文：[arXiv 1808.03668](https://arxiv.org/abs/1808.03668)
 - 作者公开实现：[GitHub 仓库](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
@@ -26,6 +26,31 @@ Recall 和 F1。
 - FI-2010 Setup 1 和 Setup 2 的官方 `CF` 文件口径
 
 详细核对结果见 [docs/复现核对.md](docs/复现核对.md)。
+
+## 次日横截面预测
+
+新链路不使用 FI-2010 标签，也不改变论文复现入口。它把每个股票交易日的最后若干个
+十档盘口事件切成固定长度块，用 DeepLOB 编码每个块，再由 GRU 汇总并同时预测下一交易日
+开盘到收盘的连续超额收益分数与横截面方向。
+
+已经实现：
+
+- 按交易日历生成次日开盘到收盘收益和横截面三分类标签
+- 每个股票交易日一个样本，信号时点和标签日期泄漏检查
+- float16/float32 NPY 大分片、内存映射和训练前 float32 转换
+- 完整交易日 walk-forward 切分和边界标签 purge
+- 分块 DeepLOB、日内 GRU、连续分数/三分类双头、AMP、梯度累积和恢复训练
+- Macro F1、MCC、Brier、每日 Rank IC 和分组收益差
+- 聚合日内特征加 Logistic Regression 基线
+- 现有沪深月度 snapshot Parquet 的动态股票池适配器
+- 可复制 Drive 分片并断点续训的 Colab notebook
+- 从原始 `N × 40` snapshot NPY 返回连续分数和方向概率的推理 CLI
+
+本机客户交付主线使用 `configs/nextday-raw.yaml` 生成 200-tick 数据，再用
+`configs/nextday.yaml` 训练。数据格式、转换命令、Colab 存储方式和研究限制见
+[docs/次日横截面预测.md](docs/次日横截面预测.md)。本机资源预算、端到端交付主线、
+内部对照和扩展门槛见
+[docs/硬件约束与分阶段实验路线.md](docs/硬件约束与分阶段实验路线.md)。
 
 ## 安装
 
@@ -219,6 +244,7 @@ python scripts/plot_curves.py `
 
 ```text
 src/deeplob/        模型、数据集和训练逻辑
+src/deeplob/nextday 次日标签、分片数据集、分块模型、指标和训练逻辑
 scripts/            数据转换、Colab 入口、冒烟检查和绘图
 tests/              不依赖真实数据的自动化测试
 configs/            本地和 Colab 配置

@@ -10,7 +10,7 @@ env/
 *.egg-info/
 
 # 本地实验产物
-checkpoints/
+checkpoints*/
 *.pt
 logs/
 predictions/

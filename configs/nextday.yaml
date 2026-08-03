@@ -1,0 +1,35 @@
+# 分块 DeepLOB 次日横截面预测示例配置。
+# manifest_path 指向 prepare_nextday.py 生成的数据清单。
+
+manifest_path: ./data/nextday-raw-200/manifest.json
+train_start: "2021-01-01"
+train_end: "2023-12-31"
+val_start: "2024-01-01"
+val_end: "2024-12-31"
+test_start: "2025-01-01"
+test_end: "2025-12-31"
+
+epochs: 30
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0001
+patience: 8
+seed: 0
+num_workers: 2
+device: cuda
+resume: true
+
+checkpoint_dir: ./checkpoints-nextday
+checkpoint_name: raw-200-dual-head
+intraday_embedding_size: 64
+day_hidden_size: 64
+day_layers: 1
+dropout: 0.1
+class_weighting: balanced
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 20
+portfolio_quantile: 0.1
+classification_loss_weight: 1.0
+regression_loss_weight: 0.5
+gradient_accumulation_steps: 1
+amp: true
