@@ -93,6 +93,7 @@ class DeepLOB(nn.Module):
     ):
         super().__init__()
         self.window_size = window_size
+        self.embedding_size = lstm_units
 
         self.conv1 = nn.Sequential(
             nn.Conv2d(1, conv_channels, kernel_size=(1, 2), stride=(1, 2)),
@@ -133,8 +134,8 @@ class DeepLOB(nn.Module):
         )
         self.output = nn.Linear(lstm_units, num_classes)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """返回形状为 ``(B, 3)`` 的 logits。"""
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """返回最后一个 LSTM 状态，供下游任务复用日内编码器。"""
         expected = (self.window_size, NUM_FEATURES)
         if x.ndim != 4 or x.shape[1] != 1 or tuple(x.shape[2:]) != expected:
             raise ValueError(
@@ -148,7 +149,11 @@ class DeepLOB(nn.Module):
         x = self.inception(x)
         x = x.squeeze(-1).transpose(1, 2)
         x, _ = self.lstm(x)
-        return self.output(x[:, -1, :])
+        return x[:, -1, :]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """返回形状为 ``(B, 3)`` 的 logits。"""
+        return self.output(self.encode(x))
 
 
 def build_model(
