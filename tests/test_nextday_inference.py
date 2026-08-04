@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-from deeplob.nextday.inference import NextDayPredictor, main
-from deeplob.nextday.model import build_nextday_model
+from ticknet.nextday.inference import NextDayPredictor, main
+from ticknet.nextday.model import build_nextday_model
 
 
 def _raw_events(rows: int) -> np.ndarray:

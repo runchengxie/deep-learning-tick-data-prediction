@@ -18,4 +18,4 @@ resume: true
 num_workers: 2
 device: cuda
 checkpoint_dir: ./checkpoints
-checkpoint_name: deeplob
+checkpoint_name: ticknet

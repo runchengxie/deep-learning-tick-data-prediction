@@ -4,8 +4,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from deeplob.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE
-from deeplob.model import InceptionModule, build_model
+from ticknet.dataset import NUM_CLASSES, NUM_FEATURES, WINDOW_SIZE
+from ticknet.model import InceptionModule, build_model
 
 
 def test_forward_shape():

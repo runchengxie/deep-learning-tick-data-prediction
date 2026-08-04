@@ -12,10 +12,10 @@ from typing import Any, cast
 import numpy as np
 import torch
 
-from deeplob.nextday.dataset import manifest_fingerprint
-from deeplob.nextday.io import pack_events
-from deeplob.nextday.model import ChunkedDeepLOB, build_nextday_model
-from deeplob.nextday.raw_snapshot import normalize_lob_events, valid_lob_event_rows
+from ticknet.nextday.dataset import manifest_fingerprint
+from ticknet.nextday.io import pack_events
+from ticknet.nextday.model import ChunkedDeepLOB, build_nextday_model
+from ticknet.nextday.raw_snapshot import normalize_lob_events, valid_lob_event_rows
 
 
 @dataclass(frozen=True)

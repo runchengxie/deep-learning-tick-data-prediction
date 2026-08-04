@@ -5,7 +5,7 @@ from datetime import date
 import numpy as np
 import pytest
 
-from deeplob.nextday.metrics import evaluate_predictions
+from ticknet.nextday.metrics import evaluate_predictions
 
 
 def test_perfect_daily_ranking_has_unit_rank_ic():

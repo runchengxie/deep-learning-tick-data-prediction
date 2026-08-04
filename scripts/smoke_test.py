@@ -19,7 +19,7 @@ import torch.nn.functional as F
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from deeplob.dataset import (
+from ticknet.dataset import (
     K_TO_LABEL_COLUMN,
     NUM_CLASSES,
     NUM_FEATURES,
@@ -28,7 +28,7 @@ from deeplob.dataset import (
     FI2010WindowDataset,
     get_dummy_batch,
 )
-from deeplob.model import build_model
+from ticknet.model import build_model
 
 
 def check_forward_pass() -> None:

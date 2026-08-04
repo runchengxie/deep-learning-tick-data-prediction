@@ -1,4 +1,4 @@
-# DeepLOB 临摹与 A 股次日预测
+# 深度学习 tick 数据预测
 
 本项目从复现论文 DeepLOB 起步，目标是逐步长出一个面向真实业务的 A 股次日方向预测模型。
 论文复现目前是临摹阶段，用来对齐方法和验证代码，后续会随着业务需求推进而逐步退出主线。
@@ -78,20 +78,20 @@ Linux、macOS 和 Colab 使用对应环境的虚拟环境激活命令。
 本机已有沪深月度 snapshot Parquet 时，先准备数据：
 
 ```bash
-deeplob-nextday-prepare-snapshot --config configs/nextday-raw.yaml
+ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
 ```
 
 这一步会按动态前 400 股票池筛选、截取 14:30 至 14:55 的最后 200 个有效盘口、计算下一交易日
 超额收益标签，写出 float16 分片和 manifest。然后用训练配置启动：
 
 ```powershell
-deeplob-nextday-train --config configs/nextday.yaml
+ticknet-nextday-train --config configs/nextday.yaml
 ```
 
 训练完成后把一只股票信号时点前的原始 `N × 40` snapshot 转成次日信号：
 
 ```bash
-deeplob-nextday-predict \
+ticknet-nextday-predict \
   --checkpoint checkpoints-nextday/raw-200-dual-head.seed0.best.pt \
   --manifest data/nextday-raw-200/manifest.json \
   --events-npy data/today-000001.npy \
@@ -109,7 +109,7 @@ deeplob-nextday-predict \
 
 FI-2010 复现用于对齐论文结构和训练协议，是验证代码正确的基线，不回答 A 股次日方向问题。
 这部分后续会随真实业务需求推进而逐步退出主线，当前保留为临摹参考。复现链路保留原始
-`deeplob-train`、Setup 1 和 Setup 2 入口，与次日链路完全独立。
+`ticknet-train`、Setup 1 和 Setup 2 入口，与次日链路完全独立。
 
 模型输入为最近 100 个订单簿状态，每个状态 40 个原始特征，经过三个卷积块、三分支 Inception、
 64 单元 LSTM，输出三分类。预测跨度为 `10/20/30/50/100`，Adam 使用 `lr=0.01` 和 `eps=1`，
@@ -132,8 +132,8 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 ## 项目结构
 
 ```text
-src/deeplob/        模型、数据集和训练逻辑（FI-2010 临摹）
-src/deeplob/nextday 次日标签、分片数据集、分块模型、指标和训练逻辑（A 股主线）
+src/ticknet/        模型、数据集和训练逻辑（FI-2010 临摹）
+src/ticknet/nextday 次日标签、分片数据集、分块模型、指标和训练逻辑（A 股主线）
 scripts/            数据转换、Colab 入口、冒烟检查和绘图
 tests/              不依赖真实数据的自动化测试
 configs/            本地和 Colab 配置

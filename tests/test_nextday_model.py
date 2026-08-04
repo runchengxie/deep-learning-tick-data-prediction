@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from deeplob.nextday.model import build_nextday_model
+from ticknet.nextday.model import build_nextday_model
 
 
 def test_chunked_model_forward_and_day_embedding_shape():

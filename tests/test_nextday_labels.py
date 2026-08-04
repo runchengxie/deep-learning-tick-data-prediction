@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from deeplob.nextday.labels import DailyBar, build_next_day_targets
-from deeplob.nextday.splits import DateRange, WalkForwardSplit
+from ticknet.nextday.labels import DailyBar, build_next_day_targets
+from ticknet.nextday.splits import DateRange, WalkForwardSplit
 
 
 def _bars(symbols, dates):

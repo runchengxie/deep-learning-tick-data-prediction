@@ -14,9 +14,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from deeplob.nextday.dataset import NextDayShardDataset
-from deeplob.nextday.metrics import evaluate_predictions
-from deeplob.nextday.train import load_config
+from ticknet.nextday.dataset import NextDayShardDataset
+from ticknet.nextday.metrics import evaluate_predictions
+from ticknet.nextday.train import load_config
 
 
 def _aggregate(dataset: NextDayShardDataset) -> tuple[np.ndarray, np.ndarray]:

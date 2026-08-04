@@ -13,8 +13,8 @@ from typing import Any, cast
 import numpy as np
 from torch.utils.data import Dataset
 
-from deeplob.dataset import NUM_CLASSES, NUM_FEATURES
-from deeplob.nextday.splits import WalkForwardSplit, parse_date
+from ticknet.dataset import NUM_CLASSES, NUM_FEATURES
+from ticknet.nextday.splits import WalkForwardSplit, parse_date
 
 FORMAT_VERSION = 1
 FEATURE_NAMES = tuple(

@@ -11,8 +11,8 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import balanced_accuracy_score, matthews_corrcoef
 
-from deeplob.dataset import NUM_CLASSES
-from deeplob.train import f1_metrics
+from ticknet.dataset import NUM_CLASSES
+from ticknet.train import f1_metrics
 
 
 def _average_ranks(values: np.ndarray) -> np.ndarray:
