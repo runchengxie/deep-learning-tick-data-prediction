@@ -6,10 +6,10 @@
 
 | 模块 | 职责 |
 |---|---|
-| `deeplob.model` | 网络结构和模型工厂 |
-| `deeplob.dataset` | 数据校验、实验选段、标签映射和窗口索引 |
-| `deeplob.train` | 配置合并、训练、评估、早停、检查点和实验汇总 |
-| `deeplob.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练 |
+| `ticknet.model` | 网络结构和模型工厂 |
+| `ticknet.dataset` | 数据校验、实验选段、标签映射和窗口索引 |
+| `ticknet.train` | 配置合并、训练、评估、早停、检查点和实验汇总 |
+| `ticknet.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练 |
 
 脚本层只处理人工入口：
 
@@ -39,7 +39,7 @@
 查看完整参数：
 
 ```powershell
-deeplob-train --help
+ticknet-train --help
 python scripts/convert_fi2010.py --help
 python scripts/run_colab.py --help
 ```

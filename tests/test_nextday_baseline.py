@@ -2,10 +2,10 @@
 
 import json
 
-from deeplob.nextday.dataset import NextDayShardDataset
-from deeplob.nextday.splits import WalkForwardSplit
 from scripts.run_nextday_baseline import _aggregate, main
 from tests.test_nextday_train import _training_manifest
+from ticknet.nextday.dataset import NextDayShardDataset
+from ticknet.nextday.splits import WalkForwardSplit
 
 
 def test_aggregate_baseline_uses_fixed_size_features(tmp_path):

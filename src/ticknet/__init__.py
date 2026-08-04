@@ -1,6 +1,6 @@
 """DeepLOB 论文复现包。"""
 
-from deeplob.dataset import (
+from ticknet.dataset import (
     K_TO_LABEL_COLUMN,
     NUM_CLASSES,
     NUM_FEATURES,
@@ -8,7 +8,7 @@ from deeplob.dataset import (
     FI2010WindowDataset,
     RandomLOBDataset,
 )
-from deeplob.model import DeepLOB, build_model
+from ticknet.model import DeepLOB, build_model
 
 __all__ = [
     "K_TO_LABEL_COLUMN",

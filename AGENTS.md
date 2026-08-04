@@ -12,7 +12,7 @@ tick/LOB 到次日横截面方向。代码和文档应清楚区分：
 - 由论文或官方数据格式支持的实验设定
 - 需要真实训练结果才能确认的数值结论
 
-`deeplob.nextday` 不属于论文复现结果。FI-2010 不能用于证明次日方向有效性。新链路的
+`ticknet.nextday` 不属于论文复现结果。FI-2010 不能用于证明次日方向有效性。新链路的
 结果应使用真实带股票、交易日和时间戳的数据，并报告时间外检验。
 
 真实结果尚未产生时，不得使用已经复现、严格复现或结果一致等表述。
@@ -29,10 +29,10 @@ tick/LOB 到次日横截面方向。代码和文档应清楚区分：
 
 ## 代码边界
 
-- `src/deeplob/model.py` 只负责网络结构
-- `src/deeplob/dataset.py` 只负责数据校验、协议选段和窗口索引
-- `src/deeplob/train.py` 负责配置、训练、评估和检查点
-- `src/deeplob/nextday/` 负责次日标签、分片数据集、分块模型、横截面指标和训练
+- `src/ticknet/model.py` 只负责网络结构
+- `src/ticknet/dataset.py` 只负责数据校验、协议选段和窗口索引
+- `src/ticknet/train.py` 负责配置、训练、评估和检查点
+- `src/ticknet/nextday/` 负责次日标签、分片数据集、分块模型、横截面指标和训练
 - `scripts/` 放人工执行入口，不承载可复用的核心业务逻辑
 - `tests/` 使用合成数据，不依赖 Google Drive 或完整 FI-2010
 

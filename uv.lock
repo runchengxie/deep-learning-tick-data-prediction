@@ -383,7 +383,7 @@ wheels = [
 ]
 
 [[package]]
-name = "deeplob-reproduction"
+name = "deep-learning-tick-data-prediction"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [

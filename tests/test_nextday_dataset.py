@@ -8,10 +8,10 @@ from datetime import date, datetime
 import numpy as np
 import pytest
 
-from deeplob.nextday.dataset import NextDayShardDataset
-from deeplob.nextday.io import PreparedSample, pack_events, write_sharded_dataset
-from deeplob.nextday.labels import NextDayTarget
-from deeplob.nextday.splits import WalkForwardSplit
+from ticknet.nextday.dataset import NextDayShardDataset
+from ticknet.nextday.io import PreparedSample, pack_events, write_sharded_dataset
+from ticknet.nextday.labels import NextDayTarget
+from ticknet.nextday.splits import WalkForwardSplit
 
 
 def _target(input_day: int, label_day: int, symbol: str = "000001.SZ"):

@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deeplob-reproduction"
+name = "deep-learning-tick-data-prediction"
 version = "0.2.0"
 description = "PyTorch reproduction of DeepLOB on FI-2010"
 readme = "README.md"
@@ -28,11 +28,11 @@ dev = [
 ]
 
 [project.scripts]
-deeplob-train = "deeplob.train:main"
-deeplob-nextday-train = "deeplob.nextday.train:main"
-deeplob-nextday-evaluate = "deeplob.nextday.train:evaluate_main"
-deeplob-nextday-prepare-snapshot = "deeplob.nextday.raw_snapshot:main"
-deeplob-nextday-predict = "deeplob.nextday.inference:main"
+ticknet-train = "ticknet.train:main"
+ticknet-nextday-train = "ticknet.nextday.train:main"
+ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"
+ticknet-nextday-prepare-snapshot = "ticknet.nextday.raw_snapshot:main"
+ticknet-nextday-predict = "ticknet.nextday.inference:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -59,7 +59,7 @@ addopts = ["--strict-config", "--strict-markers"]
 
 [tool.coverage.run]
 branch = true
-source = ["deeplob"]
+source = ["ticknet"]
 
 [tool.coverage.report]
 fail_under = 80

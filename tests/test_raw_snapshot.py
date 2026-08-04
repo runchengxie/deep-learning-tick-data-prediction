@@ -8,8 +8,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import deeplob.nextday.raw_snapshot as raw_snapshot
-from deeplob.nextday.raw_snapshot import (
+import ticknet.nextday.raw_snapshot as raw_snapshot
+from ticknet.nextday.raw_snapshot import (
     RAW_FEATURE_COLUMNS,
     DailyPanel,
     ExtractionReport,

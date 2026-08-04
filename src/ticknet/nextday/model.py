@@ -7,8 +7,8 @@ from typing import NamedTuple
 import torch
 import torch.nn as nn
 
-from deeplob.dataset import NUM_CLASSES, NUM_FEATURES
-from deeplob.model import DeepLOB
+from ticknet.dataset import NUM_CLASSES, NUM_FEATURES
+from ticknet.model import DeepLOB
 
 
 class NextDayOutput(NamedTuple):

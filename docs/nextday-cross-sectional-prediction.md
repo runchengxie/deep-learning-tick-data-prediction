@@ -27,8 +27,8 @@
 
 ## 与论文复现的边界
 
-原来的 `deeplob-train`、`FI2010WindowDataset`、Setup 1 和 Setup 2 保持不变。新链路位于
-`deeplob.nextday`，训练命令为 `deeplob-nextday-train`。FI-2010 缺少可靠的股票和交易日
+原来的 `ticknet-train`、`FI2010WindowDataset`、Setup 1 和 Setup 2 保持不变。新链路位于
+`ticknet.nextday`，训练命令为 `ticknet-nextday-train`。FI-2010 缺少可靠的股票和交易日
 边界，不能用于生成这里的次日标签。
 
 ## 输入特征
@@ -61,7 +61,7 @@ ask_price_10, ask_size_10, bid_price_10, bid_size_10
 本机已有沪深月度 snapshot Parquet 时，直接运行：
 
 ```bash
-deeplob-nextday-prepare-snapshot --config configs/nextday-raw.yaml
+ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
 ```
 
 适配器会：
@@ -166,7 +166,7 @@ test_end: "2024-12-31"
 编辑 `configs/nextday.yaml` 后运行：
 
 ```powershell
-deeplob-nextday-train --config configs/nextday.yaml
+ticknet-nextday-train --config configs/nextday.yaml
 ```
 
 检查点和训练历史写入 `checkpoint_dir`。恢复训练会核对日期、模型、学习率和
@@ -178,7 +178,7 @@ deeplob-nextday-train --config configs/nextday.yaml
 best checkpoint：
 
 ```bash
-deeplob-nextday-evaluate \
+ticknet-nextday-evaluate \
   --seeds 0 1 2 3 4 \
   --config configs/nextday.yaml
 ```
@@ -194,7 +194,7 @@ deeplob-nextday-evaluate \
 训练后可以直接把一只股票信号时点前的原始 `N × 40` snapshot NPY 转成次日信号：
 
 ```bash
-deeplob-nextday-predict \
+ticknet-nextday-predict \
   --checkpoint checkpoints-nextday/raw-200-dual-head.seed0.best.pt \
   --manifest data/nextday-raw-200/manifest.json \
   --events-npy data/today-000001.npy \
@@ -232,7 +232,7 @@ python scripts/run_nextday_baseline.py `
 - 按预测分数最高组减最低组计算的无成本日均收益差
 
 多空收益差没有包含手续费、滑点、涨跌停、冲击成本和做空约束，不能当成可交易回测。
-模型选择默认使用验证期日均 Rank IC。正式测试期由 `deeplob-nextday-evaluate` 显式解锁，
+模型选择默认使用验证期日均 Rank IC。正式测试期由 `ticknet-nextday-evaluate` 显式解锁，
 只在训练和模型选择结束后评估固定 best checkpoint。
 
 ## 数据量和 Colab
@@ -255,7 +255,7 @@ checkpoint 和结果。不要通过 Drive 挂载点直接随机训练。可运�
 2024 受控 pilot 使用动态前 100 股票和最后 200 个盘口事件：
 
 ```bash
-deeplob-nextday-prepare-snapshot --config configs/nextday-raw-pilot.yaml
+ticknet-nextday-prepare-snapshot --config configs/nextday-raw-pilot.yaml
 python scripts/run_nextday_baseline.py --config configs/nextday-pilot.yaml \
   --output results/nextday-pilot-baseline.json
 ```

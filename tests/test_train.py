@@ -9,8 +9,8 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from deeplob import train as train_module
-from deeplob.train import Config, f1_metrics, load_config, resolve_device, run_setup1
+from ticknet import train as train_module
+from ticknet.train import Config, f1_metrics, load_config, resolve_device, run_setup1
 
 
 def test_yaml_config_and_cli_override(tmp_path):
@@ -108,8 +108,8 @@ def test_training_checkpoint_and_resume(tmp_path, monkeypatch):
         checkpoint_dir=str(tmp_path),
     )
     first = train_module.train(config)
-    assert (tmp_path / "deeplob.smoke.seed0.last.pt").is_file()
-    assert (tmp_path / "deeplob.smoke.seed0.best.pt").is_file()
+    assert (tmp_path / "ticknet.smoke.seed0.last.pt").is_file()
+    assert (tmp_path / "ticknet.smoke.seed0.best.pt").is_file()
     assert (tmp_path / "result.smoke.seed0.json").is_file()
 
     config.epochs = 2

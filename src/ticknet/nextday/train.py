@@ -19,12 +19,12 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 
-from deeplob.dataset import NUM_CLASSES
-from deeplob.nextday.dataset import NextDayShardDataset
-from deeplob.nextday.metrics import evaluate_predictions
-from deeplob.nextday.model import build_nextday_model
-from deeplob.nextday.splits import WalkForwardSplit
-from deeplob.train import resolve_device, set_seed
+from ticknet.dataset import NUM_CLASSES
+from ticknet.nextday.dataset import NextDayShardDataset
+from ticknet.nextday.metrics import evaluate_predictions
+from ticknet.nextday.model import build_nextday_model
+from ticknet.nextday.splits import WalkForwardSplit
+from ticknet.train import resolve_device, set_seed
 
 SELECTION_METRICS = {"daily_rank_ic_mean", "macro_f1", "balanced_accuracy", "mcc"}
 LOCKED_TEST_AGGREGATE_METRICS = (
@@ -60,7 +60,7 @@ class NextDayConfig:
     evaluate_test: bool = False
     verify_data_checksums: bool = True
     checkpoint_dir: str = "./checkpoints-nextday"
-    checkpoint_name: str = "chunked-deeplob"
+    checkpoint_name: str = "chunked-ticknet"
     intraday_embedding_size: int = 64
     day_hidden_size: int = 64
     day_layers: int = 1

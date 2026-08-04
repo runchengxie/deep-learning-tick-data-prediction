@@ -7,12 +7,12 @@ import numpy as np
 import pytest
 import torch
 
-from deeplob.nextday import train as train_module
-from deeplob.nextday.dataset import manifest_fingerprint
-from deeplob.nextday.io import PreparedSample, write_sharded_dataset
-from deeplob.nextday.labels import NextDayTarget
-from deeplob.nextday.model import NextDayOutput
-from deeplob.nextday.train import NextDayConfig, load_config
+from ticknet.nextday import train as train_module
+from ticknet.nextday.dataset import manifest_fingerprint
+from ticknet.nextday.io import PreparedSample, write_sharded_dataset
+from ticknet.nextday.labels import NextDayTarget
+from ticknet.nextday.model import NextDayOutput
+from ticknet.nextday.train import NextDayConfig, load_config
 
 
 def test_nextday_yaml_and_cli_override(tmp_path):
@@ -140,8 +140,8 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
     first = train_module.train(config)
     assert first["samples"] == {"train": 3, "val": 3, "test": 3}
     assert first["test"] is None
-    best_path = tmp_path / "checkpoints/chunked-deeplob.seed0.best.pt"
-    last_path = tmp_path / "checkpoints/chunked-deeplob.seed0.last.pt"
+    best_path = tmp_path / "checkpoints/chunked-ticknet.seed0.best.pt"
+    last_path = tmp_path / "checkpoints/chunked-ticknet.seed0.last.pt"
     assert best_path.is_file()
 
     best_before = best_path.read_bytes()
@@ -157,7 +157,7 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
 
     with pytest.raises(FileNotFoundError, match="seed 1"):
         train_module.evaluate_best_checkpoints(config, [0, 1])
-    assert not (tmp_path / "checkpoints/locked_test.chunked-deeplob.seeds0-1.json").exists()
+    assert not (tmp_path / "checkpoints/locked_test.chunked-ticknet.seeds0-1.json").exists()
 
     config.epochs = 2
     config.resume = True
@@ -165,7 +165,7 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
     second = train_module.train(config)
     assert second["duration_seconds"] > 0
     assert second["test"]["evaluated_dates"] == 1
-    history = tmp_path / "checkpoints/train_history.chunked-deeplob.seed0.json"
+    history = tmp_path / "checkpoints/train_history.chunked-ticknet.seed0.json"
     assert [row["epoch"] for row in json.loads(history.read_text())] == [1, 2]
 
     last_checkpoint = train_module._load_checkpoint(last_path, torch.device("cpu"))

@@ -18,14 +18,14 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 
-from deeplob.dataset import (
+from ticknet.dataset import (
     K_TO_LABEL_COLUMN,
     NUM_CLASSES,
     WINDOW_SIZE,
     FI2010WindowDataset,
     RandomLOBDataset,
 )
-from deeplob.model import build_model
+from ticknet.model import build_model
 
 
 @dataclass
@@ -48,7 +48,7 @@ class Config:
     resume: bool = True
     num_workers: int = 0
     checkpoint_dir: str = "./checkpoints"
-    checkpoint_name: str = "deeplob"
+    checkpoint_name: str = "ticknet"
     device: str = "cpu"
 
     def validate(self) -> None:

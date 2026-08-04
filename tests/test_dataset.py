@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from deeplob.dataset import (
+from ticknet.dataset import (
     K_TO_LABEL_COLUMN,
     NUM_FEATURES,
     TOTAL_COLUMNS,

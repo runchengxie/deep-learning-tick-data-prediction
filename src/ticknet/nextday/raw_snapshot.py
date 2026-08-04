@@ -18,9 +18,9 @@ import numpy as np
 import pyarrow.parquet as pq
 import yaml
 
-from deeplob.nextday.io import PreparedSample, write_sharded_dataset
-from deeplob.nextday.labels import DailyBar, NextDayTarget, build_next_day_targets
-from deeplob.nextday.splits import parse_date
+from ticknet.nextday.io import PreparedSample, write_sharded_dataset
+from ticknet.nextday.labels import DailyBar, NextDayTarget, build_next_day_targets
+from ticknet.nextday.splits import parse_date
 
 RAW_FEATURE_COLUMNS = tuple(
     name

@@ -12,14 +12,14 @@ from typing import Any
 
 import numpy as np
 
-from deeplob.dataset import NUM_FEATURES
-from deeplob.nextday.dataset import (
+from ticknet.dataset import NUM_FEATURES
+from ticknet.nextday.dataset import (
     FEATURE_NAMES,
     FORMAT_VERSION,
     file_sha256,
     manifest_fingerprint,
 )
-from deeplob.nextday.labels import NextDayTarget
+from ticknet.nextday.labels import NextDayTarget
 
 
 @dataclass(frozen=True)

@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> None:
     command = [
         sys.executable,
         "-m",
-        "deeplob.train",
+        "ticknet.train",
         "--config",
         str(REPOSITORY_ROOT / "configs" / "colab.yaml"),
         "--data-path",

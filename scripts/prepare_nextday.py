@@ -12,8 +12,8 @@ from typing import Any, cast
 
 import numpy as np
 
-from deeplob.nextday.io import PreparedSample, write_sharded_dataset
-from deeplob.nextday.labels import DailyBar, NextDayTarget, build_next_day_targets
+from ticknet.nextday.io import PreparedSample, write_sharded_dataset
+from ticknet.nextday.labels import DailyBar, NextDayTarget, build_next_day_targets
 
 
 def _read_calendar(path: Path) -> list[date]:
