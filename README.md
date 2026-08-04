@@ -44,7 +44,7 @@ Recall 和 F1。
 - 聚合日内特征加 Logistic Regression 基线
 - 现有沪深月度 snapshot Parquet 的动态股票池适配器
 - 可复制 Drive 分片并断点续训的 Colab notebook
-- 分片 SHA-256、数据清单指纹和可切换的 locked-test 评估
+- 分片 SHA-256、数据清单指纹和固定多种子 best checkpoint 的纯 locked-test 评估
 - 从原始 `N × 40` snapshot NPY 返回连续分数和方向概率的推理 CLI
 
 本机客户交付主线使用 `configs/nextday-raw.yaml` 生成 200-tick 数据，再用

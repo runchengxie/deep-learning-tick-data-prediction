@@ -174,14 +174,22 @@ deeplob-nextday-train --config configs/nextday.yaml
 分片 SHA-256。
 
 正式配置的 `evaluate_test` 默认为 `false`。此时训练只计算验证指标，结果 JSON 中的
-`test` 为 `null`。验证期模型和配置冻结后，使用相同 checkpoint 显式执行一次测试：
+`test` 为 `null`。验证期模型、配置和随机种子集合冻结后，使用纯评估入口一次读取全部
+best checkpoint：
 
 ```bash
-deeplob-nextday-train --config configs/nextday.yaml --evaluate-test
+deeplob-nextday-evaluate \
+  --seeds 0 1 2 3 4 \
+  --config configs/nextday.yaml
 ```
 
-`evaluate_test` 不进入 checkpoint 实验签名。上面的命令会恢复最佳模型并计算 locked
-test，不需要重新训练已经完成的 epoch。
+纯评估入口会在计算测试指标前确认全部 checkpoint 存在，并核对日期、数据指纹、模型和
+训练配置。它不创建优化器，不读取 last checkpoint，也不会进入训练循环。结果写入
+`locked_test.<checkpoint_name>.seeds0-1-2-3-4.json`，包含每个种子的指标以及跨种子的
+均值和样本标准差。不能按测试结果挑选种子。
+
+训练入口保留 `evaluate_test` 供 smoke 闭环使用。正式 locked test 使用上面的纯评估入口，
+避免恢复尚未达到 `epochs` 上限的训练任务。
 
 训练后可以直接把一只股票信号时点前的原始 `N × 40` snapshot NPY 转成次日信号：
 
@@ -224,8 +232,8 @@ python scripts/run_nextday_baseline.py `
 - 按预测分数最高组减最低组计算的无成本日均收益差
 
 多空收益差没有包含手续费、滑点、涨跌停、冲击成本和做空约束，不能当成可交易回测。
-模型选择默认使用验证期日均 Rank IC。测试期由 `evaluate_test` 显式解锁，只在训练和
-模型选择结束后评估一次。
+模型选择默认使用验证期日均 Rank IC。正式测试期由 `deeplob-nextday-evaluate` 显式解锁，
+只在训练和模型选择结束后评估固定 best checkpoint。
 
 ## 数据量和 Colab
 

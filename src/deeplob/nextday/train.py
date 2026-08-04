@@ -8,7 +8,8 @@ import math
 import os
 import platform
 import time
-from dataclasses import asdict, dataclass, fields
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,14 @@ from deeplob.nextday.splits import WalkForwardSplit
 from deeplob.train import resolve_device, set_seed
 
 SELECTION_METRICS = {"daily_rank_ic_mean", "macro_f1", "balanced_accuracy", "mcc"}
+LOCKED_TEST_AGGREGATE_METRICS = (
+    "daily_rank_ic_mean",
+    "macro_f1",
+    "balanced_accuracy",
+    "mcc",
+    "brier_score",
+    "daily_long_short_return_mean",
+)
 
 
 @dataclass
@@ -216,6 +225,152 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _environment(device: torch.device) -> dict[str, Any]:
+    return {
+        "python": platform.python_version(),
+        "numpy": np.__version__,
+        "torch": torch.__version__,
+        "device": str(device),
+        "cuda": torch.version.cuda,
+    }
+
+
+def _experiment_signature(config: NextDayConfig, dataset_fingerprint: str) -> dict[str, Any]:
+    signature = asdict(config)
+    for name in (
+        "epochs",
+        "resume",
+        "evaluate_test",
+        "verify_data_checksums",
+        "device",
+        "num_workers",
+    ):
+        signature.pop(name)
+    signature["dataset_fingerprint"] = dataset_fingerprint
+    return signature
+
+
+def _checkpoint_paths(config: NextDayConfig) -> tuple[str, Path, Path, Path, Path]:
+    root = Path(config.checkpoint_dir)
+    stem = f"{config.checkpoint_name}.seed{config.seed}"
+    return (
+        stem,
+        root / f"{stem}.last.pt",
+        root / f"{stem}.best.pt",
+        root / f"train_history.{stem}.json",
+        root / f"result.{stem}.json",
+    )
+
+
+def _aggregate_locked_test_metrics(per_seed: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregate: dict[str, Any] = {}
+    for metric in LOCKED_TEST_AGGREGATE_METRICS:
+        values = np.asarray([row["test"][metric] for row in per_seed], dtype=np.float64)
+        aggregate[metric] = {
+            "mean": float(np.mean(values)),
+            "std": float(np.std(values, ddof=1)) if values.size > 1 else 0.0,
+        }
+    return aggregate
+
+
+def evaluate_best_checkpoints(
+    config: NextDayConfig,
+    seeds: Sequence[int],
+) -> dict[str, Any]:
+    """只读取固定的最佳 checkpoint，并一次性评估 locked test。"""
+    started_at = time.perf_counter()
+    config.validate()
+    selected_seeds = tuple(int(seed) for seed in seeds)
+    if not selected_seeds:
+        raise ValueError("locked test 至少需要一个随机种子")
+    if len(set(selected_seeds)) != len(selected_seeds):
+        raise ValueError("locked test 随机种子不能重复")
+    if config.manifest_path is None:
+        raise ValueError("manifest_path 不能为空")
+
+    device = resolve_device(config.device)
+    test_dataset = NextDayShardDataset(
+        config.manifest_path,
+        date_split=config.date_split(),
+        split="test",
+        verify_checksums=config.verify_data_checksums,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.num_workers,
+        pin_memory=device.type == "cuda",
+        persistent_workers=config.num_workers > 0,
+    )
+
+    checkpoints: list[tuple[int, Path, dict[str, Any]]] = []
+    for seed in selected_seeds:
+        seed_config = replace(config, seed=seed)
+        _stem, _last_path, best_path, _history_path, _result_path = _checkpoint_paths(seed_config)
+        if not best_path.is_file():
+            raise FileNotFoundError(f"找不到 seed {seed} 的最佳 checkpoint：{best_path}")
+        checkpoint = _load_checkpoint(best_path, torch.device("cpu"))
+        expected_signature = _experiment_signature(
+            seed_config,
+            test_dataset.dataset_fingerprint,
+        )
+        if checkpoint.get("experiment") != expected_signature:
+            raise ValueError(f"{best_path} 的实验配置与 locked test 配置不同")
+        checkpoints.append((seed, best_path, checkpoint))
+
+    per_seed: list[dict[str, Any]] = []
+    for seed, best_path, checkpoint in checkpoints:
+        set_seed(seed)
+        model = build_nextday_model(
+            chunks_per_sample=test_dataset.chunks_per_sample,
+            chunk_size=test_dataset.chunk_size,
+            intraday_embedding_size=config.intraday_embedding_size,
+            day_hidden_size=config.day_hidden_size,
+            day_layers=config.day_layers,
+            dropout=config.dropout,
+        ).to(device)
+        model.load_state_dict(checkpoint["model"])
+        metrics = evaluate(
+            model,
+            test_loader,
+            device,
+            min_symbols_per_day=config.min_symbols_per_day,
+            portfolio_quantile=config.portfolio_quantile,
+        )
+        per_seed.append(
+            {
+                "seed": seed,
+                "best_epoch": int(checkpoint["epoch"]),
+                "best_selection_value": float(checkpoint["best_selection_value"]),
+                "best_checkpoint": str(best_path),
+                "test": metrics,
+            }
+        )
+        del model
+
+    seed_label = "-".join(str(seed) for seed in selected_seeds)
+    result_path = (
+        Path(config.checkpoint_dir) / f"locked_test.{config.checkpoint_name}.seeds{seed_label}.json"
+    )
+    result = {
+        "mode": "best_checkpoint_locked_test",
+        "config": asdict(config),
+        "seeds": list(selected_seeds),
+        "samples": {"test": len(test_dataset)},
+        "environment": _environment(device),
+        "duration_seconds": time.perf_counter() - started_at,
+        "dataset_fingerprint": test_dataset.dataset_fingerprint,
+        "per_seed": per_seed,
+        "aggregate": _aggregate_locked_test_metrics(per_seed),
+        "result_file": str(result_path),
+    }
+    safe_result = _json_safe(result)
+    _atomic_json(result_path, safe_result)
+    print(json.dumps(safe_result, ensure_ascii=False, indent=2))
+    return safe_result
+
+
 def train(config: NextDayConfig) -> dict[str, Any]:
     """训练分块模型并在完整测试日期区间上评估。"""
     started_at = time.perf_counter()
@@ -251,20 +406,8 @@ def train(config: NextDayConfig) -> dict[str, Any]:
     use_amp = config.amp and device.type == "cuda"
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
-    root = Path(config.checkpoint_dir)
-    stem = f"{config.checkpoint_name}.seed{config.seed}"
-    last_path = root / f"{stem}.last.pt"
-    best_path = root / f"{stem}.best.pt"
-    history_path = root / f"train_history.{stem}.json"
-    result_path = root / f"result.{stem}.json"
-    signature = asdict(config)
-    signature.pop("epochs")
-    signature.pop("resume")
-    signature.pop("evaluate_test")
-    signature.pop("verify_data_checksums")
-    signature.pop("device")
-    signature.pop("num_workers")
-    signature["dataset_fingerprint"] = train_dataset.dataset_fingerprint
+    _stem, last_path, best_path, history_path, result_path = _checkpoint_paths(config)
+    signature = _experiment_signature(config, train_dataset.dataset_fingerprint)
 
     start_epoch = 0
     best_selection_value = -math.inf
@@ -284,7 +427,12 @@ def train(config: NextDayConfig) -> dict[str, Any]:
         history = list(checkpoint.get("history", []))
         print(f"从第 {start_epoch} 个 epoch 后继续训练：{last_path}")
 
-    for epoch in range(start_epoch, config.epochs):
+    can_continue = epochs_without_improvement < config.patience
+    if not can_continue:
+        print("checkpoint 已达到 early stopping 条件，跳过后续训练。")
+
+    epoch_range = range(start_epoch, config.epochs) if can_continue else range(0)
+    for epoch in epoch_range:
         epoch_started_at = time.perf_counter()
         model.train()
         total_loss = 0.0
@@ -394,13 +542,7 @@ def train(config: NextDayConfig) -> dict[str, Any]:
             "val": len(val_dataset),
             "test": len(test_dataset),
         },
-        "environment": {
-            "python": platform.python_version(),
-            "numpy": np.__version__,
-            "torch": torch.__version__,
-            "device": str(device),
-            "cuda": torch.version.cuda,
-        },
+        "environment": _environment(device),
         "duration_seconds": time.perf_counter() - started_at,
         "dataset_fingerprint": train_dataset.dataset_fingerprint,
         "best_selection_value": best_selection_value,
@@ -456,6 +598,15 @@ def load_config(argv: list[str] | None = None) -> NextDayConfig:
 
 def main(argv: list[str] | None = None) -> None:
     train(load_config(argv))
+
+
+def evaluate_main(argv: list[str] | None = None) -> None:
+    probe = argparse.ArgumentParser(
+        description="用固定 best checkpoint 一次性评估次日 locked test",
+    )
+    probe.add_argument("--seeds", nargs="+", type=int, required=True)
+    arguments, remaining = probe.parse_known_args(argv)
+    evaluate_best_checkpoints(load_config(remaining), arguments.seeds)
 
 
 if __name__ == "__main__":

@@ -140,7 +140,24 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
     first = train_module.train(config)
     assert first["samples"] == {"train": 3, "val": 3, "test": 3}
     assert first["test"] is None
-    assert (tmp_path / "checkpoints/chunked-deeplob.seed0.best.pt").is_file()
+    best_path = tmp_path / "checkpoints/chunked-deeplob.seed0.best.pt"
+    last_path = tmp_path / "checkpoints/chunked-deeplob.seed0.last.pt"
+    assert best_path.is_file()
+
+    best_before = best_path.read_bytes()
+    last_before = last_path.read_bytes()
+    locked_test = train_module.evaluate_best_checkpoints(config, [0])
+    assert locked_test["mode"] == "best_checkpoint_locked_test"
+    assert locked_test["samples"] == {"test": 3}
+    assert locked_test["per_seed"][0]["best_epoch"] == 1
+    assert locked_test["per_seed"][0]["test"]["evaluated_dates"] == 1
+    assert locked_test["aggregate"]["daily_rank_ic_mean"]["std"] == 0.0
+    assert best_path.read_bytes() == best_before
+    assert last_path.read_bytes() == last_before
+
+    with pytest.raises(FileNotFoundError, match="seed 1"):
+        train_module.evaluate_best_checkpoints(config, [0, 1])
+    assert not (tmp_path / "checkpoints/locked_test.chunked-deeplob.seeds0-1.json").exists()
 
     config.epochs = 2
     config.resume = True
@@ -149,6 +166,13 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
     assert second["duration_seconds"] > 0
     assert second["test"]["evaluated_dates"] == 1
     history = tmp_path / "checkpoints/train_history.chunked-deeplob.seed0.json"
+    assert [row["epoch"] for row in json.loads(history.read_text())] == [1, 2]
+
+    last_checkpoint = train_module._load_checkpoint(last_path, torch.device("cpu"))
+    last_checkpoint["epochs_without_improvement"] = config.patience
+    torch.save(last_checkpoint, last_path)
+    config.epochs = 3
+    train_module.train(config)
     assert [row["epoch"] for row in json.loads(history.read_text())] == [1, 2]
 
     manifest_content = json.loads(manifest.read_text(encoding="utf-8"))
