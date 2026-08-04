@@ -244,6 +244,20 @@ checkpoint 和结果。不要通过 Drive 挂载点直接随机训练。可运�
 本机 CPU 用于一次性提取原始 tick 分片和数据审计，Colab GPU 用于端到端训练。现有
 `level2_minute_cache` 用来建立低成本对照，判断原始 tick 是否真的带来额外价值。
 
+2024 受控 pilot 使用动态前 100 股票和最后 200 个盘口事件：
+
+```bash
+deeplob-nextday-prepare-snapshot --config configs/nextday-raw-pilot.yaml
+python scripts/run_nextday_baseline.py --config configs/nextday-pilot.yaml \
+  --output results/nextday-pilot-baseline.json
+```
+
+`configs/nextday-pilot.yaml` 使用 2024H1 训练、2024Q3 验证和 2024Q4 测试。默认
+`evaluate_test: false`，因此基线和 DeepLOB 选模阶段都不会输出测试指标。日度横截面
+指标至少要求 80 只股票，低于动态股票池 80% 覆盖的日期不进入日度指标。
+规范月文件读取损坏时，转换器只会在目标交易日的逐日 snapshot 备份完整时回退，并在
+`data-audit.json` 记录回退月份和文件数。逐日备份不完整时会停止运行。
+
 ## 当前限制和下一步
 
 当前版本已经实现真实月度 snapshot 适配、双头分块编码、AMP、梯度累积、断点恢复和

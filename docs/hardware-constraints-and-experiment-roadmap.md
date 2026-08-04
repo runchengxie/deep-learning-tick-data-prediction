@@ -39,7 +39,7 @@
 | GPU | GeForce GTX 970，当前由 `nouveau` 驱动 | PyTorch 的 `cuda_available=False`，训练时按无可用 GPU 处理 |
 | 内部盘 | NVMe 可用约 619 GB | 保存筛选后的训练集、缓存、checkpoint 和结果 |
 | 数据盘 | USB 机械硬盘，6 TB，剩余约 890 GB | 保存原始数据，适合顺序扫描，不适合训练期随机读取 |
-| Google Drive | 当前可用约 9.96 GiB | 只够保存一份约 8 GB 的 raw-200 工作集及少量 checkpoint |
+| Google Drive | 当前可用约 94.96 GiB | 可保存 pilot、正式 raw-200 工作集、checkpoint 和结果，原始数据仍保留在本地数据盘 |
 
 GTX 970 不作为主路线。为 4 GB 老显卡维护另一套驱动、CUDA 和 PyTorch 环境，会增加
 实验复现成本，仍然无法容纳理想 batch。GPU 训练优先使用 Colab 或按需云 GPU。
@@ -264,6 +264,20 @@ results/data-audit/
 ### 客户主线：原始盘口端到端模型
 
 原始盘口是当前客户交付主模型，同时回答：分钟聚合是否丢失了可用于次日预测的信息。
+
+正式实验前先运行受控 pilot：
+
+```text
+2024 全年
+动态前 100 股票
+最后 200 个盘口事件
+2024H1 训练、2024Q3 验证、2024Q4 锁定测试
+```
+
+数据和训练配置分别位于 `configs/nextday-raw-pilot.yaml` 和
+`configs/nextday-pilot.yaml`。pilot 先完成数据审计、Logistic 基线和 100 个 batch 的
+Colab 吞吐测试，再确定端到端训练预算。日度指标要求至少 80 只股票，测试集只在模型和
+训练设置冻结后解锁一次。
 
 第一轮配置为：
 

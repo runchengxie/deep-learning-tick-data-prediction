@@ -8,7 +8,7 @@ import json
 import math
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, time, timedelta
 from itertools import pairwise
 from pathlib import Path
@@ -130,6 +130,9 @@ class ExtractionReport:
     invalid_lob_rows: int = 0
     scanned_row_groups: int = 0
     skipped_row_groups: int = 0
+    monthly_file_errors: int = 0
+    daily_fallback_files: int = 0
+    daily_fallback_months: list[str] = field(default_factory=list)
 
 
 def _yyyymmdd(value: object) -> date:
@@ -523,6 +526,41 @@ def _read_month_tail(
     return buffers
 
 
+def _read_daily_month_tail(
+    root: Path,
+    year: int,
+    month: int,
+    targets: Mapping[tuple[date, str], NextDayTarget],
+    config: SnapshotPreparationConfig,
+    report: ExtractionReport,
+) -> dict[tuple[date, str], tuple[np.ndarray, np.ndarray]]:
+    """月文件损坏时，从覆盖完整的逐日备份读取同月目标。"""
+    target_dates = sorted({trading_date for trading_date, _symbol in targets})
+    paths = {
+        trading_date: root / f"snapshot_{trading_date:%Y%m%d}.parquet"
+        for trading_date in target_dates
+    }
+    missing = [
+        trading_date.isoformat() for trading_date, path in paths.items() if not path.is_file()
+    ]
+    if missing:
+        preview = ", ".join(missing[:5])
+        raise FileNotFoundError(f"逐日 snapshot 备份不完整，缺少交易日：{preview}")
+
+    buffers: dict[tuple[date, str], tuple[np.ndarray, np.ndarray]] = {}
+    for trading_date, path in paths.items():
+        daily_targets = {key: target for key, target in targets.items() if key[0] == trading_date}
+        daily_buffers = _read_month_tail(path, daily_targets, config, report)
+        overlap = set(buffers).intersection(daily_buffers)
+        if overlap:
+            raise ValueError(f"逐日 snapshot 产生重复股票日：{sorted(overlap)[:5]}")
+        buffers.update(daily_buffers)
+
+    report.daily_fallback_files += len(paths)
+    report.daily_fallback_months.append(f"{year:04d}-{month:02d}")
+    return buffers
+
+
 def _timestamp(trading_date: date, relative_ms: int) -> datetime:
     return datetime.combine(trading_date, time(9, 30)) + timedelta(milliseconds=int(relative_ms))
 
@@ -551,7 +589,33 @@ def iter_snapshot_samples(
         if not path.is_file():
             report.missing_snapshot += len(month_targets)
             continue
-        buffers = _read_month_tail(path, month_targets, config, report)
+        counters = (
+            report.invalid_lob_rows,
+            report.scanned_row_groups,
+            report.skipped_row_groups,
+        )
+        try:
+            buffers = _read_month_tail(path, month_targets, config, report)
+        except OSError as monthly_error:
+            (
+                report.invalid_lob_rows,
+                report.scanned_row_groups,
+                report.skipped_row_groups,
+            ) = counters
+            try:
+                buffers = _read_daily_month_tail(
+                    root,
+                    year,
+                    month,
+                    month_targets,
+                    config,
+                    report,
+                )
+            except (OSError, ValueError) as fallback_error:
+                raise OSError(
+                    f"月度 snapshot {path} 无法读取，逐日备份回退也失败：{fallback_error}"
+                ) from monthly_error
+            report.monthly_file_errors += 1
         for key, target in sorted(month_targets.items()):
             buffered = buffers.get(key)
             if buffered is None:
