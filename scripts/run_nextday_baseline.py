@@ -49,7 +49,7 @@ def _safe_json(value: Any) -> Any:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="运行次日方向 Logistic Regression 基线")
     parser.add_argument("--config", required=True)
-    parser.add_argument("--max-iter", type=int, default=500)
+    parser.add_argument("--max-iter", type=int, default=2000)
     parser.add_argument("--output", type=Path, default=Path("results/nextday-baseline.json"))
     parser.add_argument("--evaluate-test", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args(argv)
@@ -106,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
     result = _safe_json(
         {
             "model": "aggregate_lob_logistic_regression",
+            "dataset_fingerprint": train.dataset_fingerprint,
             "feature_count": int(train_x.shape[1]),
             "samples": {"train": len(train), "val": len(validation), "test": len(test)},
             "validation": metrics(validation, val_y, val_x),

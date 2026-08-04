@@ -1,0 +1,37 @@
+# 2024 raw-200 pilot。四季度测试集保持锁定，训练和选模只查看验证期。
+
+manifest_path: ./data/nextday-raw-pilot-2024-top100/manifest.json
+train_start: "2024-01-01"
+train_end: "2024-06-30"
+val_start: "2024-07-01"
+val_end: "2024-09-30"
+test_start: "2024-10-01"
+test_end: "2024-12-31"
+
+epochs: 10
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0001
+patience: 4
+seed: 0
+num_workers: 2
+device: cuda
+resume: true
+evaluate_test: false
+verify_data_checksums: true
+
+checkpoint_dir: ./checkpoints-nextday-pilot
+checkpoint_name: raw-200-pilot-2024-top100
+intraday_embedding_size: 64
+day_hidden_size: 64
+day_layers: 1
+dropout: 0.1
+class_weighting: balanced
+selection_metric: daily_rank_ic_mean
+# 低于动态股票池 80% 覆盖的日期不进入日度横截面指标。
+min_symbols_per_day: 80
+portfolio_quantile: 0.1
+classification_loss_weight: 1.0
+regression_loss_weight: 0.5
+gradient_accumulation_steps: 1
+amp: true

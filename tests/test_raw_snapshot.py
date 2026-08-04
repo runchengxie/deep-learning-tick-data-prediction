@@ -8,9 +8,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+import deeplob.nextday.raw_snapshot as raw_snapshot
 from deeplob.nextday.raw_snapshot import (
     RAW_FEATURE_COLUMNS,
     DailyPanel,
+    ExtractionReport,
     SnapshotPreparationConfig,
     build_dynamic_universe,
     load_snapshot_config,
@@ -172,3 +174,53 @@ def test_prepare_snapshot_dataset_writes_float16_end_to_end_shards(tmp_path):
     assert audit["extraction"]["invalid_lob_rows"] == 4
     assert {sample["valid_events"] for sample in manifest["samples"]} == {2}
     assert np.load(output / manifest["shards"][0]["path"]).dtype == np.float16
+
+
+def test_corrupt_month_falls_back_to_complete_daily_snapshots(tmp_path, monkeypatch):
+    snapshot_root = tmp_path / "snapshot"
+    snapshot_root.mkdir()
+    monthly_path = snapshot_root / "snapshot_202401.parquet"
+    daily_path = snapshot_root / "snapshot_20240102.parquet"
+    monthly_path.touch()
+    daily_path.touch()
+    trading_date = date(2024, 1, 2)
+    target = raw_snapshot.NextDayTarget(
+        symbol="000001",
+        trading_date=trading_date,
+        label_date=date(2024, 1, 3),
+        raw_return=0.01,
+        target_return=0.01,
+        label=2,
+    )
+    events = np.asarray([_lob_row(100, 10)], dtype=np.float64)
+
+    def fake_read(path, targets, _config, report):
+        if path == monthly_path:
+            report.scanned_row_groups += 5
+            raise OSError("corrupt page header")
+        assert path == daily_path
+        assert set(targets) == {(trading_date, "000001")}
+        report.scanned_row_groups += 1
+        return {(trading_date, "000001"): (np.asarray([18_000_000]), events)}
+
+    monkeypatch.setattr(raw_snapshot, "_read_month_tail", fake_read)
+    config = SnapshotPreparationConfig(
+        snapshot_root=str(snapshot_root),
+        basic_root="unused",
+        benchmark_path="unused",
+        output_dir="unused",
+        start_date="2024-01-02",
+        end_date="2024-01-02",
+        chunks_per_sample=1,
+        chunk_size=1,
+        min_valid_events=1,
+    )
+    report = ExtractionReport()
+
+    samples = list(raw_snapshot.iter_snapshot_samples(config, [target], report))
+
+    assert len(samples) == 1
+    assert report.monthly_file_errors == 1
+    assert report.daily_fallback_files == 1
+    assert report.daily_fallback_months == ["2024-01"]
+    assert report.scanned_row_groups == 1
