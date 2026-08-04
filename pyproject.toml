@@ -30,6 +30,7 @@ dev = [
 [project.scripts]
 deeplob-train = "deeplob.train:main"
 deeplob-nextday-train = "deeplob.nextday.train:main"
+deeplob-nextday-evaluate = "deeplob.nextday.train:evaluate_main"
 deeplob-nextday-prepare-snapshot = "deeplob.nextday.raw_snapshot:main"
 deeplob-nextday-predict = "deeplob.nextday.inference:main"
 
