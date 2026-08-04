@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -26,6 +27,28 @@ FEATURE_NAMES = tuple(
         f"bid_size_{level}",
     )
 )
+
+
+def file_sha256(path: str | Path) -> str:
+    """顺序计算文件 SHA-256，不把大分片读入内存。"""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as file:
+        while block := file.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def manifest_fingerprint(manifest: dict[str, Any]) -> str:
+    """计算不包含自身 fingerprint 字段的稳定数据清单指纹。"""
+    content = {key: value for key, value in manifest.items() if key != "dataset_fingerprint"}
+    payload = json.dumps(
+        content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -123,6 +146,7 @@ class NextDayShardDataset(Dataset):
         *,
         date_split: WalkForwardSplit,
         split: str,
+        verify_checksums: bool = False,
     ) -> None:
         self.manifest_path = Path(manifest_path).expanduser().resolve()
         with self.manifest_path.open(encoding="utf-8") as file:
@@ -131,6 +155,14 @@ class NextDayShardDataset(Dataset):
             raise ValueError("数据清单根节点应为对象")
         if manifest.get("format_version") != FORMAT_VERSION:
             raise ValueError(f"数据清单 format_version 应为 {FORMAT_VERSION}")
+        computed_fingerprint = manifest_fingerprint(manifest)
+        stored_fingerprint = manifest.get("dataset_fingerprint")
+        if stored_fingerprint is not None:
+            if not isinstance(stored_fingerprint, str) or len(stored_fingerprint) != 64:
+                raise ValueError("数据清单 dataset_fingerprint 应为 SHA-256")
+            if stored_fingerprint != computed_fingerprint:
+                raise ValueError("数据清单 dataset_fingerprint 与内容不一致")
+        self.dataset_fingerprint = stored_fingerprint or computed_fingerprint
 
         self.chunks_per_sample = self._positive_int(manifest, "chunks_per_sample")
         self.chunk_size = self._positive_int(manifest, "chunk_size")
@@ -149,6 +181,8 @@ class NextDayShardDataset(Dataset):
             raise ValueError("数据清单缺少非空的 shards 列表")
         self._shard_paths: list[Path] = []
         shard_rows: list[int] = []
+        shard_bytes: list[int | None] = []
+        shard_checksums: list[str | None] = []
         for index, raw_shard in enumerate(raw_shards):
             if not isinstance(raw_shard, dict):
                 raise ValueError(f"shards[{index}] 应为对象")
@@ -162,8 +196,19 @@ class NextDayShardDataset(Dataset):
                 path = self.manifest_path.parent / path
             if rows < 1:
                 raise ValueError(f"shards[{index}] 的 samples 应为正整数")
+            raw_bytes = shard_values.get("bytes")
+            expected_bytes = None if raw_bytes is None else int(raw_bytes)
+            if expected_bytes is not None and expected_bytes < 1:
+                raise ValueError(f"shards[{index}] 的 bytes 应为正整数")
+            raw_checksum = shard_values.get("sha256")
+            if raw_checksum is not None and (
+                not isinstance(raw_checksum, str) or len(raw_checksum) != 64
+            ):
+                raise ValueError(f"shards[{index}] 的 sha256 格式无效")
             self._shard_paths.append(path.resolve())
             shard_rows.append(rows)
+            shard_bytes.append(expected_bytes)
+            shard_checksums.append(raw_checksum)
 
         total_events = self.chunks_per_sample * self.chunk_size
         raw_samples = manifest.get("samples")
@@ -174,7 +219,12 @@ class NextDayShardDataset(Dataset):
             for index, raw in enumerate(raw_samples)
         ]
         self._validate_positions(all_records, shard_rows)
-        self._validate_shards(shard_rows)
+        self._validate_shards(
+            shard_rows,
+            shard_bytes,
+            shard_checksums,
+            verify_checksums=verify_checksums,
+        )
 
         wanted = date_split.range_for(split)
         self.records = [
@@ -217,13 +267,35 @@ class NextDayShardDataset(Dataset):
                 raise ValueError(f"股票交易日重复：{record.symbol} {record.trading_date}")
             keys.add(key)
 
-    def _validate_shards(self, expected_rows: list[int]) -> None:
+    def _validate_shards(
+        self,
+        expected_rows: list[int],
+        expected_bytes: list[int | None],
+        expected_checksums: list[str | None],
+        *,
+        verify_checksums: bool,
+    ) -> None:
         expected_tail = (self.chunks_per_sample, self.chunk_size, self.num_features)
-        for index, (path, rows) in enumerate(zip(self._shard_paths, expected_rows, strict=True)):
+        for index, (path, rows, byte_count, checksum) in enumerate(
+            zip(
+                self._shard_paths,
+                expected_rows,
+                expected_bytes,
+                expected_checksums,
+                strict=True,
+            )
+        ):
             if path.suffix != ".npy":
                 raise ValueError(f"分片应为 .npy 文件，收到 {path}")
             if not path.is_file():
                 raise ValueError(f"分片不存在：{path}")
+            if byte_count is not None and path.stat().st_size != byte_count:
+                raise ValueError(f"分片 {path} 的文件大小与数据清单不一致")
+            if verify_checksums:
+                if checksum is None:
+                    raise ValueError(f"分片 {path} 缺少 sha256，不能执行完整校验")
+                if file_sha256(path) != checksum:
+                    raise ValueError(f"分片 {path} 的 sha256 与数据清单不一致")
             array = np.load(path, mmap_mode="r")
             if array.dtype != self.storage_dtype:
                 raise ValueError(f"分片 {path} 应为 {self.storage_dtype}，实际为 {array.dtype}")

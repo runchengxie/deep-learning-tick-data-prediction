@@ -107,6 +107,6 @@ CuDNN 确定性选项。每次训练会在结果 JSON 中保存 Python、NumPy�
 ## 参考依据
 
 - 仓库内 `references/1808.03668v6.pdf`
-- 仓库内 `references/DeepLOB-论文整理.md`
+- 仓库内 `references/deeplob-paper-notes.md`
 - [作者公开 PyTorch 实现](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
 - [FI-2010 数据集页面](https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649)

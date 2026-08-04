@@ -125,13 +125,16 @@ def test_prepare_snapshot_dataset_writes_float16_end_to_end_shards(tmp_path):
     rows.update({column: [] for column in RAW_FEATURE_COLUMNS})
     for symbol in symbols:
         for trading_date in dates[1:3]:
-            for event_index in range(3):
+            for event_index in range(4):
                 rows["ticker"].append(symbol)
                 rows["TradingDay"].append(int(trading_date.strftime("%Y%m%d")))
                 rows["time_ms"].append(18_000_000 + event_index * 1000)
+                values = _lob_row(100 + event_index, 10)
+                if event_index == 3:
+                    values[0] = 0.0
                 for column, value in zip(
                     RAW_FEATURE_COLUMNS,
-                    _lob_row(100 + event_index, 10),
+                    values,
                     strict=True,
                 ):
                     rows[column].append(value)
@@ -166,4 +169,6 @@ def test_prepare_snapshot_dataset_writes_float16_end_to_end_shards(tmp_path):
     assert manifest["metadata"]["signal_time_ms"] == 19_500_000
     assert len(manifest["samples"]) == 4
     assert audit["extraction"]["written_samples"] == 4
+    assert audit["extraction"]["invalid_lob_rows"] == 4
+    assert {sample["valid_events"] for sample in manifest["samples"]} == {2}
     assert np.load(output / manifest["shards"][0]["path"]).dtype == np.float16

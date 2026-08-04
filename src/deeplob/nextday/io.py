@@ -13,7 +13,12 @@ from typing import Any
 import numpy as np
 
 from deeplob.dataset import NUM_FEATURES
-from deeplob.nextday.dataset import FEATURE_NAMES, FORMAT_VERSION
+from deeplob.nextday.dataset import (
+    FEATURE_NAMES,
+    FORMAT_VERSION,
+    file_sha256,
+    manifest_fingerprint,
+)
 from deeplob.nextday.labels import NextDayTarget
 
 
@@ -119,9 +124,15 @@ def write_sharded_dataset(
         shard_index = len(manifest["shards"])
         relative_path = Path("shards") / f"part-{shard_index:05d}.npy"
         array = np.stack(buffer).astype(target_dtype, copy=False)
-        _atomic_save(root / relative_path, array)
+        shard_path = root / relative_path
+        _atomic_save(shard_path, array)
         manifest["shards"].append(
-            {"path": relative_path.as_posix(), "samples": int(array.shape[0])}
+            {
+                "path": relative_path.as_posix(),
+                "samples": int(array.shape[0]),
+                "bytes": shard_path.stat().st_size,
+                "sha256": file_sha256(shard_path),
+            }
         )
         for row, record in enumerate(pending_records):
             record["shard"] = shard_index
@@ -172,6 +183,7 @@ def write_sharded_dataset(
 
     if not manifest["samples"]:
         raise ValueError("没有可写入的样本")
+    manifest["dataset_fingerprint"] = manifest_fingerprint(manifest)
     manifest_path = root / "manifest.json"
     _atomic_json(manifest_path, manifest)
     return manifest_path

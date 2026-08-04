@@ -12,9 +12,10 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from deeplob.nextday.dataset import manifest_fingerprint
 from deeplob.nextday.io import pack_events
 from deeplob.nextday.model import ChunkedDeepLOB, build_nextday_model
-from deeplob.nextday.raw_snapshot import normalize_lob_events
+from deeplob.nextday.raw_snapshot import normalize_lob_events, valid_lob_event_rows
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,11 @@ class NextDayPredictor:
             manifest = json.load(file)
         if not isinstance(manifest, dict):
             raise ValueError("manifest 根节点应为对象")
+        computed_fingerprint = manifest_fingerprint(manifest)
+        stored_fingerprint = manifest.get("dataset_fingerprint")
+        if stored_fingerprint is not None and stored_fingerprint != computed_fingerprint:
+            raise ValueError("manifest dataset_fingerprint 与内容不一致")
+        self.dataset_fingerprint = stored_fingerprint or computed_fingerprint
         self.chunks_per_sample = int(manifest["chunks_per_sample"])
         self.chunk_size = int(manifest["chunk_size"])
         self.total_events = self.chunks_per_sample * self.chunk_size
@@ -65,6 +71,9 @@ class NextDayPredictor:
             raise ValueError("manifest metadata 应为对象")
         normalization = metadata.get("normalization")
         self.normalization = normalization if isinstance(normalization, dict) else None
+        self.min_valid_events = int(metadata.get("min_valid_events", 1))
+        if not 1 <= self.min_valid_events <= self.total_events:
+            raise ValueError("manifest min_valid_events 超出窗口范围")
 
         checkpoint = _load_checkpoint(
             Path(checkpoint_path).expanduser().resolve(),
@@ -73,6 +82,12 @@ class NextDayPredictor:
         experiment = checkpoint.get("experiment")
         if not isinstance(experiment, dict):
             raise ValueError("checkpoint 缺少 experiment 配置")
+        checkpoint_fingerprint = experiment.get("dataset_fingerprint")
+        if (
+            checkpoint_fingerprint is not None
+            and checkpoint_fingerprint != self.dataset_fingerprint
+        ):
+            raise ValueError("checkpoint 与 manifest 的数据指纹不一致")
         self.model: ChunkedDeepLOB = build_nextday_model(
             chunks_per_sample=self.chunks_per_sample,
             chunk_size=self.chunk_size,
@@ -125,7 +140,12 @@ class NextDayPredictor:
         """预测原始价格/数量排列的 ``N × 40`` snapshot tick。"""
         if self.normalization is None:
             raise ValueError("manifest 未记录原始 snapshot 归一化契约")
-        selected = np.asarray(raw_events)[-self.total_events :]
+        events = np.asarray(raw_events)
+        selected = events[valid_lob_event_rows(events)][-self.total_events :]
+        if selected.shape[0] < self.min_valid_events:
+            raise ValueError(
+                f"有效盘口事件不足：至少需要 {self.min_valid_events}，实际为 {selected.shape[0]}"
+            )
         normalized = normalize_lob_events(
             selected,
             price_scale_bps=float(self.normalization["price_scale_bps"]),

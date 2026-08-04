@@ -18,6 +18,8 @@ seed: 0
 num_workers: 2
 device: cuda
 resume: true
+evaluate_test: false
+verify_data_checksums: true
 
 checkpoint_dir: ./checkpoints-nextday
 checkpoint_name: raw-200-dual-head

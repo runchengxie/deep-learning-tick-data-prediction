@@ -72,6 +72,19 @@ def test_predictor_returns_score_probabilities_and_direction(tmp_path):
     assert signal.expected_excess_return == pytest.approx(signal.score * 0.02 + 0.001)
 
 
+def test_predictor_filters_invalid_rows_before_selecting_the_tail(tmp_path):
+    checkpoint, manifest = _artifacts(tmp_path)
+    predictor = NextDayPredictor(checkpoint, manifest)
+    raw = _raw_events(21)
+    invalid = raw.copy()
+    invalid[-1, 0] = 0.0
+
+    expected = predictor.predict_raw_snapshot(raw[:-1])
+    actual = predictor.predict_raw_snapshot(invalid)
+    assert actual.score == pytest.approx(expected.score)
+    assert actual.probabilities == pytest.approx(expected.probabilities)
+
+
 def test_prediction_cli_accepts_normalized_npy(tmp_path, capsys):
     checkpoint, manifest = _artifacts(tmp_path)
     events = tmp_path / "events.npy"

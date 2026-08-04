@@ -123,6 +123,29 @@ def test_float16_storage_is_cast_back_and_can_return_continuous_target(tmp_path)
     assert target_return == pytest.approx(0.008)
 
 
+def test_writer_records_content_fingerprint_and_dataset_verifies_it(tmp_path):
+    manifest_path = write_sharded_dataset(
+        [_sample(2, 3)],
+        tmp_path,
+        chunks_per_sample=1,
+        chunk_size=4,
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(manifest["dataset_fingerprint"]) == 64
+    assert len(manifest["shards"][0]["sha256"]) == 64
+    NextDayShardDataset(
+        manifest_path,
+        date_split=_split(),
+        split="train",
+        verify_checksums=True,
+    )
+
+    manifest["samples"][0]["target_return"] = 0.123
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="dataset_fingerprint"):
+        NextDayShardDataset(manifest_path, date_split=_split(), split="train")
+
+
 def test_dataset_rejects_wrong_shard_shape(tmp_path):
     manifest_path = write_sharded_dataset(
         [_sample(2, 3)],
@@ -133,5 +156,5 @@ def test_dataset_rejects_wrong_shard_shape(tmp_path):
     metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
     shard_path = manifest_path.parent / metadata["shards"][0]["path"]
     np.save(shard_path, np.zeros((1, 2, 2, 40), dtype=np.float32))
-    with pytest.raises(ValueError, match="形状应为"):
+    with pytest.raises(ValueError, match=r"文件大小|形状应为"):
         NextDayShardDataset(manifest_path, date_split=_split(), split="train")
