@@ -15,7 +15,7 @@ signal_time_ms: 19500000
 
 chunks_per_sample: 2
 chunk_size: 100
-min_valid_events: 150
+min_valid_events: 200
 top_n: 400
 min_history_days: 120
 liquidity_lookback_days: 20

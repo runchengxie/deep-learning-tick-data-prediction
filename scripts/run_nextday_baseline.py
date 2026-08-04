@@ -51,17 +51,25 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--max-iter", type=int, default=500)
     parser.add_argument("--output", type=Path, default=Path("results/nextday-baseline.json"))
+    parser.add_argument("--evaluate-test", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args(argv)
-    config = load_config(["--config", args.config])
+    config_args = ["--config", args.config]
+    if args.evaluate_test is not None:
+        config_args.append("--evaluate-test" if args.evaluate_test else "--no-evaluate-test")
+    config = load_config(config_args)
     if config.manifest_path is None:
         raise ValueError("manifest_path 不能为空")
     date_split = config.date_split()
-    train = NextDayShardDataset(config.manifest_path, date_split=date_split, split="train")
+    train = NextDayShardDataset(
+        config.manifest_path,
+        date_split=date_split,
+        split="train",
+        verify_checksums=config.verify_data_checksums,
+    )
     validation = NextDayShardDataset(config.manifest_path, date_split=date_split, split="val")
     test = NextDayShardDataset(config.manifest_path, date_split=date_split, split="test")
     train_x, train_y = _aggregate(train)
     val_x, val_y = _aggregate(validation)
-    test_x, test_y = _aggregate(test)
 
     model = make_pipeline(
         StandardScaler(),
@@ -90,13 +98,18 @@ def main(argv: list[str] | None = None) -> None:
             portfolio_quantile=config.portfolio_quantile,
         )
 
+    test_metrics = None
+    if config.evaluate_test:
+        test_x, test_y = _aggregate(test)
+        test_metrics = metrics(test, test_y, test_x)
+
     result = _safe_json(
         {
             "model": "aggregate_lob_logistic_regression",
             "feature_count": int(train_x.shape[1]),
             "samples": {"train": len(train), "val": len(validation), "test": len(test)},
             "validation": metrics(validation, val_y, val_x),
-            "test": metrics(test, test_y, test_x),
+            "test": test_metrics,
         }
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

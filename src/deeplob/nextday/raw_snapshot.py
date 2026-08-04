@@ -376,6 +376,20 @@ def normalize_lob_events(
     return normalized.astype(np.float32)
 
 
+def valid_lob_event_rows(raw_events: np.ndarray) -> np.ndarray:
+    """返回价格、数量和有限值均有效的逐事件布尔掩码。"""
+    events = np.asarray(raw_events)
+    if events.ndim != 2 or events.shape[1] != len(RAW_FEATURE_COLUMNS):
+        raise ValueError(f"raw_events 应为 N × {len(RAW_FEATURE_COLUMNS)}")
+    prices = events[:, PRICE_INDICES]
+    volumes = events[:, VOLUME_INDICES]
+    return (
+        np.all(np.isfinite(events), axis=1)
+        & np.all(prices > 0, axis=1)
+        & np.all(volumes >= 0, axis=1)
+    )
+
+
 def _month_range(start: date, end: date) -> Iterator[tuple[int, int]]:
     year, month = start.year, start.month
     while (year, month) <= (end.year, end.month):
@@ -481,6 +495,14 @@ def _read_month_tail(
                 for column in RAW_FEATURE_COLUMNS
             ]
         ).astype(np.float64, copy=False)
+        valid_rows = valid_lob_event_rows(selected_features)
+        report.invalid_lob_rows += int((~valid_rows).sum())
+        selected_dates = selected_dates[valid_rows]
+        selected_tickers = selected_tickers[valid_rows]
+        selected_times = selected_times[valid_rows]
+        selected_features = selected_features[valid_rows]
+        if selected_features.shape[0] == 0:
+            continue
 
         boundaries = (
             np.flatnonzero(
@@ -489,7 +511,7 @@ def _read_month_tail(
             )
             + 1
         )
-        for indices in np.split(np.arange(selected_rows.size), boundaries):
+        for indices in np.split(np.arange(selected_features.shape[0]), boundaries):
             key = (_yyyymmdd(selected_dates[indices[0]]), str(selected_tickers[indices[0]]))
             _update_tail(
                 buffers,
@@ -536,16 +558,8 @@ def iter_snapshot_samples(
                 report.missing_snapshot += 1
                 continue
             times, raw_events = buffered
-            price_values = raw_events[:, PRICE_INDICES]
-            volume_values = raw_events[:, VOLUME_INDICES]
-            valid_rows = (
-                np.all(np.isfinite(raw_events), axis=1)
-                & np.all(price_values > 0, axis=1)
-                & np.all(volume_values >= 0, axis=1)
-            )
-            report.invalid_lob_rows += int((~valid_rows).sum())
-            times = times[valid_rows]
-            raw_events = raw_events[valid_rows]
+            if not np.all(valid_lob_event_rows(raw_events)):
+                raise RuntimeError("内部错误：盘口尾部仍包含无效事件")
             if raw_events.shape[0] < config.min_valid_events:
                 report.insufficient_events += 1
                 continue
@@ -590,6 +604,7 @@ def prepare_snapshot_dataset(config: SnapshotPreparationConfig) -> tuple[Path, d
             "source": "cn_a_share_level2_snapshot",
             "signal_time_ms": config.signal_time_ms,
             "scan_start_time_ms": config.scan_start_time_ms,
+            "min_valid_events": config.min_valid_events,
             "normalization": {
                 "price": "first_selected_mid_relative_bps",
                 "price_scale_bps": config.price_scale_bps,

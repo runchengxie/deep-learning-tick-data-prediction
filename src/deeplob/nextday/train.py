@@ -48,6 +48,8 @@ class NextDayConfig:
     num_workers: int = 0
     device: str = "cpu"
     resume: bool = True
+    evaluate_test: bool = False
+    verify_data_checksums: bool = True
     checkpoint_dir: str = "./checkpoints-nextday"
     checkpoint_name: str = "chunked-deeplob"
     intraday_embedding_size: int = 64
@@ -118,6 +120,7 @@ def make_dataloaders(
             config.manifest_path,
             date_split=date_split,
             split=split,
+            verify_checksums=config.verify_data_checksums and split == "train",
         )
         for split in ("train", "val", "test")
     )
@@ -257,8 +260,11 @@ def train(config: NextDayConfig) -> dict[str, Any]:
     signature = asdict(config)
     signature.pop("epochs")
     signature.pop("resume")
+    signature.pop("evaluate_test")
+    signature.pop("verify_data_checksums")
     signature.pop("device")
     signature.pop("num_workers")
+    signature["dataset_fingerprint"] = train_dataset.dataset_fingerprint
 
     start_epoch = 0
     best_selection_value = -math.inf
@@ -366,13 +372,15 @@ def train(config: NextDayConfig) -> dict[str, Any]:
 
     best = _load_checkpoint(best_path, device)
     model.load_state_dict(best["model"])
-    test_metrics = evaluate(
-        model,
-        test_loader,
-        device,
-        min_symbols_per_day=config.min_symbols_per_day,
-        portfolio_quantile=config.portfolio_quantile,
-    )
+    test_metrics = None
+    if config.evaluate_test:
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            device,
+            min_symbols_per_day=config.min_symbols_per_day,
+            portfolio_quantile=config.portfolio_quantile,
+        )
     val_dataset = val_loader.dataset
     test_dataset = test_loader.dataset
     if not isinstance(val_dataset, NextDayShardDataset) or not isinstance(
@@ -394,6 +402,7 @@ def train(config: NextDayConfig) -> dict[str, Any]:
             "cuda": torch.version.cuda,
         },
         "duration_seconds": time.perf_counter() - started_at,
+        "dataset_fingerprint": train_dataset.dataset_fingerprint,
         "best_selection_value": best_selection_value,
         "test": test_metrics,
         "last_checkpoint": str(last_path),

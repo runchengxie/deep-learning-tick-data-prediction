@@ -28,7 +28,7 @@
 
 ## 当前资源快照
 
-以下数据来自 2026-08-03 的本机只读检查和短基准测试。
+以下数据来自 2026-08-04 的本机只读检查和短基准测试。
 
 ### 计算资源
 
@@ -39,7 +39,7 @@
 | GPU | GeForce GTX 970，当前由 `nouveau` 驱动 | PyTorch 的 `cuda_available=False`，训练时按无可用 GPU 处理 |
 | 内部盘 | NVMe 可用约 619 GB | 保存筛选后的训练集、缓存、checkpoint 和结果 |
 | 数据盘 | USB 机械硬盘，6 TB，剩余约 890 GB | 保存原始数据，适合顺序扫描，不适合训练期随机读取 |
-| Drive | 当前可用约 11 GB | 只保存 Colab 工作集、embedding、checkpoint 和结果 |
+| Google Drive | 当前可用约 9.96 GiB | 只够保存一份约 8 GB 的 raw-200 工作集及少量 checkpoint |
 
 GTX 970 不作为主路线。为 4 GB 老显卡维护另一套驱动、CUDA 和 PyTorch 环境，会增加
 实验复现成本，仍然无法容纳理想 batch。GPU 训练优先使用 Colab 或按需云 GPU。
@@ -56,11 +56,17 @@ GTX 970 不作为主路线。为 4 GB 老显卡维护另一套驱动、CUDA 和 
 
 - 2021—2025 的 60 个规范月文件齐全
 - 规范月文件总计约 884 GiB
+- snapshot 目录另有约 206 GiB 的 2026 月文件、日文件和修复留档，目录总量约 1.1 TiB
 - 五个抽样年份的 schema 一致，共 75 个字段
 - 包含 `AskPrice1~10`、`AskVolume1~10`、`BidPrice1~10`、`BidVolume1~10`
 - `time_ms` 是相对 09:30 的毫秒偏移，14:55 对应 `19_500_000`
 - 抽查 `000001`，一个交易日 14:55 前有 4,702 条有效快照
 - 抽查股票的最终 `Price` 与日线 `close` 一致
+
+同一数据盘还包含 2021—2025 的 60 个月 order 和 trades 目录，分别约 1.2 TB 和
+1.5 TB；`order_preopen` 约 24 GB。`_incoming` 约 320 GB，包含部分 2026 年日文件，
+尚未进入规范月目录。当前 raw-200 模型只读取 snapshot。order、trades 和 2026 增量数据
+需要单独的数据协议、覆盖审计和模型输入设计，不能直接混入现有 checkpoint。
 
 分钟微观结构缓存位于：
 
@@ -108,7 +114,7 @@ Drive
   仅保存当前工作集、embedding、checkpoint 和结果
 ```
 
-禁止在训练循环里反复扫描 884 GiB 原始 Parquet，也不要从 USB 机械盘随机读取大量
+禁止在训练循环里反复扫描 884 GiB 规范月 snapshot，也不要从 USB 机械盘随机读取大量
 股票日小文件。预处理按年或按月顺序扫描，最终训练数据写入少量大分片。
 
 ## 数据规模选择

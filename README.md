@@ -25,7 +25,7 @@ Recall 和 F1。
 - 验证准确率连续 20 个 epoch 未提升时早停
 - FI-2010 Setup 1 和 Setup 2 的官方 `CF` 文件口径
 
-详细核对结果见 [docs/复现核对.md](docs/复现核对.md)。
+详细核对结果见 [docs/reproduction-audit.md](docs/reproduction-audit.md)。
 
 ## 次日横截面预测
 
@@ -44,13 +44,14 @@ Recall 和 F1。
 - 聚合日内特征加 Logistic Regression 基线
 - 现有沪深月度 snapshot Parquet 的动态股票池适配器
 - 可复制 Drive 分片并断点续训的 Colab notebook
+- 分片 SHA-256、数据清单指纹和可切换的 locked-test 评估
 - 从原始 `N × 40` snapshot NPY 返回连续分数和方向概率的推理 CLI
 
 本机客户交付主线使用 `configs/nextday-raw.yaml` 生成 200-tick 数据，再用
 `configs/nextday.yaml` 训练。数据格式、转换命令、Colab 存储方式和研究限制见
-[docs/次日横截面预测.md](docs/次日横截面预测.md)。本机资源预算、端到端交付主线、
+[docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)。本机资源预算、端到端交付主线、
 内部对照和扩展门槛见
-[docs/硬件约束与分阶段实验路线.md](docs/硬件约束与分阶段实验路线.md)。
+[docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。
 
 ## 安装
 
@@ -253,4 +254,4 @@ references/         论文原文和阅读笔记
 notebooks/          Colab 入口笔记本
 ```
 
-开发约定和质量门禁见 [docs/开发维护.md](docs/开发维护.md)。
+开发约定和质量门禁见 [docs/development-guide.md](docs/development-guide.md)。
