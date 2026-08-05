@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from scripts.plot_curves import load_histories
+from legacy.scripts.plot_curves import load_histories
 
 
 def test_load_histories_reads_current_filename_pattern(tmp_path):

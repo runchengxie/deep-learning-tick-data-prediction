@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "deep-learning-tick-data-prediction"
 version = "0.2.0"
-description = "PyTorch reproduction of DeepLOB on FI-2010"
+description = "PyTorch DeepLOB 模型与 A 股次日横截面方向预测"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-ticknet-train = "ticknet.train:main"
+ticknet-fi2010-train = "legacy.fi2010_train:main"
 ticknet-nextday-train = "ticknet.nextday.train:main"
 ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"
 ticknet-nextday-prepare-snapshot = "ticknet.nextday.raw_snapshot:main"
@@ -55,6 +55,7 @@ max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/smoke_test.py" = ["E402"]
+"legacy/scripts/fi2010_smoke_test.py" = ["E402"]
 # 以下两处高复杂度是已知技术债，将在 PR-3 拆分上帝文件（dataset.py / train.py）时解决。
 "src/ticknet/nextday/dataset.py" = ["C901"]
 "src/ticknet/nextday/train.py" = ["C901"]
@@ -74,5 +75,5 @@ show_missing = true
 skip_covered = true
 
 [[tool.ty.overrides]]
-include = ["notebooks/**"]
+include = ["notebooks/**", "legacy/notebooks/**"]
 rules = { unresolved-import = "ignore" }

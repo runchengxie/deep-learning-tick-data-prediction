@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from ticknet.dataset import (
+from legacy.fi2010_core import (
     K_TO_LABEL_COLUMN,
     NUM_FEATURES,
     TOTAL_COLUMNS,

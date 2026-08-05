@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import ticknet.nextday.raw_snapshot as raw_snapshot
+import ticknet.nextday.snapshot_io as snapshot_io
 from ticknet.nextday.raw_snapshot import (
     RAW_FEATURE_COLUMNS,
     DailyPanel,
@@ -203,7 +204,7 @@ def test_corrupt_month_falls_back_to_complete_daily_snapshots(tmp_path, monkeypa
         report.scanned_row_groups += 1
         return {(trading_date, "000001"): (np.asarray([18_000_000]), events)}
 
-    monkeypatch.setattr(raw_snapshot, "_read_month_tail", fake_read)
+    monkeypatch.setattr(snapshot_io, "_read_month_tail", fake_read)
     config = SnapshotPreparationConfig(
         snapshot_root=str(snapshot_root),
         basic_root="unused",
