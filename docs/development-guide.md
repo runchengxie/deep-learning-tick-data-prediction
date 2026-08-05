@@ -7,27 +7,24 @@
 | 模块 | 职责 |
 |---|---|
 | `ticknet.model` | 网络结构和模型工厂 |
-| `ticknet.dataset` | 数据校验、实验选段、标签映射和窗口索引 |
-| `ticknet.train` | 配置合并、训练、评估、早停、检查点和实验汇总 |
+| `ticknet.dataset` | 共享张量形状常量与合成数据工具 |
+| `ticknet.train` | 主链路与 FI-2010 复现共用的训练工具（`set_seed` / `resolve_device` / `f1_metrics`） |
 | `ticknet.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练 |
+
+FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口、文本转换和绘图）已
+归档到 `legacy/`，不再参与主链路开发与质量门禁。如需运行，参见 `legacy/` 下的对应脚本
+和测试。
 
 脚本层只处理人工入口：
 
 | 脚本 | 用途 |
 |---|---|
-| `convert_fi2010.py` | 官方文本转 NPY 和元数据 |
-| `run_colab.py` | Colab 环境检查和训练启动 |
 | `smoke_test.py` | 无真实数据的快速链路检查 |
-| `plot_curves.py` | 读取 JSON 训练历史并绘图 |
 | `prepare_nextday.py` | 股票日日线、事件清单转次日预测 NPY 分片 |
 | `run_nextday_baseline.py` | 聚合日内特征的 Logistic Regression 对照 |
 
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的
 含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
-
-`run_colab.py` 默认把 Drive 中的数据原子复制到 `/content/DeepLOB/data/`。完整且与源文件
-大小、修改时间一致的本地副本会被复用，检查点始终保存在 Drive。临时副本使用
-`.copying` 后缀，复制成功后才替换目标文件，避免中断后误用不完整数据。
 
 ## 配置
 
@@ -39,29 +36,28 @@
 查看完整参数：
 
 ```powershell
-ticknet-train --help
-python scripts/convert_fi2010.py --help
-python scripts/run_colab.py --help
+ticknet-fi2010-train --help
+python legacy/scripts/convert_fi2010.py --help
+python legacy/scripts/run_colab.py --help
 ```
 
 ## 测试范围
 
-测试分为两条链路：FI-2010 论文复现和次日横截面研究。两套测试都用合成数据，不依赖
-真实行情、Google Drive 或完整 FI-2010。
+测试分为两条链路：次日横截面研究（主链路，纳入 pytest 与覆盖率门禁）和 FI-2010 论文
+复现（已归档到 `legacy/tests/`，需手动运行，不参与主链路门禁）。两套测试都用合成数据，
+不依赖真实行情、Google Drive 或完整 FI-2010。
 
-FI-2010 复现链路覆盖：
+FI-2010 复现链路（归档）覆盖：
 
 - 五个预测跨度和标签列映射
 - 40 特征输入和论文规模的模型结构
 - Setup 1 的同折 Training 与 Testing 选择
 - Setup 2 的 `CF_7` 训练与三个 Testing 文件选择
 - 训练集和验证集的原始行隔离
-- 测试窗口不跨源文件
 - 文本转换、分段元数据和流式 NPY 写入
-- 最近检查点恢复和实验配置冲突
 - 训练曲线文件读取
 
-次日横截面链路覆盖：
+次日横截面链路（主链路）覆盖：
 
 - 交易日历、相邻交易日标签和横截面三分类切点
 - 信号时点与标签日泄漏检查、跨边界样本 purge
@@ -129,6 +125,7 @@ uv lock
 4. 真实训练稳定后，再评估多随机种子调度和超参数搜索
 5. 为长时间训练增加结构化日志和运行状态监控
 
-核心模块当前规模适中。`train.py` 集中了训练流程和命令行配置，后续加入多种模型、
-多数据集或分布式训练时，可以把检查点和实验汇总拆成独立模块。现阶段提前拆分会增加
-接口数量，收益有限。
+核心模块当前规模适中。FI-2010 复现的训练流程、命令行配置和实验汇总已拆到
+`legacy/fi2010_train.py`；主链路 `ticknet.train` 只保留被次日预测复用的共享工具
+（`set_seed` / `resolve_device` / `f1_metrics`）。后续加入多种模型、多数据集或分布式
+训练时，可以把检查点和实验汇总拆成独立模块。现阶段提前拆分会增加接口数量，收益有限。

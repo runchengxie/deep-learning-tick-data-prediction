@@ -27,9 +27,9 @@
 
 ## 与论文复现的边界
 
-原来的 `ticknet-train`、`FI2010WindowDataset`、Setup 1 和 Setup 2 保持不变。新链路位于
-`ticknet.nextday`，训练命令为 `ticknet-nextday-train`。FI-2010 缺少可靠的股票和交易日
-边界，不能用于生成这里的次日标签。
+FI-2010 论文复现（含 `ticknet-fi2010-train` 入口、`FI2010WindowDataset`、Setup 1 和 Setup 2）
+已归档到 `legacy/`，不再属于主链路。新链路位于 `ticknet.nextday`，训练命令为
+`ticknet-nextday-train`。FI-2010 缺少可靠的股票和交易日边界，不能用于生成这里的次日标签。
 
 ## 输入特征
 

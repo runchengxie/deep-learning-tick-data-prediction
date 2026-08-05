@@ -9,8 +9,9 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from ticknet import train as train_module
-from ticknet.train import Config, f1_metrics, load_config, resolve_device, run_setup1
+from legacy import fi2010_train as train_module
+from legacy.fi2010_train import Config, load_config, run_setup1
+from ticknet.train import f1_metrics, resolve_device
 
 
 def test_yaml_config_and_cli_override(tmp_path):

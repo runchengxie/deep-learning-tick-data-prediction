@@ -1,5 +1,5 @@
-from scripts import run_colab
-from scripts.run_colab import _resolve_meta_path, _stage_data_files
+from legacy.scripts import run_colab
+from legacy.scripts.run_colab import _resolve_meta_path, _stage_data_files
 
 
 def test_resolve_meta_path_accepts_existing_short_name(tmp_path):
