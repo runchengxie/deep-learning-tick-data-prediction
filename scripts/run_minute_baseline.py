@@ -109,6 +109,38 @@ def _read_rows(
     )
 
 
+def _build_samples_by_year(
+    config: MinuteBaselineConfig,
+    targets: list[Any],
+    report: MinuteExtractionReport,
+) -> list[MinuteSample]:
+    """按年份流式读取分钟行并构建样本，控制峰值内存。
+
+    一次性读取多年 L2 数据会把全部股票日的分钟序列常驻内存，多年滚动验证时
+    容易触发 OOM。这里按 targets 的年份分块：每年只读当年 parquet、构建当年
+    样本后立即释放该年行数据，峰值内存约为单年规模。
+    """
+    by_year: dict[int, list[Any]] = {}
+    for target in targets:
+        by_year.setdefault(target.trading_date.year, []).append(target)
+
+    samples: list[MinuteSample] = []
+    for year in sorted(by_year):
+        year_targets = by_year[year]
+        rows = _read_rows(config, year_targets, report)
+        samples.extend(
+            build_samples(
+                rows,
+                year_targets,
+                window_minutes=config.window_minutes,
+                min_window_minutes=config.min_window_minutes,
+                report=report,
+            )
+        )
+        del rows
+    return samples
+
+
 def _split_samples(
     samples: list[MinuteSample],
     split: WalkForwardSplit,
@@ -142,14 +174,7 @@ def main(argv: list[str] | None = None) -> None:
 
     report = MinuteExtractionReport()
     targets = build_targets(config)
-    rows = _read_rows(config, targets, report)
-    samples = build_samples(
-        rows,
-        targets,
-        window_minutes=config.window_minutes,
-        min_window_minutes=config.min_window_minutes,
-        report=report,
-    )
+    samples = _build_samples_by_year(config, targets, report)
     parts = _split_samples(samples, config.date_split())
 
     def arrays(items: list[MinuteSample]) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[Any]]:

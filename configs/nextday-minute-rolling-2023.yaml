@@ -1,0 +1,32 @@
+# 分钟 HGB 滚动稳健性验证：test 2023。
+# train=2021-2022，val=2023-H1，test=2023-H2。独立样本外年。
+
+basic_root: /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/basic
+benchmark_path: /mnt/data/hdd6t/quant-data-lake/reference/cn_market_reference/csi_all_a_000985.CSI.parquet
+l2_root: /mnt/data/hdd6t/quant-data-lake/derived/level2_minute_cache/v1
+tushare_root: /home/richard/data/market-data-platform/assets/derived/a_share/minute_1m_v3_20260714
+
+start_date: "2021-01-01"
+end_date: "2023-12-31"
+top_n: 100
+min_history_days: 120
+liquidity_lookback_days: 20
+min_liquidity_observations: 15
+lower_quantile: 0.2
+upper_quantile: 0.8
+min_cross_section: 50
+
+feature_source: l2_cache
+window_minutes: 60
+min_window_minutes: 30
+
+train_start: "2021-01-01"
+train_end: "2022-12-31"
+val_start: "2023-01-01"
+val_end: "2023-06-30"
+test_start: "2023-07-01"
+test_end: "2023-12-31"
+
+min_symbols_per_day: 50
+portfolio_quantile: 0.1
+seed: 0

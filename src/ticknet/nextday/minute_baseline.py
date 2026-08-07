@@ -180,7 +180,7 @@ def _stream_l2_modality(
         minutes = minutes[mask]
         feature_matrix = np.column_stack(
             [
-                table[column].to_numpy(zero_copy_only=False).astype(np.float64, copy=False)[mask]
+                table[column].to_numpy(zero_copy_only=False).astype(np.float32, copy=False)[mask]
                 for column in features
             ]
         )
@@ -284,7 +284,7 @@ def read_tushare_minute_rows(
             minute_of_day = np.mod(epoch_minutes, 24 * 60)
             feature_matrix = np.column_stack(
                 [
-                    table[column].to_numpy(zero_copy_only=False).astype(np.float64, copy=False)
+                    table[column].to_numpy(zero_copy_only=False).astype(np.float32, copy=False)
                     for column in TUSHARE_FEATURE_COLUMNS
                 ]
             )
