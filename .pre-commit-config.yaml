@@ -22,7 +22,7 @@ repos:
       - id: ty
         stages: [pre-commit]
   - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.8.5
+    rev: 1.9.1
     hooks:
       - id: nbqa-ruff
         args: ["--extend-ignore=E402,B018"]

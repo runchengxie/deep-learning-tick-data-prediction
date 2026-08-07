@@ -1,0 +1,32 @@
+# 分钟级特征低成本基线 pilot：2024 全年、动态前 100 股票。
+# feature_source 可在 l2_cache 与 tushare 之间切换，两个源共用同一套标签和切分。
+
+basic_root: /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/basic
+benchmark_path: /mnt/data/hdd6t/quant-data-lake/reference/cn_market_reference/csi_all_a_000985.CSI.parquet
+l2_root: /mnt/data/hdd6t/quant-data-lake/derived/level2_minute_cache/v1
+tushare_root: /home/richard/data/market-data-platform/assets/derived/a_share/minute_1m_v3_20260714
+
+start_date: "2024-01-01"
+end_date: "2024-12-31"
+top_n: 100
+min_history_days: 120
+liquidity_lookback_days: 20
+min_liquidity_observations: 15
+lower_quantile: 0.2
+upper_quantile: 0.8
+min_cross_section: 50
+
+feature_source: l2_cache
+window_minutes: 60
+min_window_minutes: 30
+
+train_start: "2024-01-01"
+train_end: "2024-06-30"
+val_start: "2024-07-01"
+val_end: "2024-09-30"
+test_start: "2024-10-01"
+test_end: "2024-12-31"
+
+min_symbols_per_day: 50
+portfolio_quantile: 0.1
+seed: 0
