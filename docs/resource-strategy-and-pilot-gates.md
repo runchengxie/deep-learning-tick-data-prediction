@@ -277,6 +277,10 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
 - 当前口径下信号不足以覆盖实际交易成本，按第 5 节标准应停止扩大模型。
   这是项目"停止"判断的完整证据链最后一块：信号存在、跨年稳健、但不可交易。
 
+以上是当时的分位数多空诊断结论。新 Top-K 研究系列保留它作为历史证据，但正式策略改用
+`ticknet.research.portfolio` 的 fixed-K long-only、open-to-open 和股票级成交明细口径，见
+`docs/topk-agentx-m1-portfolio-evaluator.md`。
+
 ### 工程改动（本轮）
 
 - `run_minute_baseline.py` 增加 `--save-predictions`，把 test 集每日成分与预测
