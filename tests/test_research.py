@@ -197,6 +197,10 @@ def test_registry_recursively_records_metrics_and_prevents_duplicates(tmp_path) 
         registry.record_metrics("EXP-001", 0, {"validation": {"daily_rank_ic_mean": 0.03}})
     with pytest.raises(RegistryConflict, match="review 重复"):
         registry.record_review("EXP-001", "evaluation", "KEEP")
+    listed_reviews = registry.list_reviews(review_type="evaluation", limit=None)
+    assert listed_reviews[0]["experiment_id"] == "EXP-001"
+    assert listed_reviews[0]["experiment_status"] == "completed"
+    assert registry.list_experiments(limit=None)[0]["experiment_id"] == "EXP-001"
     registry.close()
 
 

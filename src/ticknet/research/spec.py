@@ -43,6 +43,14 @@ DETERMINISTIC_EXECUTORS = frozenset(
     }
 )
 
+IMPLEMENTED_EXECUTORS = frozenset(
+    {
+        "train_nextday",
+        "train_minute_tcn",
+        *DETERMINISTIC_EXECUTORS,
+    }
+)
+
 EXECUTOR_EXPERIMENT_TYPES = {
     "export_predictions": "prediction_export",
     "audit_predictions": "data_audit",

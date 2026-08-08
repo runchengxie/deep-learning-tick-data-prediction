@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ticknet.research.agents.client import LLMClient
+from ticknet.research.agents.context import ResearchContext
 from ticknet.research.spec import ExperimentSpec
 
 REQUIRED_FIELDS = (
@@ -44,7 +45,11 @@ class CriticAgent:
     def __init__(self, llm: LLMClient | None = None) -> None:
         self.llm = llm
 
-    def review(self, spec: ExperimentSpec) -> Critique:
+    def review(
+        self,
+        spec: ExperimentSpec,
+        context: ResearchContext | None = None,
+    ) -> Critique:
         issues: list[str] = []
         for field_name in REQUIRED_FIELDS:
             if not getattr(spec, field_name).strip():
@@ -65,6 +70,19 @@ class CriticAgent:
             issues.append(
                 f"{spec.experiment_type} 必须使用 {sorted(allowed)}，收到 {spec.executor}"
             )
+        if context is not None:
+            try:
+                context.validate()
+            except ValueError as error:
+                issues.append(f"ResearchContext 无效: {error}")
+            if spec.experiment_type not in set(context.allowed_actions):
+                issues.append(f"上下文不允许 experiment_type: {spec.experiment_type}")
+            if spec.executor not in set(context.available_executors):
+                issues.append(f"上下文中 executor 不可用: {spec.executor}")
+            if spec.novelty_signature in set(context.seen_novelty_signatures):
+                issues.append(f"novelty_signature 已存在: {spec.novelty_signature}")
+            if spec.budget.timeout_seconds > context.compute_budget_hours * 3600:
+                issues.append("实验 timeout 超过 ResearchContext 算力预算")
         try:
             spec.validate()
         except ValueError as error:

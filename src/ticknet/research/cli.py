@@ -15,6 +15,7 @@ import yaml
 from ticknet.research.agents.brainstorm import BrainstormAgent
 from ticknet.research.agents.client import make_client
 from ticknet.research.agents.context import ResearchContext
+from ticknet.research.agents.context_builder import ContextBuildError, ResearchContextBuilder
 from ticknet.research.agents.critic import CriticAgent
 from ticknet.research.agents.orchestrator import ResearchOrchestrator
 from ticknet.research.audit import PredictionTable, audit_predictions
@@ -112,46 +113,57 @@ def _compare_command(args: argparse.Namespace) -> None:
 
 def _agent_step_command(args: argparse.Namespace) -> None:
     registry = ExperimentRegistry(args.registry)
-    llm = make_client(args.provider)
-    brainstorm = BrainstormAgent(
-        llm,
-        default_base_config=args.base_config,
-    )
-    critic = CriticAgent(llm)
-    runner = ExperimentRunner(
-        registry,
-        repository_root=args.root,
-        artifact_root=args.artifacts,
-    )
-    orchestrator = ResearchOrchestrator(
-        registry,
-        brainstorm=brainstorm,
-        critic=critic,
-        runner=runner,
-    )
-    context = ResearchContext(
-        research_question=args.question,
-        baseline_summary=({"predictions_path": args.predictions} if args.predictions else {}),
-        open_anomalies=(
-            [
-                {
-                    "type": anomaly_type,
-                    "severity": "high",
-                    "detail": f"{anomaly_type} 异常",
-                }
-                for anomaly_type in args.anomaly.split(";")
-                if anomaly_type
-            ]
-            if args.anomaly
-            else []
-        ),
-    )
-    step = orchestrator.research_step(
-        context,
-        experiment_id=args.id or None,
-    )
-    print(json.dumps(step.to_dict(), ensure_ascii=False, indent=2))
-    registry.close()
+    try:
+        context = _build_registry_context(args, registry)
+        llm = make_client(args.provider)
+        orchestrator = ResearchOrchestrator(
+            registry,
+            brainstorm=BrainstormAgent(
+                llm,
+                default_base_config=args.base_config,
+            ),
+            critic=CriticAgent(llm),
+            runner=ExperimentRunner(
+                registry,
+                repository_root=args.root,
+                artifact_root=args.artifacts,
+            ),
+        )
+        step = orchestrator.research_step(
+            context,
+            experiment_id=args.id or None,
+        )
+        print(json.dumps(step.to_dict(), ensure_ascii=False, indent=2))
+    finally:
+        registry.close()
+
+
+def _build_registry_context(
+    args: argparse.Namespace,
+    registry: ExperimentRegistry,
+) -> ResearchContext:
+    try:
+        return ResearchContextBuilder(
+            registry,
+            recent_limit=args.recent_limit,
+            anomaly_limit=args.recent_limit,
+            failure_limit=args.recent_limit,
+        ).build(
+            args.question,
+            baseline_experiment_id=args.baseline_id,
+            compute_budget_hours=args.compute_budget_hours,
+        )
+    except ContextBuildError as error:
+        raise SystemExit(f"CONTEXT_REJECTED: {error}") from error
+
+
+def _context_command(args: argparse.Namespace) -> None:
+    registry = ExperimentRegistry(args.registry)
+    try:
+        context = _build_registry_context(args, registry)
+        print(json.dumps(context.to_dict(), ensure_ascii=False, indent=2))
+    finally:
+        registry.close()
 
 
 def _audit_command(args: argparse.Namespace) -> None:
@@ -256,12 +268,17 @@ def build_parser() -> argparse.ArgumentParser:
     locked_parser.add_argument("--quantile", type=float, default=0.1)
     locked_parser.set_defaults(func=_locked_test_command)
 
+    context_parser = subparsers.add_parser(
+        "context",
+        help="从 Registry 预览确定性 ResearchContext",
+    )
+    _add_context_arguments(context_parser)
+    context_parser.set_defaults(func=_context_command)
+
     agent_parser = subparsers.add_parser(
         "agent-step", help="推进一轮研究（Brainstorm→Critic→Runner）"
     )
-    agent_parser.add_argument("--question", default="分钟聚合特征是否包含稳定的次日横截面信息")
-    agent_parser.add_argument("--anomaly", default="")
-    agent_parser.add_argument("--predictions", default="")
+    _add_context_arguments(agent_parser)
     agent_parser.add_argument("--base-config", default="configs/nextday-pilot.yaml")
     agent_parser.add_argument(
         "--provider",
@@ -271,6 +288,13 @@ def build_parser() -> argparse.ArgumentParser:
     agent_parser.add_argument("--id", default=None)
     agent_parser.set_defaults(func=_agent_step_command)
     return parser
+
+
+def _add_context_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--question", default="分钟聚合特征是否包含稳定的次日横截面信息")
+    parser.add_argument("--baseline-id", default=None)
+    parser.add_argument("--recent-limit", type=int, default=10)
+    parser.add_argument("--compute-budget-hours", type=float, default=4.0)
 
 
 def main(argv: list[str] | None = None) -> None:

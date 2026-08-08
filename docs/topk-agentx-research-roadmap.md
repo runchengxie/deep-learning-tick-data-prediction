@@ -69,7 +69,7 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 |---|---|---|---|
 | M0 | 重置研究契约 | 新 locked 协议、Top-K 与成本口径、基线快照 | 已完成 |
 | M1 | Top-K 评估内核 | fixed-K long-only、缓冲区、成本与稳定性指标 | 已完成 |
-| M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 进行中 |
+| M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 已完成 |
 | M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 待开始 |
 | M4 | 横截面排序基线 | HGB 与 LambdaMART 同口径比较 | 待开始 |
 | M5 | A 股短周期 embedding | 多期限预训练、缓存 embedding、增量实验 | 待开始 |
@@ -239,7 +239,7 @@ stage
 - [x] 由确定性规则输出 `KEEP`、`EXTEND` 或 `DISCARD`。
 - [x] 使用结构化 `success_gates` 表达可计算证伪门槛，不只保存自然语言。
 - [x] Audit 异常自动写回 Registry。
-- [ ] Registry 中的 Audit 异常自动进入下一轮 ResearchContext。
+- [x] Registry 中的 Audit 异常自动进入下一轮 ResearchContext。
 - [x] locked approval 绑定 experiment spec、checkpoint、predictions、数据指纹和一次性批准记录。
 - [x] CLI 不再提供默认等于有效批准值的 token。
 
@@ -284,6 +284,18 @@ stage
   最差窗口。
 - `train_ranker` 保持显式不支持，不用临时训练入口代替；固定实现推迟到 M4 排序库选择。
 - M2 仍为进行中：下一阶段完成 Registry → ResearchContext 的异常、失败和历史决策回流。
+
+### 阶段记录：M2d（2026-08-09）
+
+- 使用与安全边界：`docs/topk-agentx-m2d-registry-context.md`
+- `ResearchContextBuilder` 从 Registry 选择 KEEP/EXTEND 基线，并汇总近期实验、parent、失败原因、
+  Evaluation 决策、Audit 异常、指标、数据指纹和全历史 novelty signature。
+- 同一 Registry 状态生成稳定 SHA-256；Orchestrator 将完整快照写入 `research_context` review，
+  Brainstorm 与 Critic 消费同一份上下文。
+- Brainstorm 和 Critic 双重阻止历史 novelty 重复；Critic 还检查允许动作、已实现 executor 和本轮
+  算力预算。重复候选在 reserve 前失败，不污染 Registry。
+- ResearchContext 明确不具有 locked-test 权限，也不从 dataset fingerprint 推断日期。
+- M2 的确定性闭环验收完成；`train_ranker` 按既定边界留到 M4 固定排序库和命令。
 
 ## M3：无重训 Top-K 与成本诊断
 
@@ -584,11 +596,10 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1 已完成；M2a 建立确定性闭环，M2b 完成内容绑定的一次性 locked approval，M2c 完成
-prediction artifact 导出、多 seed 比较和 walk-forward 聚合。下一轮继续 M2d：
+M0、M1、M2 已完成。下一轮进入 M3 的无重训组合诊断：
 
-1. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常、失败原因和历史决策自动回流。
-2. 让 Brainstorm 与 Critic 消费同一份可追踪的确定性上下文，并增加 replay 测试。
-3. 保持 `train_ranker` 显式不支持，等 M4 选定 HGB/LambdaMART 口径后再固定训练入口。
+1. 从 Registry 选择现有 HGB prediction artifact，不重新训练模型。
+2. 运行 K=25/50/75/100、buffer=0/10/25/50 和单边成本 5/10/15/20bp 的完整矩阵。
+3. 输出换手、毛收益、净收益和最差时段，先判断是否存在值得进入 M4 的可交易甜点区。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。
