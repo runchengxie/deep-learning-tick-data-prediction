@@ -10,7 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+import pyarrow.parquet as pq
+
 from ticknet.research.audit import PredictionTable, audit_predictions
+from ticknet.research.comparison import (
+    ComparisonError,
+    compare_registered_experiments,
+    summarize_walk_forward,
+)
 from ticknet.research.portfolio import (
     CostModel,
     MissingHoldingPolicy,
@@ -19,7 +26,7 @@ from ticknet.research.portfolio import (
     load_portfolio_predictions,
     write_portfolio_artifacts,
 )
-from ticknet.research.registry import ExperimentRegistry
+from ticknet.research.registry import ExperimentRegistry, file_sha256
 from ticknet.research.spec import ExperimentSpec
 
 
@@ -80,6 +87,13 @@ def _resolve_input_path(value: object, repository_root: Path) -> Path:
     if not path.is_absolute():
         path = repository_root / path
     return path.resolve()
+
+
+def _metric_directions(inputs: dict[str, Any]) -> dict[str, str]:
+    raw = inputs.get("metric_directions", {})
+    if not isinstance(raw, dict):
+        raise ExecutorFailure("inputs.metric_directions 必须为对象")
+    return {str(key): str(value) for key, value in raw.items()}
 
 
 def _extract_result(stdout: str) -> dict[str, Any]:
@@ -208,6 +222,75 @@ class AuditPredictionsExecutor:
         )
 
 
+class ExportPredictionsExecutor:
+    """校验并物化 Registry 中已有的 prediction artifact。"""
+
+    def execute(self, context: ExecutorContext) -> ExecutorOutput:
+        inputs = context.spec.inputs
+        source_experiment_id = str(inputs["source_experiment_id"])
+        source_seed = int(inputs.get("source_seed", 0))
+        artifact_name = str(inputs.get("artifact_name", "predictions"))
+        experiment = context.registry.get_experiment(source_experiment_id)
+        if experiment is None:
+            raise ExecutorFailure(f"源实验不存在: {source_experiment_id}")
+        if experiment["status"] not in {"completed", "frozen", "locked_tested"}:
+            raise ExecutorFailure(
+                f"源实验尚未完成: {source_experiment_id} status={experiment['status']}"
+            )
+        candidates = [
+            row
+            for row in context.registry.get_artifacts(
+                source_experiment_id,
+                name=artifact_name,
+            )
+            if int(row["seed"]) == source_seed
+        ]
+        if len(candidates) != 1:
+            raise ExecutorFailure(
+                f"源 prediction artifact 必须唯一: {source_experiment_id} "
+                f"seed={source_seed} name={artifact_name}"
+            )
+        artifact = candidates[0]
+        source = Path(str(artifact["path"])).expanduser().resolve()
+        if not source.is_file():
+            raise ExecutorFailure(f"源 prediction artifact 不存在: {source}")
+        digest = file_sha256(source)
+        if digest != artifact["sha256"]:
+            raise ExecutorFailure(f"源 prediction artifact SHA-256 不一致: {source}")
+        required = {"symbol", "trading_date", "label_date", "target_return", "score"}
+        schema = pq.read_schema(source)
+        missing = required - set(schema.names)
+        if missing:
+            raise ExecutorFailure(f"源 prediction artifact 缺少字段: {sorted(missing)}")
+
+        destination = context.seed_dir / "predictions.parquet"
+        shutil.copyfile(source, destination)
+        if file_sha256(destination) != digest:
+            raise ExecutorFailure("物化 prediction artifact 后 SHA-256 不一致")
+        identity = pq.read_table(
+            destination,
+            columns=["symbol", "trading_date", "label_date"],
+        )
+        metrics = {
+            "export": {
+                "row_count": identity.num_rows,
+                "symbol_count": len(set(identity["symbol"].to_pylist())),
+                "trading_date_count": len(set(identity["trading_date"].to_pylist())),
+                "label_date_count": len(set(identity["label_date"].to_pylist())),
+                "source_seed": source_seed,
+            }
+        }
+        return ExecutorOutput(
+            metrics=metrics,
+            artifacts={"predictions": destination},
+            dataset_fingerprint=(
+                str(experiment["dataset_fingerprint"])
+                if experiment["dataset_fingerprint"] is not None
+                else None
+            ),
+        )
+
+
 class TopKCostSweepExecutor:
     """对 K、buffer 和成本网格运行 M1 组合内核。"""
 
@@ -256,21 +339,70 @@ class TopKCostSweepExecutor:
 
 
 class CompareExperimentsExecutor:
-    """从 Registry 生成指定实验的嵌套指标对比。"""
+    """从 Registry 生成基线差值、seed 波动和配对差值。"""
 
     def execute(self, context: ExecutorContext) -> ExecutorOutput:
         experiment_ids = [str(value) for value in context.spec.inputs.get("experiment_ids", [])]
-        if not experiment_ids:
-            raise ExecutorFailure("compare_experiments 需要 inputs.experiment_ids")
-        rows = context.registry.average_metrics(experiment_ids)
-        found = {str(row["experiment_id"]) for row in rows}
-        missing = set(experiment_ids) - found
-        if missing:
-            raise ExecutorFailure(f"待比较实验缺少指标: {sorted(missing)}")
-        result = {"comparison": rows}
+        metrics = [
+            str(value) for value in context.spec.inputs.get("metrics", context.spec.primary_metrics)
+        ]
+        baseline_id = str(
+            context.spec.inputs.get(
+                "baseline_id",
+                experiment_ids[0] if experiment_ids else "",
+            )
+        )
+        try:
+            comparison, fingerprint = compare_registered_experiments(
+                context.registry,
+                experiment_ids,
+                metrics,
+                baseline_id=baseline_id,
+                metric_directions=_metric_directions(context.spec.inputs),
+                require_same_fingerprint=bool(
+                    context.spec.inputs.get("require_same_fingerprint", True)
+                ),
+            )
+        except ComparisonError as error:
+            raise ExecutorFailure(str(error)) from error
+        result = {"comparison": comparison}
         path = context.seed_dir / "comparison.json"
         path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        return ExecutorOutput(metrics=result, artifacts={"comparison": path})
+        return ExecutorOutput(
+            metrics=result,
+            artifacts={"comparison": path},
+            dataset_fingerprint=fingerprint,
+        )
+
+
+class WalkForwardRobustnessExecutor:
+    """把多个 Registry 实验视为滚动窗口并汇总最差窗口和跨窗口波动。"""
+
+    def execute(self, context: ExecutorContext) -> ExecutorOutput:
+        inputs = context.spec.inputs
+        experiment_ids = [str(value) for value in inputs.get("experiment_ids", [])]
+        metrics = [str(value) for value in inputs.get("metrics", context.spec.primary_metrics)]
+        try:
+            robustness, fingerprint = summarize_walk_forward(
+                context.registry,
+                experiment_ids,
+                metrics,
+                minimum_windows=int(inputs.get("minimum_windows", 3)),
+                require_distinct_fingerprints=bool(
+                    inputs.get("require_distinct_fingerprints", True)
+                ),
+                metric_directions=_metric_directions(inputs),
+            )
+        except ComparisonError as error:
+            raise ExecutorFailure(str(error)) from error
+        result = {"robustness": robustness}
+        path = context.seed_dir / "walk-forward.json"
+        path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return ExecutorOutput(
+            metrics=result,
+            artifacts={"walk_forward": path},
+            dataset_fingerprint=fingerprint,
+        )
 
 
 @dataclass(frozen=True)
@@ -296,9 +428,9 @@ def default_executors(
         "train_nextday": CommandExecutor(commands["train_nextday"]),
         "train_minute_tcn": CommandExecutor(commands["train_minute_tcn"]),
         "train_ranker": UnsupportedExecutor("train_ranker"),
-        "export_predictions": UnsupportedExecutor("export_predictions"),
+        "export_predictions": ExportPredictionsExecutor(),
         "audit_predictions": AuditPredictionsExecutor(),
         "topk_cost_sweep": TopKCostSweepExecutor(),
-        "walk_forward_robustness": UnsupportedExecutor("walk_forward_robustness"),
+        "walk_forward_robustness": WalkForwardRobustnessExecutor(),
         "compare_experiments": CompareExperimentsExecutor(),
     }

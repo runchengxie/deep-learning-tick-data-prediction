@@ -203,11 +203,11 @@ stage
 
 - [x] `train_nextday`
 - [x] `train_minute_tcn`
-- [ ] `train_ranker`
-- [ ] `export_predictions`
+- [ ] `train_ranker`（推迟到 M4 选定排序库和固定命令）
+- [x] `export_predictions`
 - [x] `audit_predictions`
 - [x] `topk_cost_sweep`
-- [ ] `walk_forward_robustness`
+- [x] `walk_forward_robustness`
 - [x] `compare_experiments`
 
 `data_audit` 和 `cost_analysis` 必须调用各自的确定性实现，不能回退为普通模型训练。
@@ -231,7 +231,7 @@ stage
 - [x] 为 experiment、run、metric、review 和 artifact 增加唯一性或外键约束。
 - [x] 在执行前登记 experiment，失败、超时和被拒实验也保留状态与原因。
 - [x] 保存 result path 和 artifact checksum。
-- [ ] `compare` 能直接比较主要指标、对照差值和多 seed 波动。
+- [x] `compare` 能直接比较主要指标、对照差值和多 seed 波动。
 - [x] 防止同一 experiment ID 重复执行产生重复 run 和 metric 行。
 
 ### Evaluation 与权限
@@ -272,6 +272,18 @@ stage
   checkpoint bundle、locked predictions 和 dataset fingerprint。
 - token 在审计前原子消费，成功、失败或重放都有确定性状态；预测或 checkpoint 改变会在消费前
   使批准失效。
+
+### 阶段记录：M2c（2026-08-09）
+
+- 使用与指标语义：`docs/topk-agentx-m2c-executors-comparison.md`
+- `export_predictions` 只物化 Registry 中 checksum 匹配的 prediction artifact；Runner 对导出
+  文件重新执行日期协议与 Audit，不能借此读取 locked 数据。
+- `compare_experiments` 输出 seed 分布、相对基线均值差和同 seed 配对差，并提供按 `higher` /
+  `lower` 方向归一、正值恒为改善的字段。
+- `walk_forward_robustness` 默认要求不同数据指纹的至少三个窗口，按指标方向报告跨窗口波动和
+  最差窗口。
+- `train_ranker` 保持显式不支持，不用临时训练入口代替；固定实现推迟到 M4 排序库选择。
+- M2 仍为进行中：下一阶段完成 Registry → ResearchContext 的异常、失败和历史决策回流。
 
 ## M3：无重训 Top-K 与成本诊断
 
@@ -572,11 +584,11 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1 已完成；M2a 建立确定性闭环，M2b 完成内容绑定的一次性 locked approval。下一轮
-继续 M2c：
+M0、M1 已完成；M2a 建立确定性闭环，M2b 完成内容绑定的一次性 locked approval，M2c 完成
+prediction artifact 导出、多 seed 比较和 walk-forward 聚合。下一轮继续 M2d：
 
-1. 实现 `export_predictions` 与 `walk_forward_robustness`，并决定 `train_ranker` 的固定入口。
-2. 扩展 compare，输出主要指标对照差值和多 seed 波动。
-3. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常和失败原因自动回流。
+1. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常、失败原因和历史决策自动回流。
+2. 让 Brainstorm 与 Critic 消费同一份可追踪的确定性上下文，并增加 replay 测试。
+3. 保持 `train_ranker` 显式不支持，等 M4 选定 HGB/LambdaMART 口径后再固定训练入口。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。

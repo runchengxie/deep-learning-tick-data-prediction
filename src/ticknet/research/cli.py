@@ -18,6 +18,7 @@ from ticknet.research.agents.context import ResearchContext
 from ticknet.research.agents.critic import CriticAgent
 from ticknet.research.agents.orchestrator import ResearchOrchestrator
 from ticknet.research.audit import PredictionTable, audit_predictions
+from ticknet.research.comparison import ComparisonError, compare_registered_experiments
 from ticknet.research.locked import (
     LockedTestApproval,
     LockedTestFailed,
@@ -77,18 +78,36 @@ def _show_command(args: argparse.Namespace) -> None:
 
 def _compare_command(args: argparse.Namespace) -> None:
     registry = ExperimentRegistry(args.registry)
-    rows = registry.list_experiments()
-    wanted = set(args.ids)
-    selected = [row for row in rows if row["experiment_id"] in wanted]
-    if len(selected) != len(wanted):
-        missing = sorted(wanted - {row["experiment_id"] for row in selected})
+    try:
+        metrics = args.metrics
+        if metrics is None:
+            metric_sets = [
+                {str(row["metric"]) for row in registry.get_metrics(experiment_id)}
+                for experiment_id in args.ids
+            ]
+            metrics = sorted(set.intersection(*metric_sets)) if metric_sets else []
+        try:
+            comparison, fingerprint = compare_registered_experiments(
+                registry,
+                args.ids,
+                metrics,
+                baseline_id=args.baseline or args.ids[0],
+                metric_directions=dict.fromkeys(args.lower_is_better, "lower"),
+            )
+        except ComparisonError as error:
+            raise SystemExit(f"COMPARE_REJECTED: {error}") from error
+        print(
+            json.dumps(
+                {
+                    "comparison": comparison,
+                    "dataset_fingerprint": fingerprint,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    finally:
         registry.close()
-        raise SystemExit(f"找不到全部实验: {missing}")
-    metrics_rows = registry.average_metrics(list(wanted))
-    print(f"{'experiment':<12} {'metric':<24} {'mean':>12}")
-    for row in metrics_rows:
-        print(f"{row['experiment_id']:<12} {row['metric']:<24} {row['mean_value']:>12.5f}")
-    registry.close()
 
 
 def _agent_step_command(args: argparse.Namespace) -> None:
@@ -201,6 +220,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     compare_parser = subparsers.add_parser("compare", help="对比多个实验")
     compare_parser.add_argument("--ids", nargs="+", required=True)
+    compare_parser.add_argument("--baseline", default=None)
+    compare_parser.add_argument("--metrics", nargs="+", default=None)
+    compare_parser.add_argument(
+        "--lower-is-better",
+        nargs="+",
+        default=[],
+        metavar="METRIC",
+        help="显式标记越低越好的比较指标；其余指标默认越高越好",
+    )
     compare_parser.set_defaults(func=_compare_command)
 
     audit_parser = subparsers.add_parser("audit", help="审计一组预测明细")

@@ -15,6 +15,8 @@ EXPERIMENT_TYPES = frozenset(
         "feature_addition",
         "architecture",
         "cost_analysis",
+        "prediction_export",
+        "comparison",
     }
 )
 
@@ -30,6 +32,24 @@ EXECUTORS = frozenset(
         "compare_experiments",
     }
 )
+
+DETERMINISTIC_EXECUTORS = frozenset(
+    {
+        "export_predictions",
+        "audit_predictions",
+        "topk_cost_sweep",
+        "walk_forward_robustness",
+        "compare_experiments",
+    }
+)
+
+EXECUTOR_EXPERIMENT_TYPES = {
+    "export_predictions": "prediction_export",
+    "audit_predictions": "data_audit",
+    "topk_cost_sweep": "cost_analysis",
+    "walk_forward_robustness": "robustness",
+    "compare_experiments": "comparison",
+}
 
 GateOperator = Literal["gt", "gte", "lt", "lte"]
 
@@ -137,6 +157,9 @@ class ExperimentSpec:
             raise ValueError(f"experiment_type 应为 {sorted(EXPERIMENT_TYPES)} 之一")
         if self.executor not in EXECUTORS:
             raise ValueError(f"executor 应为 {sorted(EXECUTORS)} 之一")
+        expected_type = EXECUTOR_EXPERIMENT_TYPES.get(self.executor)
+        if expected_type is not None and self.experiment_type != expected_type:
+            raise ValueError(f"{self.executor} 必须使用 experiment_type={expected_type}")
         if not self.novelty_signature.strip():
             raise ValueError("novelty_signature 不能为空")
         if self.stage not in {"screening", "robustness", "release"}:
@@ -145,6 +168,10 @@ class ExperimentSpec:
     def _validate_execution(self) -> None:
         if self.executor.startswith("train_") and not self.base_config.strip():
             raise ValueError(f"{self.executor} 需要 base_config")
+        self._validate_seeds_and_budget()
+        self._validate_executor_inputs()
+
+    def _validate_seeds_and_budget(self) -> None:
         if not self.seeds or len(set(self.seeds)) != len(self.seeds):
             raise ValueError("seeds 必须非空且不能重复")
         if any(seed < 0 for seed in self.seeds):
@@ -152,11 +179,101 @@ class ExperimentSpec:
         self.budget.validate()
         if len(self.seeds) > self.budget.max_seeds:
             raise ValueError("seeds 超过 budget.max_seeds")
-        if self.executor in {"audit_predictions", "topk_cost_sweep"}:
-            if not str(self.inputs.get("predictions_path", "")).strip():
-                raise ValueError(f"{self.executor} 需要 inputs.predictions_path")
-            if self.seeds != (0,):
-                raise ValueError(f"{self.executor} 是确定性执行器，只允许 seed 0")
+        if self.executor in DETERMINISTIC_EXECUTORS and self.seeds != (0,):
+            raise ValueError(f"{self.executor} 是确定性执行器，只允许 seed 0")
+
+    def _validate_executor_inputs(self) -> None:
+        if (
+            self.executor in {"audit_predictions", "topk_cost_sweep"}
+            and not str(self.inputs.get("predictions_path", "")).strip()
+        ):
+            raise ValueError(f"{self.executor} 需要 inputs.predictions_path")
+        if self.executor == "export_predictions":
+            self._validate_export_inputs()
+        if self.executor in {"walk_forward_robustness", "compare_experiments"}:
+            self._validate_comparison_inputs()
+
+    def _validate_export_inputs(self) -> None:
+        source_experiment_id = self.inputs.get("source_experiment_id")
+        if not isinstance(source_experiment_id, str) or not source_experiment_id.strip():
+            raise ValueError("export_predictions 需要 inputs.source_experiment_id")
+        artifact_name = self.inputs.get("artifact_name", "predictions")
+        if not isinstance(artifact_name, str) or not artifact_name.strip():
+            raise ValueError("inputs.artifact_name 不能为空")
+        source_seed = self.inputs.get("source_seed", 0)
+        if isinstance(source_seed, bool) or not isinstance(source_seed, int) or source_seed < 0:
+            raise ValueError("inputs.source_seed 必须为非负整数")
+
+    def _validate_comparison_inputs(self) -> None:
+        experiment_ids = self.inputs.get("experiment_ids")
+        if not isinstance(experiment_ids, list) or len(experiment_ids) < 2:
+            raise ValueError(f"{self.executor} 需要至少两个 inputs.experiment_ids")
+        if any(not isinstance(value, str) or not value.strip() for value in experiment_ids):
+            raise ValueError("inputs.experiment_ids 只能包含非空字符串")
+        if len(set(experiment_ids)) != len(experiment_ids):
+            raise ValueError("inputs.experiment_ids 不能重复")
+        typed_ids = cast(list[str], experiment_ids)
+        self._validate_metric_selection()
+        if self.executor == "compare_experiments":
+            self._validate_compare_options(typed_ids)
+        if self.executor == "walk_forward_robustness":
+            self._validate_walk_forward_options(typed_ids)
+
+    def _validate_metric_selection(self) -> None:
+        metrics = self.inputs.get("metrics")
+        if metrics is not None and (
+            not isinstance(metrics, list)
+            or not metrics
+            or any(not isinstance(value, str) or not value.strip() for value in metrics)
+        ):
+            raise ValueError("inputs.metrics 必须为非空字符串列表")
+        if isinstance(metrics, list) and len(set(metrics)) != len(metrics):
+            raise ValueError("inputs.metrics 不能重复")
+        selected_metrics = (
+            set(cast(list[str], metrics))
+            if isinstance(metrics, list)
+            else set(self.primary_metrics)
+        )
+        metric_directions = self.inputs.get("metric_directions", {})
+        if not isinstance(metric_directions, dict):
+            raise ValueError("inputs.metric_directions 必须为对象")
+        if any(not isinstance(key, str) for key in metric_directions):
+            raise ValueError("inputs.metric_directions 的键必须为指标字符串")
+        typed_directions = cast(dict[str, Any], metric_directions)
+        unknown_directions = set(typed_directions) - selected_metrics
+        if unknown_directions:
+            raise ValueError(
+                f"inputs.metric_directions 包含未比较指标: {sorted(unknown_directions)}"
+            )
+        invalid_directions = {
+            str(key): value
+            for key, value in typed_directions.items()
+            if value not in {"higher", "lower"}
+        }
+        if invalid_directions:
+            raise ValueError("inputs.metric_directions 只能使用 higher 或 lower")
+
+    def _validate_compare_options(self, experiment_ids: list[str]) -> None:
+        baseline_id = self.inputs.get("baseline_id", experiment_ids[0])
+        if not isinstance(baseline_id, str) or baseline_id not in set(experiment_ids):
+            raise ValueError("inputs.baseline_id 必须包含在 experiment_ids 中")
+        require_same = self.inputs.get("require_same_fingerprint", True)
+        if not isinstance(require_same, bool):
+            raise ValueError("inputs.require_same_fingerprint 必须为布尔值")
+
+    def _validate_walk_forward_options(self, experiment_ids: list[str]) -> None:
+        minimum_windows = self.inputs.get("minimum_windows", 3)
+        if (
+            isinstance(minimum_windows, bool)
+            or not isinstance(minimum_windows, int)
+            or minimum_windows < 2
+        ):
+            raise ValueError("inputs.minimum_windows 必须为至少 2 的整数")
+        if minimum_windows > len(experiment_ids):
+            raise ValueError("inputs.minimum_windows 不能超过 experiment_ids 数量")
+        require_distinct = self.inputs.get("require_distinct_fingerprints", True)
+        if not isinstance(require_distinct, bool):
+            raise ValueError("inputs.require_distinct_fingerprints 必须为布尔值")
 
     def _validate_metrics(self) -> None:
         if not self.primary_metrics or any(not metric.strip() for metric in self.primary_metrics):

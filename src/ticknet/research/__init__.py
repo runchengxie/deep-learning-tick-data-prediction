@@ -6,6 +6,11 @@ ExperimentSpec 接入。
 """
 
 from ticknet.research.audit import AuditReport, PredictionTable, audit_predictions
+from ticknet.research.comparison import (
+    ComparisonError,
+    compare_registered_experiments,
+    summarize_walk_forward,
+)
 from ticknet.research.evaluation import (
     EvaluationResult,
     evaluate_metric_gates,
@@ -32,6 +37,8 @@ from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry, RegistryConflict
 from ticknet.research.runner import ExperimentRunner, RunnerError
 from ticknet.research.spec import (
+    DETERMINISTIC_EXECUTORS,
+    EXECUTOR_EXPERIMENT_TYPES,
     EXECUTORS,
     ExecutionBudget,
     ExperimentResult,
@@ -40,8 +47,11 @@ from ticknet.research.spec import (
 )
 
 __all__ = [
+    "DETERMINISTIC_EXECUTORS",
     "EXECUTORS",
+    "EXECUTOR_EXPERIMENT_TYPES",
     "AuditReport",
+    "ComparisonError",
     "CostModel",
     "EvaluationResult",
     "ExecutionBudget",
@@ -63,11 +73,13 @@ __all__ = [
     "ResearchProtocol",
     "RunnerError",
     "audit_predictions",
+    "compare_registered_experiments",
     "evaluate_metric_gates",
     "evaluate_topk_portfolio",
     "flatten_numeric_metrics",
     "issue_locked_test_approval",
     "load_portfolio_predictions",
     "run_locked_test",
+    "summarize_walk_forward",
     "write_portfolio_artifacts",
 ]

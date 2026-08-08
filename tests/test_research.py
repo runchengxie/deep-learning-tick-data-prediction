@@ -111,6 +111,51 @@ def test_spec_rejects_deterministic_executor_with_multiple_seeds() -> None:
         spec.validate()
 
 
+def test_spec_requires_typed_executor_inputs() -> None:
+    with pytest.raises(ValueError, match="source_experiment_id"):
+        _spec(
+            experiment_type="prediction_export",
+            executor="export_predictions",
+            base_config="",
+            config_overrides={},
+        ).validate()
+    with pytest.raises(ValueError, match="至少两个"):
+        _spec(
+            experiment_type="comparison",
+            executor="compare_experiments",
+            base_config="",
+            inputs={"experiment_ids": ["EXP-ONLY"]},
+            config_overrides={},
+        ).validate()
+    with pytest.raises(ValueError, match="不能重复"):
+        _spec(
+            experiment_type="robustness",
+            executor="walk_forward_robustness",
+            base_config="",
+            inputs={"experiment_ids": ["EXP-A", "EXP-A"]},
+            config_overrides={},
+        ).validate()
+    with pytest.raises(ValueError, match="higher 或 lower"):
+        _spec(
+            experiment_type="comparison",
+            executor="compare_experiments",
+            base_config="",
+            inputs={
+                "experiment_ids": ["EXP-A", "EXP-B"],
+                "metric_directions": {"validation.daily_rank_ic_mean": "ascending"},
+            },
+            config_overrides={},
+        ).validate()
+    with pytest.raises(ValueError, match="非负整数"):
+        _spec(
+            experiment_type="prediction_export",
+            executor="export_predictions",
+            base_config="",
+            inputs={"source_experiment_id": "EXP-A", "source_seed": 0.5},
+            config_overrides={},
+        ).validate()
+
+
 def test_evaluation_decisions_are_deterministic() -> None:
     gate = (MetricGate("validation.daily_rank_ic_mean", "gt", 0.01),)
     passing = [
