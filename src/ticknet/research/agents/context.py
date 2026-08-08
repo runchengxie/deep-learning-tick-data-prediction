@@ -27,6 +27,8 @@ class ResearchContext:
             "architecture",
             "data_audit",
             "cost_analysis",
+            "prediction_export",
+            "comparison",
         ]
     )
     compute_budget_hours: float = 4.0

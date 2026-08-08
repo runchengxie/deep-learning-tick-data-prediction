@@ -88,6 +88,8 @@ FI-2010 复现链路（归档）覆盖：
 - SQLite Registry v2 的递归指标、唯一性、父实验、失败状态和 artifact SHA-256
 - Brainstorm、Critic、编排器、强制 Audit 与 KEEP/EXTEND/DISCARD 的确定性执行
 - fixed-K long-only、排名缓冲、不可交易约束、权重漂移、成本和明细 artifact
+- prediction artifact checksum 物化、多 seed 基线差值与按方向归一的配对改善
+- 不同数据指纹窗口的 walk-forward 聚合、指标方向和最差窗口选择
 
 冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或
 本地 pre-push hook 单独执行，不参与 pytest 收集。

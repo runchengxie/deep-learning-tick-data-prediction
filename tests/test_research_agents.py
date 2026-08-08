@@ -120,6 +120,11 @@ def test_critic_rejects_missing_falsification_and_semantic_mismatch() -> None:
     assert not critique.approved
     assert any("topk_cost_sweep" in issue for issue in critique.issues)
 
+    mismatch = _complete_spec(experiment_type="robustness", executor="train_nextday")
+    critique = CriticAgent().review(mismatch)
+    assert not critique.approved
+    assert any("walk_forward_robustness" in issue for issue in critique.issues)
+
 
 def test_critic_approves_complete_spec() -> None:
     assert CriticAgent().review(_complete_spec()).approved

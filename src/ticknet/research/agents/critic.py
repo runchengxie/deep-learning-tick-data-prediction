@@ -56,6 +56,9 @@ class CriticAgent:
         semantic_executors = {
             "data_audit": {"audit_predictions"},
             "cost_analysis": {"topk_cost_sweep"},
+            "prediction_export": {"export_predictions"},
+            "comparison": {"compare_experiments"},
+            "robustness": {"walk_forward_robustness"},
         }
         allowed = semantic_executors.get(spec.experiment_type)
         if allowed is not None and spec.executor not in allowed:
