@@ -1,0 +1,7 @@
+# Top-K 与 AgentX 新研究系列的数据权限协议。
+# 2025 已用于形成研究假设，只能作为开发与滚动验证证据。
+
+protocol_version: topk-agentx-v1
+research_end: "2024-12-31"
+validation_end: "2025-12-31"
+locked_start: "2026-01-01"

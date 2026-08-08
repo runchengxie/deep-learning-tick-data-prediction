@@ -141,6 +141,7 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 - [docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)：次日预测的数据格式、适配、切分、训练和评估
 - [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)：研究问题、数据资源、硬件预算和分阶段路线
 - [docs/topk-agentx-research-roadmap.md](docs/topk-agentx-research-roadmap.md)：Top-K 可交易目标、隐藏表征、多日模型与 AgentX 的逐项执行路线
+- [docs/topk-agentx-m0-research-contract.md](docs/topk-agentx-m0-research-contract.md)：新研究系列的数据权限、交易口径、2026 可用性审计与基线冻结
 - [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)：分钟信号验证、成本评估和实验研究闭环
 - [docs/raw-200-end-to-end-pipeline.md](docs/raw-200-end-to-end-pipeline.md)：原始盘口主线从本地加工到训练的门槛式推进
 - [docs/reproduction-audit.md](docs/reproduction-audit.md)：FI-2010 复现的模型、协议和核对结论

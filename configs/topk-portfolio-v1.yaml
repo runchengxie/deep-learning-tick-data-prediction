@@ -1,0 +1,39 @@
+# Top-K long-only 研究的统一交易契约。M1 将实现对应评估内核。
+
+contract_version: topk-portfolio-v1
+
+universe:
+  method: lagged_turnover_top_n
+  top_n: 400
+  smoke_top_n: 100
+  lookback_days: 20
+  minimum_observations: 15
+
+signal:
+  time: "14:55:00"
+  timezone: Asia/Shanghai
+
+execution:
+  rebalance_at: next_trading_day_open
+  return_definition: next_open_to_following_open
+  diagnostic_return_definition: next_open_to_same_close
+  benchmark: csi_all_a_000985.CSI
+  benchmark_return_definition: next_open_to_following_open
+
+portfolio:
+  side: long_only
+  weighting: equal
+  top_k: [25, 50, 75, 100]
+  exit_buffer: [0, 10, 25, 50]
+  initial_entry_charged: true
+
+costs:
+  per_side_bps: [5, 10, 15, 20]
+  sell_stamp_tax_bps: 5
+
+tradability:
+  new_positions_require_next_open: true
+  reject_suspended_entries: true
+  reject_one_price_limit_entries: true
+  keep_untradeable_existing_positions: true
+  missing_status_policy: exclude_formal_result

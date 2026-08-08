@@ -30,13 +30,13 @@ def _write_manifest(tmp_path, max_trading_date: str) -> str:
 
 
 def test_protocol_accepts_research_only_manifest(tmp_path):
-    manifest = _write_manifest(tmp_path, "2024-12-30")
+    manifest = _write_manifest(tmp_path, "2025-12-31")
     protocol = ResearchProtocol()
     protocol.assert_research_safe(manifest)
 
 
 def test_protocol_rejects_locked_manifest(tmp_path):
-    manifest = _write_manifest(tmp_path, "2025-06-15")
+    manifest = _write_manifest(tmp_path, "2026-01-05")
     protocol = ResearchProtocol()
     with pytest.raises(PolicyViolation, match="锁定测试期"):
         protocol.assert_research_safe(manifest)
@@ -51,7 +51,7 @@ def test_protocol_rejects_missing_manifest(tmp_path):
 def test_policy_validate_manifest_delegates_to_protocol(tmp_path):
     policy = ResearchPolicy()
     protocol = ResearchProtocol()
-    locked_manifest = _write_manifest(tmp_path, "2025-01-01")
+    locked_manifest = _write_manifest(tmp_path, "2026-01-01")
     with pytest.raises(PolicyViolation, match="锁定测试期"):
         policy.validate_manifest(locked_manifest, protocol)
 
@@ -64,7 +64,7 @@ def test_runner_blocks_locked_manifest(tmp_path):
         artifact_root=tmp_path / "artifacts",
         entry_points={"ablation": ["python", "-c", "print('{}')"]},
     )
-    manifest = _write_manifest(tmp_path, "2025-03-01")
+    manifest = _write_manifest(tmp_path, "2026-03-01")
     base_config = tmp_path / "base.yaml"
     base_config.write_text(f"manifest_path: {manifest}\n", encoding="utf-8")
     spec = ExperimentSpec(
@@ -76,6 +76,45 @@ def test_runner_blocks_locked_manifest(tmp_path):
     with pytest.raises(PolicyViolation, match="锁定测试期"):
         runner.run(spec, experiment_id="EXP-LOCKED-BLOCKED")
     registry.close()
+
+
+def test_protocol_loads_versioned_yaml(tmp_path):
+    path = tmp_path / "protocol.yaml"
+    path.write_text(
+        "protocol_version: test-v2\n"
+        "research_end: '2024-12-31'\n"
+        "validation_end: '2025-12-31'\n"
+        "locked_start: '2026-01-01'\n",
+        encoding="utf-8",
+    )
+    protocol = ResearchProtocol.from_yaml(path)
+    assert protocol.protocol_version == "test-v2"
+    assert protocol.research_end == "2024-12-31"
+    assert protocol.validation_end == "2025-12-31"
+    assert protocol.locked_start == "2026-01-01"
+
+
+def test_protocol_yaml_rejects_unknown_field(tmp_path):
+    path = tmp_path / "protocol.yaml"
+    path.write_text(
+        "protocol_version: test-v2\n"
+        "research_end: '2024-12-31'\n"
+        "validation_end: '2025-12-31'\n"
+        "locked_start: '2026-01-01'\n"
+        "allow_locked: true\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(PolicyViolation, match="未知字段"):
+        ResearchProtocol.from_yaml(path)
+
+
+def test_protocol_rejects_overlapping_boundaries():
+    with pytest.raises(ValueError, match="日期边界"):
+        ResearchProtocol(
+            research_end="2025-12-31",
+            validation_end="2026-01-01",
+            locked_start="2026-01-01",
+        )
 
 
 def test_locked_test_requires_approval(tmp_path):
