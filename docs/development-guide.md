@@ -84,6 +84,7 @@ FI-2010 复现链路（归档）覆盖：
 
 - ExperimentSpec v2 严格解析、白名单 executor、结构化 metric gates 和 artifact contract
 - 锁定测试期隔离：manifest、显式 predictions 输入和训练产生的 predictions 都受程序级拦截
+- locked approval 两步签发/消费、内容 SHA-256 绑定、原始 token 不落库和重放拒绝
 - SQLite Registry v2 的递归指标、唯一性、父实验、失败状态和 artifact SHA-256
 - Brainstorm、Critic、编排器、强制 Audit 与 KEEP/EXTEND/DISCARD 的确定性执行
 - fixed-K long-only、排名缓冲、不可交易约束、权重漂移、成本和明细 artifact

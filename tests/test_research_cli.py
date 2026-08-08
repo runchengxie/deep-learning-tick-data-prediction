@@ -1,7 +1,11 @@
 """ticknet-research v2 CLI 的严格 spec、show、compare 与 token 测试。"""
 
+import json
 from pathlib import Path
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import yaml
 
@@ -10,7 +14,7 @@ from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.spec import ExperimentResult, ExperimentSpec, MetricGate
 
 
-def _spec() -> ExperimentSpec:
+def _spec(*, stage: str = "screening") -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis="test",
         objective="test objective",
@@ -23,6 +27,7 @@ def _spec() -> ExperimentSpec:
         rationale="test rationale",
         falsification_condition="IC 不改善则否定",
         novelty_signature="cli-test",
+        stage=stage,
     )
 
 
@@ -58,12 +63,31 @@ def _seed_registry(tmp_path: Path, experiment_id: str) -> Path:
     return registry_path
 
 
-def test_cli_parser_has_expected_subcommands_and_requires_locked_token(capsys) -> None:
+def test_cli_parser_separates_locked_approval_and_consumption(capsys) -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--help"])
     captured = capsys.readouterr()
-    for command in ("run", "show", "compare", "agent-step"):
+    for command in (
+        "run",
+        "show",
+        "compare",
+        "agent-step",
+        "approve-locked-test",
+        "locked-test",
+    ):
         assert command in captured.out
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "approve-locked-test",
+                "--predictions",
+                "x.parquet",
+                "--id",
+                "EXP-X",
+                "--reason",
+                "test",
+            ]
+        )
     with pytest.raises(SystemExit):
         build_parser().parse_args(
             [
@@ -72,8 +96,6 @@ def test_cli_parser_has_expected_subcommands_and_requires_locked_token(capsys) -
                 "x.parquet",
                 "--id",
                 "EXP-X",
-                "--reason",
-                "test",
             ]
         )
 
@@ -95,6 +117,76 @@ def test_cli_agent_step_returns_structured_status(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert "status" in captured.out
     assert "spec" in captured.out
+
+
+def test_cli_issues_and_consumes_locked_approval(tmp_path, capsys) -> None:
+    registry_path = tmp_path / "registry.sqlite"
+    predictions = tmp_path / "locked.parquet"
+    scores = np.linspace(-1.0, 1.0, 60)
+    pq.write_table(
+        pa.table(
+            {
+                "symbol": [f"{600000 + index:06d}" for index in range(60)],
+                "trading_date": ["2026-01-02"] * 60,
+                "label_date": ["2026-01-03"] * 60,
+                "target_return": scores * 0.02,
+                "score": scores,
+            }
+        ),
+        predictions,
+    )
+    registry = ExperimentRegistry(registry_path)
+    spec = _spec(stage="release")
+    registry.record_experiment(
+        "EXP-RELEASE",
+        ExperimentResult(
+            experiment_id="EXP-RELEASE",
+            spec=spec,
+            status="completed",
+            git_sha="abc",
+            dataset_fingerprint="dataset-fp",
+            per_seed_metrics=[],
+            artifact_dir=str(tmp_path),
+            evaluation_decision="KEEP",
+        ),
+        spec,
+    )
+    checkpoint = tmp_path / "best.pt"
+    checkpoint.write_bytes(b"checkpoint")
+    registry.record_artifact("EXP-RELEASE", 0, "best_checkpoint", checkpoint)
+    registry.close()
+
+    common = ["--registry", str(registry_path)]
+    main(
+        [
+            *common,
+            "approve-locked-test",
+            "--predictions",
+            str(predictions),
+            "--id",
+            "EXP-RELEASE",
+            "--reason",
+            "最终确认",
+            "--approved-by",
+            "risk-reviewer",
+        ]
+    )
+    issued = json.loads(capsys.readouterr().out)
+    main(
+        [
+            *common,
+            "locked-test",
+            "--predictions",
+            str(predictions),
+            "--id",
+            "EXP-RELEASE",
+            "--token",
+            issued["token"],
+        ]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["mode"] == "locked_test"
+    assert result["binding"]["checkpoint_count"] == 1
 
 
 def test_cli_rejects_old_entry_point_and_policy_violation(tmp_path) -> None:

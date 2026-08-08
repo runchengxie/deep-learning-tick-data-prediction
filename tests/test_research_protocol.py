@@ -2,9 +2,18 @@
 
 import json
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from ticknet.research.locked import LockedTestApproval, LockedTestNotApproved, run_locked_test
+from ticknet.research.locked import (
+    LockedTestApproval,
+    LockedTestFailed,
+    LockedTestNotApproved,
+    issue_locked_test_approval,
+    run_locked_test,
+)
 from ticknet.research.policy import PolicyViolation, ResearchPolicy
 from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry
@@ -12,7 +21,7 @@ from ticknet.research.runner import ExperimentRunner
 from ticknet.research.spec import ExperimentResult, ExperimentSpec, MetricGate
 
 
-def _research_spec(*, base_config: str = "base.yaml") -> ExperimentSpec:
+def _research_spec(*, base_config: str = "base.yaml", stage: str = "screening") -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis="test",
         objective="test protocol",
@@ -25,6 +34,7 @@ def _research_spec(*, base_config: str = "base.yaml") -> ExperimentSpec:
         rationale="protocol test",
         falsification_condition="IC 不改善则否定",
         novelty_signature="protocol-test",
+        stage=stage,
     )
 
 
@@ -146,44 +156,8 @@ def test_protocol_rejects_overlapping_boundaries():
         )
 
 
-def test_locked_test_requires_approval(tmp_path):
-    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
-    predictions = tmp_path / "predictions.parquet"
-    import numpy as np
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    rng = np.random.RandomState(0)
-    pq.write_table(
-        pa.table(
-            {
-                "symbol": [f"{600000 + i:06d}" for i in range(100)],
-                "trading_date": ["2025-01-02"] * 100,
-                "label_date": ["2025-01-03"] * 100,
-                "target_return": rng.randn(100).astype(np.float64),
-                "score": rng.randn(100).astype(np.float64),
-            }
-        ),
-        predictions,
-    )
-    with pytest.raises(LockedTestNotApproved, match="批准"):
-        run_locked_test(
-            predictions,
-            approval=LockedTestApproval(reason="", token="NOT_APPROVED"),
-            registry=registry,
-            experiment_id="EXP-LOCKED",
-        )
-    registry.close()
-
-
-def test_locked_test_runs_with_approval_and_records(tmp_path):
-    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
-    predictions = tmp_path / "predictions.parquet"
-    import numpy as np
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    rng = np.random.RandomState(1)
+def _write_predictions(path, *, seed: int = 1) -> None:
+    rng = np.random.RandomState(seed)
     n = 100
     scores = rng.randn(n).astype(np.float64)
     returns = (0.3 * scores + 0.01 * rng.randn(n)).astype(np.float64)
@@ -191,31 +165,81 @@ def test_locked_test_runs_with_approval_and_records(tmp_path):
         pa.table(
             {
                 "symbol": [f"{600000 + i:06d}" for i in range(n)],
-                "trading_date": ["2025-01-02"] * n,
-                "label_date": ["2025-01-03"] * n,
+                "trading_date": ["2026-01-02"] * n,
+                "label_date": ["2026-01-03"] * n,
                 "target_return": returns,
                 "score": scores,
             }
         ),
-        predictions,
+        path,
     )
-    spec = _research_spec()
+
+
+def _prepare_locked_candidate(tmp_path, registry, experiment_id="EXP-LOCKED-OK"):
+    predictions = tmp_path / "predictions.parquet"
+    _write_predictions(predictions)
+    spec = _research_spec(stage="release")
     registry.record_experiment(
-        "EXP-LOCKED-OK",
+        experiment_id,
         ExperimentResult(
-            experiment_id="EXP-LOCKED-OK",
+            experiment_id=experiment_id,
             spec=spec,
-            status="frozen",
+            status="completed",
             git_sha="abc",
             dataset_fingerprint="fp",
             per_seed_metrics=[],
             artifact_dir=str(tmp_path),
+            evaluation_decision="KEEP",
         ),
         spec,
     )
+    checkpoint = tmp_path / "model.best.pt"
+    checkpoint.write_bytes(b"frozen checkpoint")
+    registry.record_artifact(experiment_id, 0, "best_checkpoint", checkpoint)
+    return predictions, checkpoint
+
+
+def test_locked_test_requires_issued_approval(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    predictions, _checkpoint = _prepare_locked_candidate(tmp_path, registry)
+    with pytest.raises(LockedTestNotApproved, match="无效"):
+        run_locked_test(
+            predictions,
+            approval=LockedTestApproval(token="APPROVED"),
+            registry=registry,
+            experiment_id="EXP-LOCKED-OK",
+        )
+    registry.close()
+
+
+def test_locked_test_approval_is_bound_consumed_and_not_stored_raw(tmp_path):
+    registry_path = tmp_path / "registry.sqlite"
+    registry = ExperimentRegistry(registry_path)
+    predictions, _checkpoint = _prepare_locked_candidate(tmp_path, registry)
+    issued = issue_locked_test_approval(
+        predictions,
+        registry=registry,
+        experiment_id="EXP-LOCKED-OK",
+        reason="正式发布前复核",
+        approved_by="risk-reviewer",
+    )
+    assert issued["token"] != "APPROVED"
+    assert issued["token"].encode() not in registry_path.read_bytes()
+    experiment = registry.get_experiment("EXP-LOCKED-OK")
+    assert experiment is not None
+    assert experiment["status"] == "frozen"
+    with pytest.raises(LockedTestNotApproved, match="completed"):
+        issue_locked_test_approval(
+            predictions,
+            registry=registry,
+            experiment_id="EXP-LOCKED-OK",
+            reason="不得重复签发",
+            approved_by="risk-reviewer",
+        )
+
     result = run_locked_test(
         predictions,
-        approval=LockedTestApproval(reason="正式发布前复核", token="APPROVED"),
+        approval=LockedTestApproval(token=issued["token"]),
         registry=registry,
         experiment_id="EXP-LOCKED-OK",
         min_symbols_per_day=50,
@@ -226,4 +250,124 @@ def test_locked_test_runs_with_approval_and_records(tmp_path):
     types = {row["review_type"] for row in reviews}
     assert "locked_test_approval" in types
     assert "locked_test_result" in types
+    approval_row = registry.get_locked_approvals("EXP-LOCKED-OK")[0]
+    assert approval_row["status"] == "consumed"
+    assert approval_row["consumed_at"]
+    experiment = registry.get_experiment("EXP-LOCKED-OK")
+    assert experiment is not None
+    assert experiment["status"] == "locked_tested"
+    with pytest.raises(LockedTestNotApproved, match="已消费"):
+        run_locked_test(
+            predictions,
+            approval=LockedTestApproval(token=issued["token"]),
+            registry=registry,
+            experiment_id="EXP-LOCKED-OK",
+        )
+    registry.close()
+
+
+@pytest.mark.parametrize("mutated", ["predictions", "checkpoint"])
+def test_locked_approval_rejects_bound_content_changes(tmp_path, mutated):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    predictions, checkpoint = _prepare_locked_candidate(tmp_path, registry)
+    issued = issue_locked_test_approval(
+        predictions,
+        registry=registry,
+        experiment_id="EXP-LOCKED-OK",
+        reason="正式发布前复核",
+        approved_by="risk-reviewer",
+    )
+    if mutated == "predictions":
+        _write_predictions(predictions, seed=99)
+    else:
+        checkpoint.write_bytes(b"tampered checkpoint")
+    with pytest.raises(LockedTestNotApproved, match="SHA-256"):
+        run_locked_test(
+            predictions,
+            approval=LockedTestApproval(token=issued["token"]),
+            registry=registry,
+            experiment_id="EXP-LOCKED-OK",
+        )
+    assert registry.get_locked_approvals("EXP-LOCKED-OK")[0]["status"] == "issued"
+    registry.close()
+
+
+def test_locked_test_failure_still_consumes_and_records_approval(tmp_path):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    predictions, _checkpoint = _prepare_locked_candidate(tmp_path, registry)
+    issued = issue_locked_test_approval(
+        predictions,
+        registry=registry,
+        experiment_id="EXP-LOCKED-OK",
+        reason="正式发布前复核",
+        approved_by="risk-reviewer",
+    )
+    with pytest.raises(LockedTestFailed, match="没有可审计"):
+        run_locked_test(
+            predictions,
+            approval=LockedTestApproval(token=issued["token"]),
+            registry=registry,
+            experiment_id="EXP-LOCKED-OK",
+            min_symbols_per_day=101,
+        )
+    assert registry.get_locked_approvals("EXP-LOCKED-OK")[0]["status"] == "consumed"
+    experiment = registry.get_experiment("EXP-LOCKED-OK")
+    assert experiment is not None
+    assert experiment["status"] == "locked_test_failed"
+    result_reviews = [
+        row
+        for row in registry.get_reviews("EXP-LOCKED-OK")
+        if row["review_type"] == "locked_test_result"
+    ]
+    assert result_reviews[0]["decision"] == "FAILED"
+    registry.close()
+
+
+@pytest.mark.parametrize(
+    ("stage", "decision", "fingerprint", "has_checkpoint", "message"),
+    [
+        ("screening", "KEEP", "fp", True, "stage=release"),
+        ("release", "EXTEND", "fp", True, "Evaluation=KEEP"),
+        ("release", "KEEP", None, True, "dataset_fingerprint"),
+        ("release", "KEEP", "fp", False, "checkpoint artifact"),
+    ],
+)
+def test_locked_approval_requires_frozen_release_evidence(
+    tmp_path,
+    stage,
+    decision,
+    fingerprint,
+    has_checkpoint,
+    message,
+):
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    predictions = tmp_path / "predictions.parquet"
+    _write_predictions(predictions)
+    spec = _research_spec(stage=stage)
+    registry.record_experiment(
+        "EXP-NOT-READY",
+        ExperimentResult(
+            experiment_id="EXP-NOT-READY",
+            spec=spec,
+            status="completed",
+            git_sha="abc",
+            dataset_fingerprint=fingerprint,
+            per_seed_metrics=[],
+            artifact_dir=str(tmp_path),
+            evaluation_decision=decision,
+        ),
+        spec,
+    )
+    if has_checkpoint:
+        checkpoint = tmp_path / "candidate.pt"
+        checkpoint.write_bytes(b"checkpoint")
+        registry.record_artifact("EXP-NOT-READY", 0, "best_checkpoint", checkpoint)
+    with pytest.raises(LockedTestNotApproved, match=message):
+        issue_locked_test_approval(
+            predictions,
+            registry=registry,
+            experiment_id="EXP-NOT-READY",
+            reason="不应批准",
+            approved_by="risk-reviewer",
+        )
     registry.close()

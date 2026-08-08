@@ -21,9 +21,10 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _sha256_file(path: Path) -> str:
+def file_sha256(path: str | Path) -> str:
+    source = Path(path).expanduser().resolve()
     digest = hashlib.sha256()
-    with path.open("rb") as file:
+    with source.open("rb") as file:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -101,6 +102,25 @@ class ExperimentRegistry:
                 size_bytes INTEGER NOT NULL,
                 UNIQUE(experiment_id, seed, name),
                 UNIQUE(experiment_id, seed, path)
+            );
+
+            CREATE TABLE IF NOT EXISTS locked_approvals (
+                approval_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                experiment_id TEXT NOT NULL UNIQUE
+                    REFERENCES experiments(experiment_id),
+                token_sha256 TEXT NOT NULL UNIQUE,
+                spec_sha256 TEXT NOT NULL,
+                checkpoint_artifact_name TEXT NOT NULL,
+                checkpoint_bundle_json TEXT NOT NULL,
+                checkpoint_bundle_sha256 TEXT NOT NULL,
+                predictions_path TEXT NOT NULL,
+                predictions_sha256 TEXT NOT NULL,
+                dataset_fingerprint TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                approved_by TEXT NOT NULL,
+                approved_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('issued', 'consumed')),
+                consumed_at TEXT
             );
             """
         )
@@ -354,7 +374,7 @@ class ExperimentRegistry:
         artifact = Path(path).expanduser().resolve()
         if not artifact.is_file():
             raise RegistryConflict(f"artifact 不存在: {artifact}")
-        digest = _sha256_file(artifact)
+        digest = file_sha256(artifact)
         size = artifact.stat().st_size
         try:
             self._connection.execute(
@@ -426,6 +446,156 @@ class ExperimentRegistry:
             (experiment_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def get_artifacts(
+        self,
+        experiment_id: str,
+        *,
+        name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM artifacts WHERE experiment_id = ?"
+        parameters: list[Any] = [experiment_id]
+        if name is not None:
+            query += " AND name = ?"
+            parameters.append(name)
+        query += " ORDER BY seed, name, artifact_id"
+        rows = self._connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
+    def issue_locked_approval(
+        self,
+        experiment_id: str,
+        *,
+        token_sha256: str,
+        spec_sha256: str,
+        checkpoint_artifact_name: str,
+        checkpoint_bundle: list[dict[str, Any]],
+        checkpoint_bundle_sha256: str,
+        predictions_path: str,
+        predictions_sha256: str,
+        dataset_fingerprint: str,
+        reason: str,
+        approved_by: str,
+        approved_at: str,
+    ) -> int:
+        """原子签发并冻结实验；token 只以 SHA-256 形式保存。"""
+        self._require_experiment(experiment_id)
+        binding = {
+            "spec_sha256": spec_sha256,
+            "checkpoint_artifact_name": checkpoint_artifact_name,
+            "checkpoint_bundle": checkpoint_bundle,
+            "checkpoint_bundle_sha256": checkpoint_bundle_sha256,
+            "predictions_path": predictions_path,
+            "predictions_sha256": predictions_sha256,
+            "dataset_fingerprint": dataset_fingerprint,
+        }
+        try:
+            frozen = self._connection.execute(
+                """
+                UPDATE experiments
+                SET status = 'frozen', updated_at = ?
+                WHERE experiment_id = ? AND status = 'completed'
+                    AND evaluation_decision = 'KEEP'
+                    AND dataset_fingerprint = ?
+                """,
+                (_utc_now(), experiment_id, dataset_fingerprint),
+            )
+            if frozen.rowcount != 1:
+                self._connection.rollback()
+                raise RegistryConflict(f"实验不再满足 locked approval 冻结条件: {experiment_id}")
+            cursor = self._connection.execute(
+                """
+                INSERT INTO locked_approvals
+                    (experiment_id, token_sha256, spec_sha256,
+                     checkpoint_artifact_name, checkpoint_bundle_json,
+                     checkpoint_bundle_sha256, predictions_path,
+                     predictions_sha256, dataset_fingerprint, reason,
+                     approved_by, approved_at, status, consumed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', NULL)
+                """,
+                (
+                    experiment_id,
+                    token_sha256,
+                    spec_sha256,
+                    checkpoint_artifact_name,
+                    json.dumps(checkpoint_bundle, ensure_ascii=False, sort_keys=True),
+                    checkpoint_bundle_sha256,
+                    predictions_path,
+                    predictions_sha256,
+                    dataset_fingerprint,
+                    reason,
+                    approved_by,
+                    approved_at,
+                ),
+            )
+            self._connection.execute(
+                """
+                INSERT INTO reviews
+                    (experiment_id, review_type, decision, payload_json)
+                VALUES (?, 'locked_test_approval', 'APPROVED', ?)
+                """,
+                (
+                    experiment_id,
+                    json.dumps(
+                        {
+                            "reason": reason,
+                            "approved_by": approved_by,
+                            "approved_at": approved_at,
+                            "binding": binding,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                ),
+            )
+            self._connection.commit()
+        except sqlite3.IntegrityError as error:
+            self._connection.rollback()
+            raise RegistryConflict(f"locked approval 已存在或冲突: {experiment_id}") from error
+        if cursor.lastrowid is None:
+            raise RegistryConflict(f"locked approval 未成功签发: {experiment_id}")
+        return int(cursor.lastrowid)
+
+    def get_locked_approval(
+        self,
+        experiment_id: str,
+        token_sha256: str,
+    ) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            """
+            SELECT * FROM locked_approvals
+            WHERE experiment_id = ? AND token_sha256 = ?
+            """,
+            (experiment_id, token_sha256),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_locked_approvals(self, experiment_id: str) -> list[dict[str, Any]]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM locked_approvals
+            WHERE experiment_id = ? ORDER BY approval_id
+            """,
+            (experiment_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def consume_locked_approval(self, approval_id: int) -> str:
+        """原子消费尚未使用的批准，避免同一个 bearer token 重放。"""
+        consumed_at = _utc_now()
+        cursor = self._connection.execute(
+            """
+            UPDATE locked_approvals
+            SET status = 'consumed', consumed_at = ?
+            WHERE approval_id = ? AND status = 'issued'
+            """,
+            (consumed_at, approval_id),
+        )
+        if cursor.rowcount != 1:
+            self._connection.rollback()
+            raise RegistryConflict("locked approval 已消费或不存在")
+        self._connection.commit()
+        return consumed_at
 
     def list_experiments(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._connection.execute(
