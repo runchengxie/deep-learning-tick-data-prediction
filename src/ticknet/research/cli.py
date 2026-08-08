@@ -1,7 +1,7 @@
-"""ticknet-research 命令行：run / show / compare / audit。
+"""ticknet-research 命令行：run / show / compare / audit / locked-test / agent-step。
 
-对应 AgentX 落地路线建议的四条命令。第一版只实现确定性的 run/show/compare，
-audit 与 agent-step 留接口。
+对应 AgentX 落地路线的实验控制面命令。确定性部分（run/show/compare/audit/
+locked-test）已实现；agent-step 用模板 Brainstorm（不接 LLM）推进一轮研究。
 """
 
 from __future__ import annotations
@@ -12,7 +12,13 @@ from pathlib import Path
 
 import yaml
 
+from ticknet.research.agents.brainstorm import BrainstormAgent
+from ticknet.research.agents.client import make_client
+from ticknet.research.agents.context import ResearchContext
+from ticknet.research.agents.critic import CriticAgent
+from ticknet.research.agents.orchestrator import ResearchOrchestrator
 from ticknet.research.audit import PredictionTable, audit_predictions
+from ticknet.research.locked import LockedTestApproval, run_locked_test
 from ticknet.research.policy import PolicyViolation
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.runner import ExperimentRunner
@@ -91,7 +97,46 @@ def _compare_command(args: argparse.Namespace) -> None:
 
 
 def _agent_step_command(args: argparse.Namespace) -> None:
-    raise SystemExit("agent-step 尚未实现：先完成 Experiment Harness 闭环。")
+    registry = ExperimentRegistry(args.registry)
+    llm = make_client(args.provider)
+    brainstorm = BrainstormAgent(
+        llm,
+        default_base_config=args.base_config,
+    )
+    critic = CriticAgent(llm)
+    runner = ExperimentRunner(
+        registry,
+        repository_root=args.root,
+        artifact_root=args.artifacts,
+    )
+    orchestrator = ResearchOrchestrator(
+        registry,
+        brainstorm=brainstorm,
+        critic=critic,
+        runner=runner,
+    )
+    context = ResearchContext(
+        research_question=args.question,
+        open_anomalies=(
+            [
+                {
+                    "type": anomaly_type,
+                    "severity": "high",
+                    "detail": f"{anomaly_type} 异常",
+                }
+                for anomaly_type in args.anomaly.split(";")
+                if anomaly_type
+            ]
+            if args.anomaly
+            else []
+        ),
+    )
+    step = orchestrator.research_step(
+        context,
+        experiment_id=args.id or None,
+    )
+    print(json.dumps(step.to_dict(), ensure_ascii=False, indent=2))
+    registry.close()
 
 
 def _audit_command(args: argparse.Namespace) -> None:
@@ -102,6 +147,24 @@ def _audit_command(args: argparse.Namespace) -> None:
         portfolio_quantile=args.quantile,
     )
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+
+
+def _locked_test_command(args: argparse.Namespace) -> None:
+    approval = LockedTestApproval(
+        reason=args.reason,
+        approved_by=args.approved_by,
+        token=args.token,
+    )
+    registry = ExperimentRegistry(args.registry)
+    run_locked_test(
+        args.predictions,
+        approval=approval,
+        registry=registry,
+        experiment_id=args.id,
+        min_symbols_per_day=args.min_symbols_per_day,
+        portfolio_quantile=args.quantile,
+    )
+    registry.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -130,7 +193,28 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--quantile", type=float, default=0.1)
     audit_parser.set_defaults(func=_audit_command)
 
-    agent_parser = subparsers.add_parser("agent-step", help="推进一轮研究（未实现）")
+    locked_parser = subparsers.add_parser("locked-test", help="显式批准下评估锁定测试集")
+    locked_parser.add_argument("--predictions", required=True)
+    locked_parser.add_argument("--id", required=True)
+    locked_parser.add_argument("--reason", required=True)
+    locked_parser.add_argument("--approved-by", default="human-reviewer")
+    locked_parser.add_argument("--token", default="APPROVED")
+    locked_parser.add_argument("--min-symbols-per-day", type=int, default=50)
+    locked_parser.add_argument("--quantile", type=float, default=0.1)
+    locked_parser.set_defaults(func=_locked_test_command)
+
+    agent_parser = subparsers.add_parser(
+        "agent-step", help="推进一轮研究（Brainstorm→Critic→Runner）"
+    )
+    agent_parser.add_argument("--question", default="分钟聚合特征是否包含稳定的次日横截面信息")
+    agent_parser.add_argument("--anomaly", default="")
+    agent_parser.add_argument("--base-config", default="configs/nextday-pilot.yaml")
+    agent_parser.add_argument(
+        "--provider",
+        choices=["template", "openai", "deepseek"],
+        default="template",
+    )
+    agent_parser.add_argument("--id", default=None)
     agent_parser.set_defaults(func=_agent_step_command)
     return parser
 

@@ -8,8 +8,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ticknet.research.spec import ExperimentSpec
+
+if TYPE_CHECKING:
+    from ticknet.research.protocol import ResearchProtocol
 
 
 class PolicyViolation(Exception):
@@ -70,3 +75,11 @@ class ResearchPolicy:
                 f"实验预算超限：seeds {len(spec.seeds)} 超过上限 {self.max_screening_seeds}"
             )
         spec.validate()
+
+    def validate_manifest(
+        self,
+        manifest_path: str | Path,
+        protocol: ResearchProtocol,
+    ) -> None:
+        """校验 manifest 不含锁定测试期数据。"""
+        protocol.assert_research_safe(manifest_path)

@@ -311,3 +311,72 @@ spread 均值被极端日拉高，掩盖了典型日的低收益。这解释了�
 - 新增 `src/ticknet/research/audit.py`：`PredictionTable`（读预测 parquet）+
   `audit_predictions()`（IC/spread/decile/月频/极端日/winsorize 诊断 + 异常标注）。
 - `ticknet-research audit` 子命令；`tests/test_research_audit.py` 5 个测试覆盖。
+
+## 11. AgentX 式自动量化研究闭环（2026-08-08）
+
+参考 `references/agentx-paper-notes.md` 落地：把项目从"人工研究"升级为
+"实验系统先机器可调用，再加 Agent"。本仓库本身已具备部分地基（锁定测试、
+多 seed、统一 Rank IC、AGENTS.md），此处补上确定性研究控制面。
+
+### 结构
+
+```
+src/ticknet/research/
+  spec.py        ExperimentSpec：假设 + 可证伪条件 + 配置覆盖 + seeds
+  policy.py      ResearchPolicy：白/黑名单 + 预算 + stage（程序裁决，非 LLM）
+  protocol.py    ResearchProtocol：锁定测试期程序级隔离
+  runner.py      ExperimentRunner：唯一执行入口，跑训练、解析结果、登记
+  registry.py    SQLite 实验记忆（experiments/runs/metrics/reviews + parent DAG）
+  audit.py       PredictionTable + audit_predictions：IC/spread/decile/月频诊断
+  locked.py      锁定测试评估，需显式人工批准
+  agents/
+    client.py    LLMClient 抽象（template / openai / deepseek）
+    context.py   ResearchContext：Brainstorm 标准输入
+    brainstorm.py  生成 ExperimentSpec（模板或 LLM）
+    critic.py    审查可证伪性/重复/泄漏
+    orchestrator.py  research_step 闭环
+```
+
+### 已实现的闭环
+
+```text
+ResearchContext
+      ↓
+Brainstorm → ExperimentSpec
+      ↓
+Critic → 可证伪性审查
+      ↓
+Policy → 禁止改测试集/切分（程序级）
+      ↓
+Runner → 训练 + 结果
+      ↓
+Audit → IC/spread 背离诊断
+      ↓
+Registry → SQLite 记忆
+```
+
+`ticknet-research` CLI：run / show / compare / audit / locked-test / agent-step。
+
+### 关键设计（对应 AgentX 论文原则）
+
+1. **权限由程序控制而非 prompt**：Agent 不能改 `test_end` 等字段（policy 黑名单）；
+   manifest 含锁定日期会被 `ResearchProtocol` 拦截；locked-test 需显式批准 token。
+2. **确定性先于 LLM**：指标提取、统计检验、policy 裁决全部确定性 Python；LLM
+   只负责提假设和解释（第一版甚至用 TemplateClient，不接 LLM）。
+3. **每个提案必须声明 falsification_condition**，强制科研而非 AutoML。
+4. **负面结果资产化**：失败/被拒实验写入 Registry，形成实验 DAG（parent_id）。
+5. **测试集物理隔离**：research cutoff 2024-12-31，2025+ 为锁定测试期。
+
+### 验证结果
+
+- 全套件 115 个测试通过（新增 research 16 个），ruff/ty 全绿，覆盖率达标。
+- 端到端 `agent-step` 真实跑通：Brainstorm 从"极端日贡献偏高"异常生成
+  data_audit 提案 → Critic 通过 → Policy 校验 → TCN 训练完成 → Registry 登记
+  （EXP-AUTO-TCN2）。
+- 越权实验（改 `test_end`）被 PolicyViolation 拦截、不落库。
+
+### 后续（未做）
+
+- Developer Agent：开放代码修改（worktree + tests + diff review）。
+- SGPO / Harness Evolution：需积累足够 research trajectories 后实施。
+- Brainstorm 接真实 LLM：`--provider deepseek/openai` 已预留接口。

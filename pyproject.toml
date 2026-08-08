@@ -83,3 +83,7 @@ skip_covered = true
 [[tool.ty.overrides]]
 include = ["notebooks/**", "legacy/notebooks/**"]
 rules = { unresolved-import = "ignore" }
+
+[[tool.ty.overrides]]
+include = ["src/ticknet/research/agents/client.py"]
+rules = { unresolved-import = "ignore" }

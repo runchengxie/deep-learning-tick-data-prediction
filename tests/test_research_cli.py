@@ -58,19 +58,23 @@ def test_cli_parser_has_expected_subcommands(capsys):
         assert command in captured.out
 
 
-def test_cli_agent_step_is_not_implemented(tmp_path):
-    with pytest.raises(SystemExit, match="尚未实现"):
-        main(
-            [
-                "--root",
-                str(tmp_path),
-                "--registry",
-                str(tmp_path / "registry.sqlite"),
-                "--artifacts",
-                str(tmp_path / "artifacts"),
-                "agent-step",
-            ]
-        )
+def test_cli_agent_step_runs_a_research_round(tmp_path, capsys):
+    main(
+        [
+            "--root",
+            str(tmp_path),
+            "--registry",
+            str(tmp_path / "registry.sqlite"),
+            "--artifacts",
+            str(tmp_path / "artifacts"),
+            "agent-step",
+            "--question",
+            "测试研究问题",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert "status" in captured.out
+    assert "spec" in captured.out
 
 
 def test_cli_run_rejects_policy_violation(tmp_path):

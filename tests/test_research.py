@@ -1,5 +1,7 @@
 """AgentX 式实验基础设施（ticknet.research）测试。"""
 
+import json
+
 import pytest
 
 from ticknet.research.policy import PolicyViolation, ResearchPolicy
@@ -145,9 +147,24 @@ def test_runner_policy_violation_blocks_execution(tmp_path):
 def test_runner_executes_mock_entry(tmp_path):
     database = tmp_path / "registry.sqlite"
     registry = ExperimentRegistry(database)
+    manifest_dir = tmp_path / "data" / "x"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "format_version": 1,
+                "samples": [
+                    {"trading_date": "2024-01-02", "symbol": "600000"},
+                    {"trading_date": "2024-06-30", "symbol": "600001"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     base_config = tmp_path / "base.yaml"
     base_config.write_text(
-        "manifest_path: ./data/x/manifest.json\nseed: 0\n",
+        f"manifest_path: {manifest_path}\nseed: 0\n",
         encoding="utf-8",
     )
     spec = _spec(

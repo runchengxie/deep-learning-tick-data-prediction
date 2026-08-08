@@ -20,6 +20,7 @@ from typing import Any
 import yaml
 
 from ticknet.research.policy import ResearchPolicy
+from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.spec import ExperimentResult, ExperimentSpec
 
@@ -36,12 +37,14 @@ class ExperimentRunner:
         registry: ExperimentRegistry,
         *,
         policy: ResearchPolicy | None = None,
+        protocol: ResearchProtocol | None = None,
         repository_root: str | Path,
         artifact_root: str | Path = "research/experiments",
         entry_points: dict[str, str | list[str]] | None = None,
     ) -> None:
         self.registry = registry
         self.policy = policy or ResearchPolicy()
+        self.protocol = protocol or ResearchProtocol()
         self.repository_root = Path(repository_root).expanduser().resolve()
         self.artifact_root = Path(artifact_root).expanduser().resolve()
         self.entry_points = entry_points or {
@@ -59,6 +62,14 @@ class ExperimentRunner:
         spec.validate()
         artifact_dir = self._prepare_artifact_dir(experiment_id)
         resolved_config = self._resolve_config(spec, artifact_dir)
+
+        manifest_value = resolved_config.get("manifest_path")
+        if manifest_value is None:
+            raise RunnerError("配置缺少 manifest_path")
+        manifest_path = Path(manifest_value)
+        if not manifest_path.is_absolute():
+            manifest_path = self.repository_root / manifest_path
+        self.policy.validate_manifest(manifest_path, self.protocol)
 
         git_sha = self._git_sha()
         per_seed_metrics: list[dict[str, Any]] = []
@@ -131,9 +142,7 @@ class ExperimentRunner:
         with config_path.open("w", encoding="utf-8") as file:
             yaml.safe_dump(config, file, allow_unicode=True, sort_keys=False)
 
-        entry = spec.entry_point or self.entry_points.get(spec.experiment_type)
-        if entry is None:
-            entry = self.entry_points.get("nextday")
+        entry = self._resolve_entry_for(spec)
         if entry is None:
             raise RunnerError("未配置可用的实验入口")
 
@@ -160,6 +169,17 @@ class ExperimentRunner:
             raise RunnerError(f"seed {seed} stdout 中没有 JSON:\n{completed.stdout[:500]}")
         result = json.loads(match.group(0))
         return result
+
+    def _resolve_entry_for(self, spec: ExperimentSpec) -> str | list[str] | None:
+        """解析实验入口：spec.entry_point 优先，其次按类型映射，最后回退 nextday。"""
+        if spec.entry_point:
+            if spec.entry_point in self.entry_points:
+                return self.entry_points[spec.entry_point]
+            return spec.entry_point
+        mapped = self.entry_points.get(spec.experiment_type)
+        if mapped is not None:
+            return mapped
+        return self.entry_points.get("nextday")
 
     def _resolve_entry(self, entry: str) -> str:
         """从仓库 .venv/bin 解析命令入口，兼容非交互 shell 缺少 PATH 的情况。"""
