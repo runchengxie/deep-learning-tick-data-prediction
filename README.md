@@ -47,11 +47,25 @@
 
 ### 当前进度
 
-端到端链路已经跑通到可以训练并产出信号：数据准备、分块编码、双头训练、恢复、推理 CLI 和
-自动化测试都具备。2024Q4 已作为 pilot 探索性跑通，但**尚未产生可靠的样本外结论**：测试期五个
-seed 的日度 Rank IC 中位数接近零（约 -0.0018），无成本多空收益差（约 27.9 个基点/日）与近零 IC
-严重不协调，需先做极端值与可交易性审计方可采信。正式锁定测试（2025）与独立 OOS2（2026）仍待
-模型冻结后评估。硬盘里的逐笔委托和成交数据尚未进入模型，只用了 snapshot 十档盘口。
+端到端链路已经能训练并产出信号，数据准备、分块编码、双头训练、断点恢复、推理 CLI 和自动化
+测试都已就绪。项目围绕两个问题逐步推进，都已跑出真实结论。
+
+第一个问题是分钟级特征是否有稳定的次日信息。用聚合特征 HGB 在 2022 到 2025 四个独立样本外
+年份做滚动验证，每日 Rank IC 全部为正，区间约 0.02 到 0.035。信号真实存在，但强度弱。进一步
+做成本后回测发现，日频换手率约 83%，单边 10 个基点的成本下净年化收益为负，盈亏平衡成本约
+5 到 6 个基点，低于实际可实现的成本。审计还发现多空组合的收益集中在少数极端交易日，前 5 天
+贡献超过全部收益。结论是信号跨年稳健但不足以覆盖真实交易成本，当前口径下停止扩大模型。
+
+第二个问题是原始盘口序列相对聚合特征是否有增量。分钟级 TCN 与 HGB 的同口径对比在验证集上
+显示 TCN 排序能力更强，但测试集上 HGB 全面占优，TCN 的验证集优势没有泛化到样本外。
+
+当前主链路使用 2021 至 2023 训练、2024 验证、2025 锁定测试，每天动态筛选成交额前 400 只股票。
+正式锁定测试仍需在模型冻结后评估。硬盘里的逐笔委托和成交数据尚未进入模型，只用了 snapshot
+十档盘口。
+
+项目还实现了参考 AgentX 论文的实验研究闭环，用结构化提案、策略校验、实验登记和预测审计把
+研究过程自动化。详见 [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)
+第 11 节。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见
@@ -126,6 +140,8 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 
 - [docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)：次日预测的数据格式、适配、切分、训练和评估
 - [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)：研究问题、数据资源、硬件预算和分阶段路线
+- [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)：分钟信号验证、成本评估和实验研究闭环
+- [docs/raw-200-end-to-end-pipeline.md](docs/raw-200-end-to-end-pipeline.md)：原始盘口主线从本地加工到训练的门槛式推进
 - [docs/reproduction-audit.md](docs/reproduction-audit.md)：FI-2010 复现的模型、协议和核对结论
 - [docs/development-guide.md](docs/development-guide.md)：模块划分、测试范围和质量门禁
 
@@ -136,11 +152,13 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 ```text
 src/ticknet/        模型、数据集和训练逻辑（FI-2010 临摹）
 src/ticknet/nextday 次日标签、分片数据集、分块模型、指标和训练逻辑（A 股主线）
-scripts/            数据转换、Colab 入口、冒烟检查和绘图
+src/ticknet/research  实验研究闭环：提案、策略校验、实验登记、预测审计和 Agent 框架
+scripts/            数据准备、基线和冒烟检查等人工执行入口
 tests/              不依赖真实数据的自动化测试
 configs/            本地和 Colab 配置
-docs/               复现核对、次日预测与开发维护说明
+docs/               复现核对、次日预测、实验路线与开发维护说明
 references/         论文原文和阅读笔记
+legacy/             FI-2010 复现归档，不再参与主链路开发
 notebooks/          Colab 入口笔记本
 ```
 

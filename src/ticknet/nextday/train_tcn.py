@@ -37,8 +37,6 @@ from ticknet.nextday.train import (
 )
 from ticknet.train import resolve_device, set_seed
 
-SELECTION_METRICS = {"daily_rank_ic_mean", "macro_f1", "balanced_accuracy", "mcc"}
-
 
 @dataclass
 class MinuteTCNConfig(NextDayConfig):

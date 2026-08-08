@@ -119,17 +119,3 @@ class ResearchOrchestrator:
             critique=critique.to_dict(),
             result={"experiment_id": experiment_id, "status": result.status},
         )
-
-    def build_context_from_registry(
-        self,
-        research_question: str,
-        *,
-        max_training_date: str = "2024-12-31",
-    ) -> ResearchContext:
-        """从 Registry 构建 Brainstorm 输入上下文。"""
-        recent = self.registry.list_experiments(limit=10)
-        return ResearchContext(
-            research_question=research_question,
-            baseline_summary={"research_cutoff": max_training_date},
-            recent_experiments=recent,
-        )

@@ -31,10 +31,6 @@ class ResearchProtocol:
         _parse_date(self.locked_start)
 
     @property
-    def cutoff(self) -> date:
-        return _parse_date(self.research_cutoff)
-
-    @property
     def locked_begin(self) -> date:
         return _parse_date(self.locked_start)
 

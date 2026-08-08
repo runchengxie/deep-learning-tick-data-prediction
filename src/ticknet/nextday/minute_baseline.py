@@ -31,7 +31,6 @@ from ticknet.nextday.splits import WalkForwardSplit
 
 L2_MODALITIES = ("snapshot", "order", "trade")
 TUSHARE_FEATURE_COLUMNS = ("open", "close", "high", "low", "vol", "amount")
-AGGREGATE_METHODS = ("mean", "std", "last", "delta")
 
 DayRows = dict[tuple[int, str], list[tuple[int, np.ndarray]]]
 

@@ -203,7 +203,7 @@ ticknet-nextday-predict \
 ```
 
 输出包含标准化连续 `score`、映射回收益尺度的 `expected_excess_return`、三个类别概率和
-方向编号。横截面交易优先使用同一天股票的 `score` 排序；单只股票的收益数值需要另做
+方向编号。横截面交易优先使用同一天股票的 `score` 排序。单只股票的收益数值需要另做
 校准，不能直接解释为承诺收益率。
 
 先运行聚合特征 Logistic Regression 基线：
@@ -238,7 +238,7 @@ python scripts/run_nextday_baseline.py `
 ## 数据量和 Colab
 
 使用 float16 时，400 只股票、五年约 1,250 个交易日、每股票日 200 个事件的纯特征
-约 8 GB；同样范围的 500 和 1,000 个事件约为 20 GB 和 40 GB。分片方案让 Colab
+约 8 GB，同样范围的 500 和 1,000 个事件约为 20 GB 和 40 GB。分片方案让 Colab
 可以逐批读取，但不会让原始数据自动变小。
 
 建议把原始逐笔和完整盘口保存在移动硬盘、NAS 或对象存储，只生成当前研究需要的紧凑
@@ -271,6 +271,6 @@ python scripts/run_nextday_baseline.py --config configs/nextday-pilot.yaml \
 当前版本已经实现真实月度 snapshot 适配、双头分块编码、AMP、梯度累积、断点恢复和
 Colab handoff。当前端到端模型只使用 snapshot 十档盘口，硬盘中的 order 和 trades
 尚未直接进入该模型。下一步先生成一个受控年份或完整五年 200-tick 工作集，在 Colab 测量
-100 个 batch 的吞吐后决定训练预算。客户 MVP 跑通后，再比较 500 tick / 100 股票；
+100 个 batch 的吞吐后决定训练预算。客户 MVP 跑通后，再比较 500 tick / 100 股票。
 只有验证期 Rank IC 有稳定增量才扩大窗口。多日版本可缓存每日 embedding 后再训练，
 无需反复编码原始 tick。

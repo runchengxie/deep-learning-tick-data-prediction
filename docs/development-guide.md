@@ -10,6 +10,7 @@
 | `ticknet.dataset` | 共享张量形状常量与合成数据工具 |
 | `ticknet.train` | 主链路与 FI-2010 复现共用的训练工具（`set_seed` / `resolve_device` / `f1_metrics`） |
 | `ticknet.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练 |
+| `ticknet.research` | 实验研究闭环，包括提案定义、策略校验、锁定测试隔离、实验登记、预测审计和研究 Agent 框架 |
 
 FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口、文本转换和绘图）已
 归档到 `legacy/`，不再参与主链路开发与质量门禁。如需运行，参见 `legacy/` 下的对应脚本
@@ -22,6 +23,9 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 | `smoke_test.py` | 无真实数据的快速链路检查 |
 | `prepare_nextday.py` | 股票日日线、事件清单转次日预测 NPY 分片 |
 | `run_nextday_baseline.py` | 聚合日内特征的 Logistic Regression 对照 |
+| `run_minute_baseline.py` | 分钟级聚合特征的 HGB 基线，支持多年滚动验证和预测明细导出 |
+| `prepare_minute_shards.py` | 分钟序列切分为 `samples x time x features` 分片，供时序模型使用 |
+| `evaluate_cost_adjusted.py` | 成本后多空组合回测，支持成本档位和调仓频率 |
 
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的
 含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
@@ -68,6 +72,20 @@ FI-2010 复现链路（归档）覆盖：
 - 聚合日内特征的 Logistic Regression 基线
 - 沪深月度 snapshot Parquet 适配器：动态股票池、候选时段筛选、分片指纹和 row-group 跳过
 - YAML 与命令行覆盖、CPU 设备选择
+
+分钟链路覆盖：
+
+- 分钟级 HGB 基线的数据管线、L2 与 tushare 两种特征源
+- 分钟序列分片的 NaN 中位数填充、短窗口补齐和分片校验
+- 分钟 TCN 模型、分片数据集、训练入口和成本后回测
+- 预测审计的 IC、decile、极端日贡献和 winsorize 诊断
+
+研究闭环覆盖：
+
+- 实验提案定义与策略校验，包括禁止改动测试集字段
+- 锁定测试期隔离，manifest 含 2025 年数据时程序级拦截
+- SQLite 实验登记与指标读写
+- Brainstorm、Critic、编排器的确定性执行
 
 冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或
 本地 pre-push hook 单独执行，不参与 pytest 收集。
@@ -119,13 +137,12 @@ uv lock
 
 当前最值得继续投入的工作按优先级排列：
 
-1. 增加小型真实数据夹具，验证官方文件的特征顺序和标签值
-2. 扩充早停边界和检查点写入中断测试
-3. 把指标结果整理为可直接对照论文表格的报告
-4. 真实训练稳定后，再评估多随机种子调度和超参数搜索
-5. 为长时间训练增加结构化日志和运行状态监控
+1. 拆分 `train.py` 与 `train_tcn.py` 共用的训练循环，抽取共享的 epoch 训练与评估逻辑
+2. 把 `run_minute_baseline.py` 与 `prepare_minute_shards.py` 重复的配置读取逻辑收敛为共享函数
+3. 为长时间训练增加结构化日志和运行状态监控
+4. 研究闭环接入真实 LLM 后，补足 Brainstorm 证据检索与实验去重
 
 核心模块当前规模适中。FI-2010 复现的训练流程、命令行配置和实验汇总已拆到
-`legacy/fi2010_train.py`；主链路 `ticknet.train` 只保留被次日预测复用的共享工具
-（`set_seed` / `resolve_device` / `f1_metrics`）。后续加入多种模型、多数据集或分布式
-训练时，可以把检查点和实验汇总拆成独立模块。现阶段提前拆分会增加接口数量，收益有限。
+`legacy/fi2010_train.py`。主链路 `ticknet.train` 只保留被次日预测复用的共享工具
+（`set_seed` / `resolve_device` / `f1_metrics`）。`ticknet.research` 通过 CLI 入口名和
+YAML 配置与 `nextday` 解耦，不直接 import 其实现。
