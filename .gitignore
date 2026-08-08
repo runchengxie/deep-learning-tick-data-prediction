@@ -15,6 +15,7 @@ checkpoints*/
 logs/
 predictions/
 results/
+research/experiments/
 
 # 数据文件保存在 Google Drive
 data/
