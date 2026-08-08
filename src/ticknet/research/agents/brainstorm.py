@@ -31,15 +31,31 @@ class BrainstormAgent:
         self.default_base_config = default_base_config
 
     def propose(self, context: ResearchContext) -> ExperimentSpec:
+        context.validate()
         if type(self.llm).__name__ == "TemplateClient":
-            return self._template_propose(context)
-        return self._llm_propose(context)
+            spec = self._template_propose(context)
+        else:
+            spec = self._llm_propose(context)
+        if spec.novelty_signature in set(context.seen_novelty_signatures):
+            raise ValueError(f"历史中已存在 novelty_signature: {spec.novelty_signature}")
+        return spec
 
     def _template_propose(self, context: ResearchContext) -> ExperimentSpec:
-        if context.open_anomalies:
-            return self._anomaly_experiment(context.open_anomalies[0], context)
+        seen = set(context.seen_novelty_signatures)
+        for anomaly in context.open_anomalies:
+            candidate = self._anomaly_experiment(anomaly, context)
+            if candidate.novelty_signature not in seen:
+                return candidate
         executor = "train_minute_tcn" if "tcn" in self.default_base_config else "train_nextday"
-        baseline = float(context.baseline_summary.get("best_selection_value", 0.0))
+        baseline_metrics = context.baseline_summary.get("metrics", {})
+        if not isinstance(baseline_metrics, dict):
+            baseline_metrics = {}
+        baseline = float(
+            baseline_metrics.get(
+                "best_selection_value",
+                context.baseline_summary.get("best_selection_value", 0.0),
+            )
+        )
         return ExperimentSpec(
             hypothesis="降低回归损失权重应改善横截面排序",
             objective="比较回归损失权重 0.2 与当前基线的验证排序指标",
@@ -61,8 +77,46 @@ class BrainstormAgent:
         context: ResearchContext,
     ) -> ExperimentSpec:
         anomaly_type = str(anomaly.get("type", ""))
-        predictions = str(context.baseline_summary.get("predictions_path", ""))
+        predictions = str(
+            anomaly.get("predictions_path") or context.baseline_summary.get("predictions_path", "")
+        )
+        source_experiment_id = str(anomaly.get("source_experiment_id", ""))
         if anomaly_type == "tail_return_concentration":
+            source_seed = anomaly.get("prediction_source_seed")
+            novelty_signature = (
+                f"audit-tail-return-concentration-{source_experiment_id}"
+                if source_experiment_id
+                else "audit-tail-return-concentration"
+            )
+            if source_experiment_id and isinstance(source_seed, int):
+                return ExperimentSpec(
+                    hypothesis="极端收益是否驱动了已有 spread",
+                    objective="安全物化已登记预测并复查极端日与 winsorize 审计",
+                    experiment_type="prediction_export",
+                    executor="export_predictions",
+                    inputs={
+                        "source_experiment_id": source_experiment_id,
+                        "source_seed": source_seed,
+                        "artifact_name": str(
+                            anomaly.get("prediction_artifact_name", "predictions")
+                        ),
+                    },
+                    seeds=(0,),
+                    primary_metrics=("audit.top_5_day_contribution",),
+                    success_gates=(MetricGate("audit.top_5_day_contribution", "lt", 0.5),),
+                    artifact_contract=(
+                        "resolved_config",
+                        "stdout",
+                        "stderr",
+                        "result",
+                        "run_manifest",
+                        "predictions",
+                        "audit",
+                    ),
+                    rationale=str(anomaly.get("detail", "极端日贡献偏高")),
+                    falsification_condition="top 5 日贡献不低于 50% 则否定收益稳定性",
+                    novelty_signature=novelty_signature,
+                )
             return ExperimentSpec(
                 hypothesis="极端收益是否驱动了已有 spread",
                 objective="对现有预测执行确定性极端日与 winsorize 审计",
@@ -82,7 +136,7 @@ class BrainstormAgent:
                 ),
                 rationale=str(anomaly.get("detail", "极端日贡献偏高")),
                 falsification_condition="top 5 日贡献不低于 50% 则否定收益稳定性",
-                novelty_signature="audit-tail-return-concentration",
+                novelty_signature=novelty_signature,
             )
         return ExperimentSpec(
             hypothesis="Top-K 缓冲能否在真实成本下保留正净收益",
@@ -108,7 +162,11 @@ class BrainstormAgent:
             ),
             rationale=str(anomaly.get("detail", "成本是当前主要瓶颈")),
             falsification_condition="单边 10bp 下净 Sharpe 不大于 0 则否定可交易性",
-            novelty_signature=f"topk-cost-{anomaly_type or 'unknown'}",
+            novelty_signature=(
+                f"topk-cost-{anomaly_type or 'unknown'}-{source_experiment_id}"
+                if source_experiment_id
+                else f"topk-cost-{anomaly_type or 'unknown'}"
+            ),
         )
 
     def _llm_propose(self, context: ResearchContext) -> ExperimentSpec:

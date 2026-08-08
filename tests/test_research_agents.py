@@ -7,11 +7,12 @@ import pytest
 from ticknet.research.agents.brainstorm import BrainstormAgent
 from ticknet.research.agents.client import TemplateClient, make_client
 from ticknet.research.agents.context import ResearchContext
+from ticknet.research.agents.context_builder import ContextBuildError, ResearchContextBuilder
 from ticknet.research.agents.critic import CriticAgent
 from ticknet.research.agents.orchestrator import ResearchOrchestrator
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.runner import ExperimentRunner
-from ticknet.research.spec import ExperimentSpec, MetricGate
+from ticknet.research.spec import ExperimentResult, ExperimentSpec, MetricGate
 
 
 def test_make_client_template_and_unknown() -> None:
@@ -94,6 +95,8 @@ def _complete_spec(
     experiment_type: str = "ablation",
     executor: str = "train_nextday",
     falsification_condition: str = "指标不改善则否定",
+    novelty_signature: str = "critic-test",
+    parent_id: str | None = None,
 ) -> ExperimentSpec:
     return ExperimentSpec(
         hypothesis="h",
@@ -106,7 +109,8 @@ def _complete_spec(
         primary_metrics=("best_selection_value",),
         rationale="r",
         falsification_condition=falsification_condition,
-        novelty_signature="critic-test",
+        parent_id=parent_id,
+        novelty_signature=novelty_signature,
     )
 
 
@@ -128,6 +132,116 @@ def test_critic_rejects_missing_falsification_and_semantic_mismatch() -> None:
 
 def test_critic_approves_complete_spec() -> None:
     assert CriticAgent().review(_complete_spec()).approved
+
+
+def test_brainstorm_and_critic_reject_seen_novelty_and_context_budget() -> None:
+    context = ResearchContext(
+        research_question="q",
+        seen_novelty_signatures=["ablation-regression-loss-weight-0.2", "critic-test"],
+        compute_budget_hours=0.5,
+    )
+    with pytest.raises(ValueError, match="novelty_signature"):
+        BrainstormAgent(TemplateClient()).propose(context)
+
+    critique = CriticAgent().review(_complete_spec(), context)
+    assert not critique.approved
+    assert any("novelty_signature" in issue for issue in critique.issues)
+    assert any("算力预算" in issue for issue in critique.issues)
+
+
+def _record_context_experiment(
+    registry: ExperimentRegistry,
+    experiment_id: str,
+    *,
+    status: str,
+    decision: str | None,
+    novelty_signature: str,
+    fingerprint: str | None,
+    parent_id: str | None = None,
+) -> None:
+    spec = _complete_spec(
+        novelty_signature=novelty_signature,
+        parent_id=parent_id,
+    )
+    registry.record_experiment(
+        experiment_id,
+        ExperimentResult(
+            experiment_id=experiment_id,
+            spec=spec,
+            status=status,
+            git_sha="abc",
+            dataset_fingerprint=fingerprint,
+            per_seed_metrics=[],
+            artifact_dir=f"/tmp/{experiment_id}",
+            evaluation_decision=decision,
+        ),
+        spec,
+    )
+
+
+def test_context_builder_replays_registry_decisions_failures_and_anomalies(tmp_path) -> None:
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    _record_context_experiment(
+        registry,
+        "EXP-BASE",
+        status="completed",
+        decision="KEEP",
+        novelty_signature="baseline-v1",
+        fingerprint="fp-base",
+    )
+    registry.record_metrics("EXP-BASE", 0, {"best_selection_value": 0.03})
+    predictions = tmp_path / "predictions.parquet"
+    predictions.write_bytes(b"registered prediction fixture")
+    registry.record_artifact("EXP-BASE", 0, "predictions", predictions)
+    registry.record_review(
+        "EXP-BASE",
+        "audit_anomalies",
+        "RECORDED",
+        {
+            "anomalies": [
+                {
+                    "type": "tail_return_concentration",
+                    "severity": "high",
+                    "detail": "top 5 日贡献过高",
+                }
+            ]
+        },
+    )
+    _record_context_experiment(
+        registry,
+        "EXP-FAILED",
+        status="failed",
+        decision=None,
+        novelty_signature="failed-lr-probe",
+        fingerprint=None,
+        parent_id="EXP-BASE",
+    )
+    registry.update_experiment("EXP-FAILED", status="failed", error="executor timeout")
+
+    builder = ResearchContextBuilder(registry)
+    context = builder.build("盘口信号能否覆盖成本", compute_budget_hours=2.0)
+    replay = builder.build("盘口信号能否覆盖成本", compute_budget_hours=2.0)
+
+    assert context.to_dict() == replay.to_dict()
+    assert context.baseline_summary["experiment_id"] == "EXP-BASE"
+    assert context.baseline_summary["metrics"]["best_selection_value"] == 0.03
+    assert context.baseline_summary["predictions_path"] == str(predictions)
+    assert context.recent_experiments[0]["experiment_id"] == "EXP-FAILED"
+    assert context.recent_experiments[0]["parent_id"] == "EXP-BASE"
+    assert context.historical_failures[0]["reason"] == "executor timeout"
+    assert context.open_anomalies[0]["source_experiment_id"] == "EXP-BASE"
+    assert context.open_anomalies[0]["predictions_path"] == str(predictions)
+    assert context.open_anomalies[0]["prediction_source_seed"] == 0
+    assert context.seen_novelty_signatures == ["failed-lr-probe", "baseline-v1"]
+    assert context.data_access["locked_test_access"] is False
+    assert "train_ranker" not in context.available_executors
+    assert context.context_fingerprint in context.to_prompt()
+    proposal = BrainstormAgent(TemplateClient()).propose(context)
+    assert proposal.executor == "export_predictions"
+    assert proposal.inputs["source_experiment_id"] == "EXP-BASE"
+    with pytest.raises(ContextBuildError, match="compute_budget_hours"):
+        builder.build("q", compute_budget_hours=float("nan"))
+    registry.close()
 
 
 def _make_harness(tmp_path) -> None:
@@ -170,14 +284,27 @@ def _orchestrator(tmp_path, registry):
 
 def test_orchestrator_runs_evaluation_and_records_critic_review(tmp_path) -> None:
     registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    context = ResearchContext(research_question="q")
     step = _orchestrator(tmp_path, registry).research_step(
-        ResearchContext(research_question="q"),
+        context,
         experiment_id="EXP-AUTO-TEST",
     )
     assert step.status == "completed"
     assert step.result["evaluation_decision"] == "EXTEND"
-    reviews = {row["review_type"] for row in registry.get_reviews("EXP-AUTO-TEST")}
-    assert {"critic", "evaluation"} <= reviews
+    assert step.context_fingerprint == context.context_fingerprint
+    reviews = {row["review_type"]: row for row in registry.get_reviews("EXP-AUTO-TEST")}
+    assert {"research_context", "critic", "evaluation"} <= set(reviews)
+    snapshot = json.loads(reviews["research_context"]["payload_json"])
+    assert snapshot["context_fingerprint"] == context.context_fingerprint
+
+    feedback = ResearchContextBuilder(registry).build("q")
+    repeated = _orchestrator(tmp_path, registry).research_step(
+        feedback,
+        experiment_id="EXP-REPEATED",
+    )
+    assert repeated.status == "brainstorm_failed"
+    assert "novelty_signature" in repeated.error
+    assert registry.get_experiment("EXP-REPEATED") is None
     registry.close()
 
 
@@ -188,4 +315,14 @@ def test_orchestrator_duplicate_id_is_deterministically_rejected(tmp_path) -> No
     assert orchestrator.research_step(context, experiment_id="EXP-DUP").status == "completed"
     second = orchestrator.research_step(context, experiment_id="EXP-DUP")
     assert second.status == "reservation_failed"
+    registry.close()
+
+
+def test_orchestrator_auto_id_continues_across_instances(tmp_path) -> None:
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    context = ResearchContext(research_question="q")
+    first = _orchestrator(tmp_path, registry).research_step(context)
+    second = _orchestrator(tmp_path, registry).research_step(context)
+    assert first.result["experiment_id"] == "EXP-AUTO-0001"
+    assert second.result["experiment_id"] == "EXP-AUTO-0002"
     registry.close()

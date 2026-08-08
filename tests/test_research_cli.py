@@ -71,6 +71,7 @@ def test_cli_parser_separates_locked_approval_and_consumption(capsys) -> None:
         "run",
         "show",
         "compare",
+        "context",
         "agent-step",
         "approve-locked-test",
         "locked-test",
@@ -117,6 +118,7 @@ def test_cli_agent_step_returns_structured_status(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert "status" in captured.out
     assert "spec" in captured.out
+    assert "context_fingerprint" in captured.out
 
 
 def test_cli_issues_and_consumes_locked_approval(tmp_path, capsys) -> None:
@@ -232,6 +234,22 @@ def test_cli_show_and_compare_registered_experiment(tmp_path, capsys) -> None:
     captured = capsys.readouterr()
     assert "EXP-SEED" in captured.out
     assert "validation.daily_rank_ic_mean" in captured.out
+
+    main(
+        [
+            *common,
+            "context",
+            "--question",
+            "验证 Registry 上下文",
+            "--baseline-id",
+            "EXP-SEED",
+        ]
+    )
+    context = json.loads(capsys.readouterr().out)
+    assert context["baseline_summary"]["experiment_id"] == "EXP-SEED"
+    assert context["recent_experiments"][0]["evaluation_decision"] == "EXTEND"
+    assert len(context["context_fingerprint"]) == 64
+    assert context["data_access"]["locked_test_access"] is False
 
 
 def test_cli_show_reports_missing_experiment(tmp_path) -> None:

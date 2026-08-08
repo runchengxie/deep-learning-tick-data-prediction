@@ -3,6 +3,7 @@
 from ticknet.research.agents.brainstorm import BrainstormAgent
 from ticknet.research.agents.client import LLMClient, TemplateClient, make_client
 from ticknet.research.agents.context import ResearchContext
+from ticknet.research.agents.context_builder import ContextBuildError, ResearchContextBuilder
 from ticknet.research.agents.critic import CriticAgent
 from ticknet.research.agents.orchestrator import (
     ResearchOrchestrator,
@@ -11,9 +12,11 @@ from ticknet.research.agents.orchestrator import (
 
 __all__ = [
     "BrainstormAgent",
+    "ContextBuildError",
     "CriticAgent",
     "LLMClient",
     "ResearchContext",
+    "ResearchContextBuilder",
     "ResearchOrchestrator",
     "ResearchStepResult",
     "TemplateClient",

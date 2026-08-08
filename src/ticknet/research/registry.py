@@ -597,11 +597,37 @@ class ExperimentRegistry:
         self._connection.commit()
         return consumed_at
 
-    def list_experiments(self, limit: int = 50) -> list[dict[str, Any]]:
-        rows = self._connection.execute(
-            "SELECT * FROM experiments ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+    def list_experiments(self, limit: int | None = 50) -> list[dict[str, Any]]:
+        query = "SELECT * FROM experiments ORDER BY created_at DESC, experiment_id DESC"
+        parameters: tuple[int, ...] = ()
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters = (limit,)
+        rows = self._connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_reviews(
+        self,
+        *,
+        review_type: str | None = None,
+        limit: int | None = 100,
+    ) -> list[dict[str, Any]]:
+        """按写入倒序读取 review，并带回来源实验的终态。"""
+        query = """
+            SELECT reviews.*, experiments.status AS experiment_status,
+                   experiments.evaluation_decision AS experiment_evaluation_decision
+            FROM reviews
+            JOIN experiments USING (experiment_id)
+        """
+        parameters: list[Any] = []
+        if review_type is not None:
+            query += " WHERE reviews.review_type = ?"
+            parameters.append(review_type)
+        query += " ORDER BY reviews.review_id DESC"
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+        rows = self._connection.execute(query, parameters).fetchall()
         return [dict(row) for row in rows]
 
     def average_metrics(

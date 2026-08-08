@@ -90,6 +90,8 @@ FI-2010 复现链路（归档）覆盖：
 - fixed-K long-only、排名缓冲、不可交易约束、权重漂移、成本和明细 artifact
 - prediction artifact checksum 物化、多 seed 基线差值与按方向归一的配对改善
 - 不同数据指纹窗口的 walk-forward 聚合、指标方向和最差窗口选择
+- Registry → ResearchContext 基线选择、失败与 Audit 回流、稳定指纹和 novelty replay 拒绝
+- Brainstorm 与 Critic 共用上下文、预算和 executor 限制，以及 context review 快照
 
 冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或
 本地 pre-push hook 单独执行，不参与 pytest 收集。

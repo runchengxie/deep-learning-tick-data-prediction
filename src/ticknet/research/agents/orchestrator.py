@@ -27,6 +27,7 @@ class ResearchStepResult:
     critique: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    context_fingerprint: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +36,7 @@ class ResearchStepResult:
             "critique": self.critique,
             "result": self.result,
             "error": self.error,
+            "context_fingerprint": self.context_fingerprint,
         }
 
 
@@ -53,7 +55,12 @@ class ResearchOrchestrator:
         self.brainstorm = brainstorm
         self.critic = critic
         self.runner = runner
-        self._experiment_counter = 0
+
+    def _next_experiment_id(self) -> str:
+        index = 1
+        while self.registry.has_experiment(f"EXP-AUTO-{index:04d}"):
+            index += 1
+        return f"EXP-AUTO-{index:04d}"
 
     def research_step(
         self,
@@ -63,13 +70,28 @@ class ResearchOrchestrator:
     ) -> ResearchStepResult:
         """执行一轮 Brainstorm → Critic → Policy → Runner。"""
         if experiment_id is None:
-            self._experiment_counter += 1
-            experiment_id = f"EXP-AUTO-{self._experiment_counter:04d}"
+            experiment_id = self._next_experiment_id()
+
+        try:
+            context.validate()
+        except ValueError as error:
+            return ResearchStepResult(status="context_rejected", error=str(error))
+        context_fingerprint = context.context_fingerprint
 
         try:
             spec = self.brainstorm.propose(context)
         except ValueError as error:
-            return ResearchStepResult(status="brainstorm_failed", error=str(error))
+            return ResearchStepResult(
+                status="brainstorm_failed",
+                error=str(error),
+                context_fingerprint=context_fingerprint,
+            )
+        if context.context_fingerprint != context_fingerprint:
+            return ResearchStepResult(
+                status="context_rejected",
+                error="Brainstorm 修改了 ResearchContext",
+                context_fingerprint=context_fingerprint,
+            )
 
         try:
             self.runner.reserve(spec, experiment_id=experiment_id)
@@ -78,9 +100,17 @@ class ResearchOrchestrator:
                 status="reservation_failed",
                 spec=spec,
                 error=str(error),
+                context_fingerprint=context_fingerprint,
             )
 
-        critique = self.critic.review(spec)
+        self.registry.record_review(
+            experiment_id,
+            review_type="research_context",
+            decision="SNAPSHOT",
+            payload=context.to_dict(),
+        )
+
+        critique = self.critic.review(spec, context)
         self.registry.record_review(
             experiment_id,
             review_type="critic",
@@ -97,6 +127,7 @@ class ResearchOrchestrator:
                 status="critic_rejected",
                 spec=spec,
                 critique=critique.to_dict(),
+                context_fingerprint=context_fingerprint,
             )
 
         try:
@@ -107,6 +138,7 @@ class ResearchOrchestrator:
                 spec=spec,
                 critique=critique.to_dict(),
                 error=str(error),
+                context_fingerprint=context_fingerprint,
             )
         except RunnerError as error:
             return ResearchStepResult(
@@ -114,11 +146,13 @@ class ResearchOrchestrator:
                 spec=spec,
                 critique=critique.to_dict(),
                 error=str(error),
+                context_fingerprint=context_fingerprint,
             )
         return ResearchStepResult(
             status="completed",
             spec=spec,
             critique=critique.to_dict(),
+            context_fingerprint=context_fingerprint,
             result={
                 "experiment_id": experiment_id,
                 "status": result.status,
