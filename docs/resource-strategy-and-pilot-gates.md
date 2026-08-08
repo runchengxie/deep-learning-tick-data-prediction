@@ -359,12 +359,14 @@ Audit → IC/spread 背离诊断
 Registry → SQLite 记忆
 ```
 
-`ticknet-research` CLI：run / show / compare / audit / locked-test / agent-step。
+`ticknet-research` CLI：run / show / compare / audit / approve-locked-test / locked-test /
+agent-step。
 
 ### 关键设计（对应 AgentX 论文原则）
 
 1. 权限由程序控制。Agent 不能改 `test_end` 等字段（policy 黑名单），manifest 含
-   锁定日期会被 `ResearchProtocol` 拦截，locked-test 需显式批准 token。
+   锁定日期会被 `ResearchProtocol` 拦截；locked-test 需先由独立人工入口签发与内容 SHA-256
+   绑定的一次性 token，执行时原子消费并拒绝重放。
 2. 确定性先于 LLM。指标提取、统计检验、policy 裁决全部用确定性 Python，LLM
    只负责提假设和解释（第一版用 TemplateClient，不接 LLM）。
 3. 每个提案必须声明 falsification_condition，强制科研而不用 AutoML 思路。

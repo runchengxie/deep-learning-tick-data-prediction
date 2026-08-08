@@ -94,9 +94,8 @@ Evaluation 对每个 gate 计算多 seed 均值：缺失指标或任一 gate 失
 全部通过为 `EXTEND`；robustness/release 全部通过为 `KEEP`。自然语言
 `falsification_condition` 继续用于解释，实际裁决只使用结构化 gates。
 
-`locked-test --token` 已改为必填且没有有效默认值，但当前 `APPROVED` 仍是静态口令。因此正式
-locked test 仍必须由人工控制，M2b 需要把批准绑定到 spec SHA、预测或 checkpoint SHA、数据
-指纹和一次性 nonce；完成前不能把当前命令视为生产级一次性授权。
+M2a 发布时 `APPROVED` 仍是静态口令，这一历史限制已经由 M2b 的内容绑定一次性批准替换。
+当前流程见 `docs/topk-agentx-m2b-locked-approval.md`。
 
 ## 运行与验收
 
@@ -112,9 +111,8 @@ ticknet-research compare --ids EXP-BASE-001 EXP-TOPK-001
 合成端到端测试覆盖：成本分析不启动训练、训练预测自动 Audit、locked predictions 拒绝、递归
 指标与 artifact 登记、KEEP/EXTEND/DISCARD、重复 ID、任意入口和 artifact 冲突。
 
-## M2b 剩余工作
+## M2 后续工作
 
-1. 实现一次性、内容绑定的 locked approval。
-2. 实现 `export_predictions`、`walk_forward_robustness`，并为 `train_ranker` 固定入口。
-3. 让 compare 输出对照差值与多 seed 波动，而不只是均值表。
-4. 从 Registry 自动构造 ResearchContext，使异常、负面结果和 parent DAG 回流下一轮提案。
+1. 实现 `export_predictions`、`walk_forward_robustness`，并为 `train_ranker` 固定入口。
+2. 让 compare 输出对照差值与多 seed 波动，而不只是均值表。
+3. 从 Registry 自动构造 ResearchContext，使异常、负面结果和 parent DAG 回流下一轮提案。

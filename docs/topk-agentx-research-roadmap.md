@@ -240,7 +240,7 @@ stage
 - [x] 使用结构化 `success_gates` 表达可计算证伪门槛，不只保存自然语言。
 - [x] Audit 异常自动写回 Registry。
 - [ ] Registry 中的 Audit 异常自动进入下一轮 ResearchContext。
-- [ ] locked approval 绑定 experiment spec、checkpoint、数据指纹和一次性批准记录。
+- [x] locked approval 绑定 experiment spec、checkpoint、predictions、数据指纹和一次性批准记录。
 - [x] CLI 不再提供默认等于有效批准值的 token。
 
 ### 验收门槛
@@ -259,8 +259,19 @@ stage
 - 训练产出的预测明细也会再次检查协议日期，并强制执行 Audit；不能通过 artifact 绕过
   locked 数据边界。
 - Registry v2 保存递归指标、失败状态、review、artifact 路径、大小与流式 SHA-256。
-- 本阶段仍不把 M2 标为完成：一次性 locked approval 绑定、完整 compare 统计、ranker/export/
-  walk-forward executor 和 Registry → ResearchContext 回流留给 M2b。
+- 本阶段仍不把 M2 标为完成：完整 compare 统计、ranker/export/walk-forward executor 和
+  Registry → ResearchContext 回流留给后续阶段。
+
+### 阶段记录：M2b（2026-08-08）
+
+- 使用与安全边界：`docs/topk-agentx-m2b-locked-approval.md`
+- 新增 `approve-locked-test` 与 `locked-test` 两步流程；静态 `APPROVED` 字符串不再具有权限。
+- 签发要求实验为 `stage=release`、状态 `completed`、Evaluation 为 `KEEP`，并具有数据指纹和
+  已登记的 `best_checkpoint` artifact。
+- 随机 bearer token 只显示一次，Registry 只保存 token SHA-256；批准绑定 spec、全部 seed 的
+  checkpoint bundle、locked predictions 和 dataset fingerprint。
+- token 在审计前原子消费，成功、失败或重放都有确定性状态；预测或 checkpoint 改变会在消费前
+  使批准失效。
 
 ## M3：无重训 Top-K 与成本诊断
 
@@ -561,11 +572,11 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1 已完成，M2a 已建立可运行的确定性闭环。下一轮继续 M2b：
+M0、M1 已完成；M2a 建立确定性闭环，M2b 完成内容绑定的一次性 locked approval。下一轮
+继续 M2c：
 
-1. 把 locked approval 绑定 spec SHA、checkpoint/predictions SHA、数据指纹和一次性 nonce。
-2. 实现 `export_predictions` 与 `walk_forward_robustness`，并决定 `train_ranker` 的固定入口。
-3. 扩展 compare，输出主要指标对照差值和多 seed 波动。
-4. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常和失败原因自动回流。
+1. 实现 `export_predictions` 与 `walk_forward_robustness`，并决定 `train_ranker` 的固定入口。
+2. 扩展 compare，输出主要指标对照差值和多 seed 波动。
+3. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常和失败原因自动回流。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。

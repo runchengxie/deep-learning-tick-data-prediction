@@ -65,8 +65,9 @@
 
 项目还实现了参考 AgentX 论文的实验研究闭环。ExperimentSpec v2 通过白名单 typed executor、
 结构化指标门槛、独立 artifact、完整 Registry 和强制预测审计，把提案到评估的确定性部分串联
-起来；一次性 locked approval 绑定仍在 M2 后续阶段。详见
-[docs/topk-agentx-m2a-deterministic-loop.md](docs/topk-agentx-m2a-deterministic-loop.md)。
+起来；locked test 使用绑定 spec、checkpoint、预测和数据指纹的一次性批准。详见
+[docs/topk-agentx-m2a-deterministic-loop.md](docs/topk-agentx-m2a-deterministic-loop.md) 和
+[docs/topk-agentx-m2b-locked-approval.md](docs/topk-agentx-m2b-locked-approval.md)。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见
@@ -145,6 +146,7 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 - [docs/topk-agentx-m0-research-contract.md](docs/topk-agentx-m0-research-contract.md)：新研究系列的数据权限、交易口径、2026 可用性审计与基线冻结
 - [docs/topk-agentx-m1-portfolio-evaluator.md](docs/topk-agentx-m1-portfolio-evaluator.md)：fixed-K long-only 选股、缓冲、成交成本和评估 artifact 契约
 - [docs/topk-agentx-m2a-deterministic-loop.md](docs/topk-agentx-m2a-deterministic-loop.md)：ExperimentSpec v2、typed executor、Registry v2、强制 Audit 与剩余安全边界
+- [docs/topk-agentx-m2b-locked-approval.md](docs/topk-agentx-m2b-locked-approval.md)：内容绑定、不可重放的 locked-test 人工批准与消费流程
 - [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)：分钟信号验证、成本评估和实验研究闭环
 - [docs/raw-200-end-to-end-pipeline.md](docs/raw-200-end-to-end-pipeline.md)：原始盘口主线从本地加工到训练的门槛式推进
 - [docs/reproduction-audit.md](docs/reproduction-audit.md)：FI-2010 复现的模型、协议和核对结论

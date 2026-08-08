@@ -1,7 +1,7 @@
-"""ticknet-research 命令行：run / show / compare / audit / locked-test / agent-step。
+"""ticknet-research：实验执行、审计、一次性 locked approval 与 Agent 编排。
 
-对应 AgentX 落地路线的实验控制面命令。确定性部分（run/show/compare/audit/
-locked-test）已实现；agent-step 用模板 Brainstorm（不接 LLM）推进一轮研究。
+确定性部分包括 run/show/compare/audit/approve-locked-test/locked-test；agent-step
+用模板 Brainstorm（不接 LLM）推进一轮研究。
 """
 
 from __future__ import annotations
@@ -18,9 +18,15 @@ from ticknet.research.agents.context import ResearchContext
 from ticknet.research.agents.critic import CriticAgent
 from ticknet.research.agents.orchestrator import ResearchOrchestrator
 from ticknet.research.audit import PredictionTable, audit_predictions
-from ticknet.research.locked import LockedTestApproval, run_locked_test
+from ticknet.research.locked import (
+    LockedTestApproval,
+    LockedTestFailed,
+    LockedTestNotApproved,
+    issue_locked_test_approval,
+    run_locked_test,
+)
 from ticknet.research.policy import PolicyViolation
-from ticknet.research.registry import ExperimentRegistry
+from ticknet.research.registry import ExperimentRegistry, RegistryConflict
 from ticknet.research.runner import ExperimentRunner, RunnerError
 from ticknet.research.spec import ExperimentSpec
 
@@ -139,22 +145,42 @@ def _audit_command(args: argparse.Namespace) -> None:
     print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
 
 
-def _locked_test_command(args: argparse.Namespace) -> None:
-    approval = LockedTestApproval(
-        reason=args.reason,
-        approved_by=args.approved_by,
-        token=args.token,
-    )
+def _approve_locked_test_command(args: argparse.Namespace) -> None:
     registry = ExperimentRegistry(args.registry)
-    run_locked_test(
-        args.predictions,
-        approval=approval,
-        registry=registry,
-        experiment_id=args.id,
-        min_symbols_per_day=args.min_symbols_per_day,
-        portfolio_quantile=args.quantile,
-    )
-    registry.close()
+    try:
+        try:
+            issued = issue_locked_test_approval(
+                args.predictions,
+                registry=registry,
+                experiment_id=args.id,
+                reason=args.reason,
+                approved_by=args.approved_by,
+                checkpoint_artifact_name=args.checkpoint_artifact_name,
+            )
+        except (LockedTestNotApproved, RegistryConflict) as error:
+            raise SystemExit(f"LOCKED_APPROVAL_REJECTED: {error}") from error
+        print(json.dumps(issued, ensure_ascii=False, indent=2))
+    finally:
+        registry.close()
+
+
+def _locked_test_command(args: argparse.Namespace) -> None:
+    registry = ExperimentRegistry(args.registry)
+    try:
+        try:
+            result = run_locked_test(
+                args.predictions,
+                approval=LockedTestApproval(token=args.token),
+                registry=registry,
+                experiment_id=args.id,
+                min_symbols_per_day=args.min_symbols_per_day,
+                portfolio_quantile=args.quantile,
+            )
+        except (LockedTestFailed, LockedTestNotApproved, RegistryConflict, ValueError) as error:
+            raise SystemExit(f"LOCKED_TEST_REJECTED: {error}") from error
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    finally:
+        registry.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -183,11 +209,20 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser.add_argument("--quantile", type=float, default=0.1)
     audit_parser.set_defaults(func=_audit_command)
 
-    locked_parser = subparsers.add_parser("locked-test", help="显式批准下评估锁定测试集")
+    approval_parser = subparsers.add_parser(
+        "approve-locked-test",
+        help="为已冻结内容签发一次性 locked-test token",
+    )
+    approval_parser.add_argument("--predictions", required=True)
+    approval_parser.add_argument("--id", required=True)
+    approval_parser.add_argument("--reason", required=True)
+    approval_parser.add_argument("--approved-by", required=True)
+    approval_parser.add_argument("--checkpoint-artifact-name", default="best_checkpoint")
+    approval_parser.set_defaults(func=_approve_locked_test_command)
+
+    locked_parser = subparsers.add_parser("locked-test", help="消费一次性批准并评估锁定测试集")
     locked_parser.add_argument("--predictions", required=True)
     locked_parser.add_argument("--id", required=True)
-    locked_parser.add_argument("--reason", required=True)
-    locked_parser.add_argument("--approved-by", default="human-reviewer")
     locked_parser.add_argument("--token", required=True)
     locked_parser.add_argument("--min-symbols-per-day", type=int, default=50)
     locked_parser.add_argument("--quantile", type=float, default=0.1)

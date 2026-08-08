@@ -13,7 +13,9 @@ from ticknet.research.evaluation import (
 )
 from ticknet.research.locked import (
     LockedTestApproval,
+    LockedTestFailed,
     LockedTestNotApproved,
+    issue_locked_test_approval,
     run_locked_test,
 )
 from ticknet.research.policy import PolicyViolation, ResearchPolicy
@@ -48,6 +50,7 @@ __all__ = [
     "ExperimentRunner",
     "ExperimentSpec",
     "LockedTestApproval",
+    "LockedTestFailed",
     "LockedTestNotApproved",
     "MetricGate",
     "PolicyViolation",
@@ -63,6 +66,7 @@ __all__ = [
     "evaluate_metric_gates",
     "evaluate_topk_portfolio",
     "flatten_numeric_metrics",
+    "issue_locked_test_approval",
     "load_portfolio_predictions",
     "run_locked_test",
     "write_portfolio_artifacts",
