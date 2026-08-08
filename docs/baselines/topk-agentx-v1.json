@@ -1,0 +1,58 @@
+{
+  "baseline_version": "topk-agentx-v1",
+  "captured_at": "2026-08-08",
+  "git_sha": "bc9949825ff1a37dbfc2e4e96bcd91c46221333c",
+  "protocol_version": "topk-agentx-v1",
+  "artifacts": [
+    {
+      "name": "minute_hgb_rolling_2022",
+      "path": "results/nextday-minute-rolling-2022.json",
+      "size_bytes": 1780,
+      "sha256": "ef9037968ca7acb300a75c20d8c812fc8f805ed57633471c4d69a83edc32ec51",
+      "test_daily_rank_ic_mean": 0.02181062541898985,
+      "test_mcc": 0.06034511914402765
+    },
+    {
+      "name": "minute_hgb_rolling_2023",
+      "path": "results/nextday-minute-rolling-2023.json",
+      "size_bytes": 1773,
+      "sha256": "4927a112e9e4df7f99abf254c2c2ade95d4cddeb53d95759293f115be7ac2b7a",
+      "test_daily_rank_ic_mean": 0.03255271392706142,
+      "test_mcc": 0.11023526557993915
+    },
+    {
+      "name": "minute_hgb_rolling_2024",
+      "path": "results/nextday-minute-rolling-2024.json",
+      "size_bytes": 1779,
+      "sha256": "9d08c2b76442d6de960f16a24f16030cb8678fe32fde5955271cb199c3a28baa",
+      "test_daily_rank_ic_mean": 0.03533243396654912,
+      "test_mcc": 0.11316148196324474
+    },
+    {
+      "name": "minute_hgb_rolling_2025",
+      "path": "results/nextday-minute-rolling-2025.json",
+      "size_bytes": 1767,
+      "sha256": "8c097b332d78d288a9fdc15e66d8dc5bc677ea6187b67289d7e57d3ce9b8015b",
+      "test_daily_rank_ic_mean": 0.0303877470503531,
+      "test_mcc": 0.0808602050812804
+    },
+    {
+      "name": "minute_hgb_predictions_2025",
+      "path": "results/predictions-rolling-2025.parquet",
+      "size_bytes": 621043,
+      "sha256": "ee2f8c2c4dd1be56c45138f8e6ca5de48539a8a899c5f9ea3dbcc4c15867eeba"
+    },
+    {
+      "name": "minute_tcn_locked_2024_three_seed",
+      "path": "checkpoints-nextday-minute-tcn/locked_test.minute-tcn-2024-top100.seeds0-1-2.json",
+      "size_bytes": 5146,
+      "sha256": "604044296bd7770a0b5152c571546a75f04ede629a2564ac778d5e1bd56d00e6"
+    },
+    {
+      "name": "raw_200_aggregate_logistic_pilot",
+      "path": "results/nextday-pilot-baseline.json",
+      "size_bytes": 954,
+      "sha256": "d3e93724377c78ae18351d6442508daee45ec157dd936f34e6ae8aea561eeb26"
+    }
+  ]
+}

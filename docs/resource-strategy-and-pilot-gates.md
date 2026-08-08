@@ -365,7 +365,9 @@ Registry → SQLite 记忆
    只负责提假设和解释（第一版用 TemplateClient，不接 LLM）。
 3. 每个提案必须声明 falsification_condition，强制科研而不用 AutoML 思路。
 4. 负面结果资产化。失败和被拒实验写入 Registry，形成实验 DAG（parent_id）。
-5. 测试集物理隔离。research cutoff 为 2024-12-31，2025 及以后是锁定测试期。
+5. 测试集物理隔离。当时的 research cutoff 为 2024-12-31，2025 及以后是该轮实验的
+   锁定测试期。新 Top-K 研究系列的版本化边界见
+   `configs/research-protocol-topk-v1.yaml`。
 
 ### 验证结果
 
