@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from ticknet.research.audit import PredictionTable, audit_predictions
 from ticknet.research.policy import PolicyViolation
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.runner import ExperimentRunner
@@ -93,6 +94,16 @@ def _agent_step_command(args: argparse.Namespace) -> None:
     raise SystemExit("agent-step 尚未实现：先完成 Experiment Harness 闭环。")
 
 
+def _audit_command(args: argparse.Namespace) -> None:
+    table = PredictionTable.from_parquet(args.predictions)
+    report = audit_predictions(
+        table,
+        min_symbols_per_day=args.min_symbols_per_day,
+        portfolio_quantile=args.quantile,
+    )
+    print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="自动量化研究实验入口")
     parser.add_argument("--root", type=Path, default=DEFAULT_REPOSITORY_ROOT)
@@ -112,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser = subparsers.add_parser("compare", help="对比多个实验")
     compare_parser.add_argument("--ids", nargs="+", required=True)
     compare_parser.set_defaults(func=_compare_command)
+
+    audit_parser = subparsers.add_parser("audit", help="审计一组预测明细")
+    audit_parser.add_argument("--predictions", required=True)
+    audit_parser.add_argument("--min-symbols-per-day", type=int, default=50)
+    audit_parser.add_argument("--quantile", type=float, default=0.1)
+    audit_parser.set_defaults(func=_audit_command)
 
     agent_parser = subparsers.add_parser("agent-step", help="推进一轮研究（未实现）")
     agent_parser.set_defaults(func=_agent_step_command)

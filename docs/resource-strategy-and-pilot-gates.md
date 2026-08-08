@@ -283,3 +283,31 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
   明细存为 parquet。
 - 新增 `scripts/evaluate_cost_adjusted.py`：成本后多空回测，支持成本档位与
   调仓频率；`tests/test_evaluate_cost_adjusted.py` 3 个测试覆盖。
+
+### IC 与 spread 背离的审计归因（2026-08-08）
+
+第 8 节观察到 Rank IC ≈ 0.01 但无成本 spread ≈ 27.9 bp/日的矛盾。用新增的
+`ticknet-research audit`（`src/ticknet/research/audit.py`）对 2025 预测明细做
+诊断，找到根因：
+
+| 指标 | 值 | 含义 |
+|---|---|---|
+| daily_rank_ic_mean | 0.030 | 信号真实但弱 |
+| daily_ic_ir | 0.211 | 横截面排序不稳定 |
+| top 1 日贡献 | 25.7% | 单日贡献超四分之一 |
+| top 5 日贡献 | 121% | 前 5 天贡献超过全部收益 |
+| top 10 日贡献 | 212% | 前 10 天贡献是全部收益的两倍 |
+| spread 中位数 | 0.026% | 典型日 spread 很低 |
+| decile 单调性 | 0.41 | 排序信号非线性 |
+| 月度 IC | 5 正 1 负 | 2025-10 为 -0.015 |
+
+结论：多空组合的利润基本由极少数大波动日贡献，不是持续稳定的方向性预测能力。
+spread 均值被极端日拉高，掩盖了典型日的低收益。这解释了为什么成本后收益转负：
+极端日的毛利无法抵消常态日的高换手成本。审计把"IC≈0 但 spread 高"的矛盾
+从表面数字还原为可解释的结构性事实，也是未来 Evaluation Agent 的观测接口。
+
+### 工程改动（本轮，审计）
+
+- 新增 `src/ticknet/research/audit.py`：`PredictionTable`（读预测 parquet）+
+  `audit_predictions()`（IC/spread/decile/月频/极端日/winsorize 诊断 + 异常标注）。
+- `ticknet-research audit` 子命令；`tests/test_research_audit.py` 5 个测试覆盖。
