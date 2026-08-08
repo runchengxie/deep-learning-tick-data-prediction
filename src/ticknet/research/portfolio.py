@@ -367,32 +367,71 @@ def _monthly_stability(daily: list[dict[str, Any]]) -> dict[str, dict[str, float
     for month, rows in sorted(grouped.items()):
         gross = np.asarray([row["gross_return"] for row in rows], dtype=np.float64)
         net = np.asarray([row["net_return"] for row in rows], dtype=np.float64)
+        active = np.asarray([row["active_return"] for row in rows], dtype=np.float64)
+        net_active = np.asarray([row["net_active_return"] for row in rows], dtype=np.float64)
         result[month] = {
             "days": len(rows),
             "gross_mean": float(np.mean(gross)),
             "net_mean": float(np.mean(net)),
+            "active_mean": float(np.mean(active)),
+            "net_active_mean": float(np.mean(net_active)),
             "gross_cumulative": float(np.prod(1.0 + gross) - 1.0),
             "net_cumulative": float(np.prod(1.0 + net) - 1.0),
             "positive_net_days_ratio": float(np.mean(net > 0)),
+            "positive_net_active_days_ratio": float(np.mean(net_active > 0)),
         }
     return result
 
 
 def _extreme_day_summary(daily: list[dict[str, Any]]) -> dict[str, Any]:
     ordered = sorted(daily, key=lambda row: abs(float(row["gross_return"])), reverse=True)
+    active_ordered = sorted(
+        daily,
+        key=lambda row: abs(float(row["active_return"])),
+        reverse=True,
+    )
     total_absolute = sum(abs(float(row["gross_return"])) for row in daily)
+    total_active_absolute = sum(abs(float(row["active_return"])) for row in daily)
 
-    def contribution(count: int) -> float:
-        if total_absolute == 0:
+    def contribution(
+        count: int,
+        *,
+        rows: list[dict[str, Any]],
+        field: str,
+        total: float,
+    ) -> float:
+        if total == 0:
             return 0.0
-        return float(
-            sum(abs(float(row["gross_return"])) for row in ordered[:count]) / total_absolute
-        )
+        return float(sum(abs(float(row[field])) for row in rows[:count]) / total)
 
     return {
-        "top_1_absolute_contribution": contribution(1),
-        "top_5_absolute_contribution": contribution(5),
-        "top_10_absolute_contribution": contribution(10),
+        "top_1_absolute_contribution": contribution(
+            1, rows=ordered, field="gross_return", total=total_absolute
+        ),
+        "top_5_absolute_contribution": contribution(
+            5, rows=ordered, field="gross_return", total=total_absolute
+        ),
+        "top_10_absolute_contribution": contribution(
+            10, rows=ordered, field="gross_return", total=total_absolute
+        ),
+        "top_1_absolute_active_contribution": contribution(
+            1,
+            rows=active_ordered,
+            field="active_return",
+            total=total_active_absolute,
+        ),
+        "top_5_absolute_active_contribution": contribution(
+            5,
+            rows=active_ordered,
+            field="active_return",
+            total=total_active_absolute,
+        ),
+        "top_10_absolute_active_contribution": contribution(
+            10,
+            rows=active_ordered,
+            field="active_return",
+            total=total_active_absolute,
+        ),
         "largest_days": [
             {
                 "label_date": row["label_date"],
@@ -400,6 +439,14 @@ def _extreme_day_summary(daily: list[dict[str, Any]]) -> dict[str, Any]:
                 "net_return": row["net_return"],
             }
             for row in ordered[:10]
+        ],
+        "largest_active_days": [
+            {
+                "label_date": row["label_date"],
+                "active_return": row["active_return"],
+                "net_active_return": row["net_active_return"],
+            }
+            for row in active_ordered[:10]
         ],
     }
 
@@ -500,6 +547,7 @@ def evaluate_topk_portfolio(
                 "net_return": net_return,
                 "universe_return": universe_return,
                 "active_return": gross_return - universe_return,
+                "net_active_return": net_return - universe_return,
                 "top_k_realized_overlap": overlap,
                 "selected_rank_ic": selected_ic,
                 "gross_exposure": float(np.sum(np.abs(weights))),

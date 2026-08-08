@@ -334,6 +334,104 @@ def test_export_predictions_rejects_mutated_source_artifact(tmp_path) -> None:
     registry.close()
 
 
+def test_topk_sweep_materializes_registry_source_and_propagates_fingerprint(tmp_path) -> None:
+    source_predictions = tmp_path / "source.parquet"
+    _write_predictions(source_predictions, symbols=10)
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    _register_metric_experiment(
+        registry,
+        "EXP-SOURCE",
+        (0.02,),
+        fingerprint="formal-source-fingerprint",
+    )
+    registry.record_artifact("EXP-SOURCE", 0, "predictions", source_predictions)
+    spec = ExperimentSpec(
+        hypothesis="已登记预测可运行正式 Top-K 诊断",
+        objective="验证 Registry checksum、物化、完整网格和数据指纹链路",
+        experiment_type="cost_analysis",
+        executor="topk_cost_sweep",
+        inputs={
+            "source_experiment_id": "EXP-SOURCE",
+            "evaluation_mode": "formal",
+            "target_return_contract": "next_open_to_following_open",
+            "top_k": [2],
+            "exit_buffer": [0, 1],
+            "cost_bps": [0, 10],
+            "decision_cost_bps": 10,
+            "min_symbols_per_day": 10,
+            "minimum_evaluated_dates": 2,
+            "require_tradability": True,
+            "missing_holding_policy": "error",
+        },
+        primary_metrics=("diagnostic.grid.validated_combinations",),
+        success_gates=(MetricGate("diagnostic.grid.validated_combinations", "gte", 4),),
+        artifact_contract=(
+            "resolved_spec",
+            "resolved_config",
+            "stdout",
+            "stderr",
+            "result",
+            "run_manifest",
+            "source_predictions",
+            "topk_sweep",
+            "m3_diagnostic",
+        ),
+        rationale="正式诊断必须绑定 Registry artifact 内容身份",
+        falsification_condition="网格缺失或 checksum 不一致则失败",
+        novelty_signature="test-formal-topk-registry-source",
+    )
+    result = ExperimentRunner(
+        registry,
+        repository_root=tmp_path,
+        artifact_root=tmp_path / "artifacts",
+    ).run(spec, experiment_id="EXP-TOPK-FORMAL")
+    diagnostic = result.per_seed_metrics[0]["diagnostic"]
+    materialized = tmp_path / "artifacts/EXP-TOPK-FORMAL/seed0/source-predictions.parquet"
+    assert result.dataset_fingerprint == "formal-source-fingerprint"
+    assert result.evaluation_decision == "EXTEND"
+    assert diagnostic["grid"]["validated_combinations"] == 4
+    assert diagnostic["source"]["mode"] == "registry_artifact"
+    assert diagnostic["source"]["source_experiment_id"] == "EXP-SOURCE"
+    assert diagnostic["source"]["tradability_columns_present"] is True
+    assert file_sha256(materialized) == file_sha256(source_predictions)
+    registry.close()
+
+
+def test_topk_sweep_rejects_mutated_registry_source(tmp_path) -> None:
+    source_predictions = tmp_path / "source.parquet"
+    _write_predictions(source_predictions, symbols=10)
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    _register_metric_experiment(registry, "EXP-SOURCE", (0.02,), fingerprint="fp")
+    registry.record_artifact("EXP-SOURCE", 0, "predictions", source_predictions)
+    source_predictions.write_bytes(b"mutated")
+    spec = ExperimentSpec(
+        hypothesis="成本诊断必须拒绝被替换的源预测",
+        objective="验证 Top-K Registry checksum 边界",
+        experiment_type="cost_analysis",
+        executor="topk_cost_sweep",
+        inputs={
+            "source_experiment_id": "EXP-SOURCE",
+            "top_k": [2],
+            "exit_buffer": [0],
+            "cost_bps": [0],
+            "min_symbols_per_day": 10,
+        },
+        primary_metrics=("diagnostic.grid.validated_combinations",),
+        success_gates=(MetricGate("diagnostic.grid.validated_combinations", "gte", 1),),
+        rationale="artifact 登记后不得静默替换",
+        falsification_condition="checksum 不一致时必须失败",
+        novelty_signature="test-topk-checksum-rejection",
+    )
+    runner = ExperimentRunner(
+        registry,
+        repository_root=tmp_path,
+        artifact_root=tmp_path / "artifacts",
+    )
+    with pytest.raises(RunnerError, match="SHA-256"):
+        runner.run(spec, experiment_id="EXP-TOPK-BAD")
+    registry.close()
+
+
 def test_export_predictions_cannot_bypass_locked_protocol(tmp_path) -> None:
     source_predictions = tmp_path / "locked-source.parquet"
     _write_predictions(source_predictions, start=date(2026, 1, 2))
