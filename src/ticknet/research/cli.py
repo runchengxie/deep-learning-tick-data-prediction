@@ -21,7 +21,7 @@ from ticknet.research.audit import PredictionTable, audit_predictions
 from ticknet.research.locked import LockedTestApproval, run_locked_test
 from ticknet.research.policy import PolicyViolation
 from ticknet.research.registry import ExperimentRegistry
-from ticknet.research.runner import ExperimentRunner
+from ticknet.research.runner import ExperimentRunner, RunnerError
 from ticknet.research.spec import ExperimentSpec
 
 DEFAULT_REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -34,22 +34,10 @@ def _load_spec(path: str | Path) -> ExperimentSpec:
         values = yaml.safe_load(file) or {}
     if not isinstance(values, dict):
         raise SystemExit("实验 YAML 根节点应为对象")
-    seeds = tuple(int(seed) for seed in values.get("seeds", [0]))
-    spec = ExperimentSpec(
-        hypothesis=str(values["hypothesis"]),
-        experiment_type=str(values["experiment_type"]),
-        base_config=str(values["base_config"]),
-        config_overrides=dict(values.get("config_overrides", {})),
-        seeds=seeds,
-        primary_metric=str(values.get("primary_metric", "daily_rank_ic_mean")),
-        expected_direction=str(values.get("expected_direction", "increase")),
-        rationale=str(values.get("rationale", "")),
-        falsification_condition=str(values.get("falsification_condition", "")),
-        parent_id=values.get("parent_id"),
-        stage=str(values.get("stage", "screening")),
-        entry_point=str(values.get("entry_point", "")),
-    )
-    return spec
+    try:
+        return ExperimentSpec.from_dict(values)
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit(f"ExperimentSpec 无效: {error}") from error
 
 
 def _run_command(args: argparse.Namespace) -> None:
@@ -62,12 +50,13 @@ def _run_command(args: argparse.Namespace) -> None:
     )
     experiment_id = args.id or f"EXP-{Path(args.spec).stem}"
     try:
-        result = runner.run(spec, experiment_id=experiment_id)
-    except PolicyViolation as error:
-        registry.record_review(experiment_id, "policy", "rejected", {"reason": str(error)})
-        raise SystemExit(f"POLICY_REJECTED: {error}") from error
-    print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-    registry.close()
+        try:
+            result = runner.run(spec, experiment_id=experiment_id)
+        except (PolicyViolation, RunnerError, ValueError) as error:
+            raise SystemExit(f"EXPERIMENT_REJECTED: {error}") from error
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    finally:
+        registry.close()
 
 
 def _show_command(args: argparse.Namespace) -> None:
@@ -117,6 +106,7 @@ def _agent_step_command(args: argparse.Namespace) -> None:
     )
     context = ResearchContext(
         research_question=args.question,
+        baseline_summary=({"predictions_path": args.predictions} if args.predictions else {}),
         open_anomalies=(
             [
                 {
@@ -198,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     locked_parser.add_argument("--id", required=True)
     locked_parser.add_argument("--reason", required=True)
     locked_parser.add_argument("--approved-by", default="human-reviewer")
-    locked_parser.add_argument("--token", default="APPROVED")
+    locked_parser.add_argument("--token", required=True)
     locked_parser.add_argument("--min-symbols-per-day", type=int, default=50)
     locked_parser.add_argument("--quantile", type=float, default=0.1)
     locked_parser.set_defaults(func=_locked_test_command)
@@ -208,6 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent_parser.add_argument("--question", default="分钟聚合特征是否包含稳定的次日横截面信息")
     agent_parser.add_argument("--anomaly", default="")
+    agent_parser.add_argument("--predictions", default="")
     agent_parser.add_argument("--base-config", default="configs/nextday-pilot.yaml")
     agent_parser.add_argument(
         "--provider",

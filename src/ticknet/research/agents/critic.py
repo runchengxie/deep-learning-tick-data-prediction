@@ -12,7 +12,14 @@ from dataclasses import dataclass, field
 from ticknet.research.agents.client import LLMClient
 from ticknet.research.spec import ExperimentSpec
 
-REQUIRED_FIELDS = ("hypothesis", "falsification_condition", "experiment_type")
+REQUIRED_FIELDS = (
+    "hypothesis",
+    "objective",
+    "falsification_condition",
+    "experiment_type",
+    "executor",
+    "novelty_signature",
+)
 
 
 @dataclass
@@ -44,9 +51,20 @@ class CriticAgent:
                 issues.append(f"缺少必填字段: {field_name}")
         if len(spec.falsification_condition.strip()) < 8:
             issues.append("falsification_condition 应包含具体的可证伪条件")
-        if spec.expected_direction not in {"increase", "decrease"}:
-            issues.append(f"expected_direction 无效: {spec.expected_direction}")
         if not spec.rationale.strip():
             issues.append("缺少 rationale，无法判断机制")
+        semantic_executors = {
+            "data_audit": {"audit_predictions"},
+            "cost_analysis": {"topk_cost_sweep"},
+        }
+        allowed = semantic_executors.get(spec.experiment_type)
+        if allowed is not None and spec.executor not in allowed:
+            issues.append(
+                f"{spec.experiment_type} 必须使用 {sorted(allowed)}，收到 {spec.executor}"
+            )
+        try:
+            spec.validate()
+        except ValueError as error:
+            issues.append(f"ExperimentSpec 无效: {error}")
         score = max(0.0, 1.0 - 0.2 * len(issues))
         return Critique(approved=not issues, score=score, issues=issues)

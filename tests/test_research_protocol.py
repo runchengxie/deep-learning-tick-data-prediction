@@ -9,7 +9,23 @@ from ticknet.research.policy import PolicyViolation, ResearchPolicy
 from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.runner import ExperimentRunner
-from ticknet.research.spec import ExperimentSpec
+from ticknet.research.spec import ExperimentResult, ExperimentSpec, MetricGate
+
+
+def _research_spec(*, base_config: str = "base.yaml") -> ExperimentSpec:
+    return ExperimentSpec(
+        hypothesis="test",
+        objective="test protocol",
+        experiment_type="ablation",
+        executor="train_nextday",
+        base_config=base_config,
+        seeds=(0,),
+        primary_metrics=("validation.daily_rank_ic_mean",),
+        success_gates=(MetricGate("validation.daily_rank_ic_mean", "gt", 0.0),),
+        rationale="protocol test",
+        falsification_condition="IC 不改善则否定",
+        novelty_signature="protocol-test",
+    )
 
 
 def _write_manifest(tmp_path, max_trading_date: str) -> str:
@@ -48,6 +64,24 @@ def test_protocol_rejects_missing_manifest(tmp_path):
         protocol.assert_research_safe(tmp_path / "nope.json")
 
 
+def test_protocol_rejects_locked_prediction_table(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    predictions = tmp_path / "locked.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "trading_date": ["2025-12-31"],
+                "label_date": ["2026-01-02"],
+            }
+        ),
+        predictions,
+    )
+    with pytest.raises(PolicyViolation, match="锁定测试期"):
+        ResearchProtocol().assert_predictions_safe(predictions)
+
+
 def test_policy_validate_manifest_delegates_to_protocol(tmp_path):
     policy = ResearchPolicy()
     protocol = ResearchProtocol()
@@ -62,17 +96,12 @@ def test_runner_blocks_locked_manifest(tmp_path):
         registry,
         repository_root=tmp_path,
         artifact_root=tmp_path / "artifacts",
-        entry_points={"ablation": ["python", "-c", "print('{}')"]},
+        command_overrides={"train_nextday": ["python", "-c", "print('{}')"]},
     )
     manifest = _write_manifest(tmp_path, "2026-03-01")
     base_config = tmp_path / "base.yaml"
     base_config.write_text(f"manifest_path: {manifest}\n", encoding="utf-8")
-    spec = ExperimentSpec(
-        hypothesis="test",
-        experiment_type="ablation",
-        base_config="base.yaml",
-        seeds=(0,),
-    )
+    spec = _research_spec()
     with pytest.raises(PolicyViolation, match="锁定测试期"):
         runner.run(spec, experiment_id="EXP-LOCKED-BLOCKED")
     registry.close()
@@ -169,6 +198,20 @@ def test_locked_test_runs_with_approval_and_records(tmp_path):
             }
         ),
         predictions,
+    )
+    spec = _research_spec()
+    registry.record_experiment(
+        "EXP-LOCKED-OK",
+        ExperimentResult(
+            experiment_id="EXP-LOCKED-OK",
+            spec=spec,
+            status="frozen",
+            git_sha="abc",
+            dataset_fingerprint="fp",
+            per_seed_metrics=[],
+            artifact_dir=str(tmp_path),
+        ),
+        spec,
     )
     result = run_locked_test(
         predictions,

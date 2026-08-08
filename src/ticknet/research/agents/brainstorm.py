@@ -1,31 +1,25 @@
-"""Brainstorm Agent：把研究上下文转成可执行的 ExperimentSpec。
-
-对应 AgentX 论文的提案生成与证据加权。第一版模板模式从当前异常和基线
-推导下一步实验；LLM 模式让模型从上下文生成结构化提案 JSON。无论哪种，
-输出都必须是 ExperimentSpec，之后由 Policy 裁决。
-"""
+"""Brainstorm Agent：只生成 ExperimentSpec v2，不直接选择命令。"""
 
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import replace
 from typing import Any
 
 from ticknet.research.agents.client import LLMClient
 from ticknet.research.agents.context import ResearchContext
-from ticknet.research.spec import ExperimentSpec
+from ticknet.research.spec import ExperimentSpec, MetricGate
 
 _SYSTEM_PROMPT = (
-    "你是量化研究助手。根据给定研究上下文，输出一个可执行实验提案，"
-    "只返回 JSON，不要解释。JSON 字段：hypothesis, rationale, "
-    "falsification_condition, experiment_type, base_config, config_overrides, "
-    "primary_metric, expected_direction, seeds。禁止修改任何日期或测试集相关字段。"
+    "你是量化研究助手。只返回 ExperimentSpec v2 JSON。必须包含 hypothesis、objective、"
+    "experiment_type、executor、inputs、config_overrides、primary_metrics、success_gates、"
+    "artifact_contract、budget、falsification_condition、novelty_signature 和 seeds。"
+    "executor 只能使用程序白名单，禁止返回 entry_point、命令、日期或测试集覆盖字段。"
 )
 
 
 class BrainstormAgent:
-    """生成实验提案的 Agent。"""
+    """根据受控 ResearchContext 生成一个结构化实验。"""
 
     def __init__(
         self,
@@ -37,94 +31,93 @@ class BrainstormAgent:
         self.default_base_config = default_base_config
 
     def propose(self, context: ResearchContext) -> ExperimentSpec:
-        """根据上下文生成一个实验提案。"""
         if type(self.llm).__name__ == "TemplateClient":
             return self._template_propose(context)
         return self._llm_propose(context)
 
     def _template_propose(self, context: ResearchContext) -> ExperimentSpec:
-        """模板策略：优先解释 open_anomalies，否则做损失/结构消融。"""
         if context.open_anomalies:
-            anomaly = context.open_anomalies[0]
-            return self._anomaly_experiment(anomaly)
-        return self._with_entry_point(
-            ExperimentSpec(
-                hypothesis="降低回归损失权重应改善横截面排序",
-                experiment_type="ablation",
-                base_config=self.default_base_config,
-                config_overrides={"regression_loss_weight": 0.2},
-                seeds=(0,),
-                rationale="从当前基线出发的默认受控消融",
-                falsification_condition="若多 seed 下 Rank IC 无稳定改善则否定",
-            )
+            return self._anomaly_experiment(context.open_anomalies[0], context)
+        executor = "train_minute_tcn" if "tcn" in self.default_base_config else "train_nextday"
+        baseline = float(context.baseline_summary.get("best_selection_value", 0.0))
+        return ExperimentSpec(
+            hypothesis="降低回归损失权重应改善横截面排序",
+            objective="比较回归损失权重 0.2 与当前基线的验证排序指标",
+            experiment_type="ablation",
+            executor=executor,
+            base_config=self.default_base_config,
+            config_overrides={"regression_loss_weight": 0.2},
+            seeds=(0,),
+            primary_metrics=("best_selection_value",),
+            success_gates=(MetricGate("best_selection_value", "gt", baseline),),
+            rationale="从当前基线出发的默认受控消融",
+            falsification_condition="多 seed 的 best_selection_value 均值不高于当前基线则否定",
+            novelty_signature="ablation-regression-loss-weight-0.2",
         )
 
-    def _with_entry_point(self, spec: ExperimentSpec) -> ExperimentSpec:
-        """根据 base_config 推断训练入口，避免 experiment_type 无对应入口。"""
-        if "tcn" in spec.base_config:
-            return replace(spec, entry_point="ticknet-minute-tcn-train")
-        return replace(spec, entry_point="ticknet-nextday-train")
-
-    def _anomaly_experiment(self, anomaly: dict[str, Any]) -> ExperimentSpec:
-        anomaly_type = anomaly.get("type", "")
+    def _anomaly_experiment(
+        self,
+        anomaly: dict[str, Any],
+        context: ResearchContext,
+    ) -> ExperimentSpec:
+        anomaly_type = str(anomaly.get("type", ""))
+        predictions = str(context.baseline_summary.get("predictions_path", ""))
         if anomaly_type == "tail_return_concentration":
-            return self._with_entry_point(
-                ExperimentSpec(
-                    hypothesis="极端收益驱动了 spread，剔除后信号是否仍存在",
-                    experiment_type="data_audit",
-                    base_config=self.default_base_config,
-                    config_overrides={},
-                    seeds=(0,),
-                    rationale=anomaly.get("detail", "极端日贡献偏高"),
-                    falsification_condition="若剔除极端日后 spread 显著下降且 IC 不变，"
-                    "则信号由极端值驱动",
-                )
-            )
-        if anomaly_type == "weak_decile_monotonicity":
-            return self._with_entry_point(
-                ExperimentSpec(
-                    hypothesis="排序信号非线性，可能需要更激进的分组",
-                    experiment_type="robustness",
-                    base_config=self.default_base_config,
-                    config_overrides={"portfolio_quantile": 0.05},
-                    seeds=(0,),
-                    rationale="decile 单调性弱，试探更小分位",
-                    falsification_condition="若更小分位下 IC 无改善则否定非线性假设",
-                )
-            )
-        return self._with_entry_point(
-            ExperimentSpec(
-                hypothesis="成本后收益为负，检查调仓频率影响",
-                experiment_type="cost_analysis",
-                base_config=self.default_base_config,
-                config_overrides={},
+            return ExperimentSpec(
+                hypothesis="极端收益是否驱动了已有 spread",
+                objective="对现有预测执行确定性极端日与 winsorize 审计",
+                experiment_type="data_audit",
+                executor="audit_predictions",
+                inputs={"predictions_path": predictions},
                 seeds=(0,),
-                rationale="成本是当前主要瓶颈",
-                falsification_condition="若降频无法转正则确认不可交易",
+                primary_metrics=("audit.top_5_day_contribution",),
+                success_gates=(MetricGate("audit.top_5_day_contribution", "lt", 0.5),),
+                artifact_contract=(
+                    "resolved_config",
+                    "stdout",
+                    "stderr",
+                    "result",
+                    "run_manifest",
+                    "audit",
+                ),
+                rationale=str(anomaly.get("detail", "极端日贡献偏高")),
+                falsification_condition="top 5 日贡献不低于 50% 则否定收益稳定性",
+                novelty_signature="audit-tail-return-concentration",
             )
+        return ExperimentSpec(
+            hypothesis="Top-K 缓冲能否在真实成本下保留正净收益",
+            objective="运行 K=50、buffer=20、单边 10bp 的 long-only 成本评估",
+            experiment_type="cost_analysis",
+            executor="topk_cost_sweep",
+            inputs={
+                "predictions_path": predictions,
+                "top_k": [50],
+                "exit_buffer": [20],
+                "cost_bps": [10],
+            },
+            seeds=(0,),
+            primary_metrics=("topk.k50.buffer20.cost10.net.sharpe",),
+            success_gates=(MetricGate("topk.k50.buffer20.cost10.net.sharpe", "gt", 0.0),),
+            artifact_contract=(
+                "resolved_config",
+                "stdout",
+                "stderr",
+                "result",
+                "run_manifest",
+                "topk_sweep",
+            ),
+            rationale=str(anomaly.get("detail", "成本是当前主要瓶颈")),
+            falsification_condition="单边 10bp 下净 Sharpe 不大于 0 则否定可交易性",
+            novelty_signature=f"topk-cost-{anomaly_type or 'unknown'}",
         )
 
     def _llm_propose(self, context: ResearchContext) -> ExperimentSpec:
-        output = self.llm.generate(
-            _SYSTEM_PROMPT,
-            context.to_prompt(),
-            temperature=0.3,
-        )
+        output = self.llm.generate(_SYSTEM_PROMPT, context.to_prompt(), temperature=0.3)
         match = re.search(r"\{.*\}", output, re.DOTALL)
         if match is None:
             raise ValueError(f"LLM 输出中没有 JSON: {output[:500]}")
         values = json.loads(match.group(0))
-        seeds = tuple(int(seed) for seed in values.get("seeds", [0]))
-        spec = ExperimentSpec(
-            hypothesis=str(values["hypothesis"]),
-            rationale=str(values.get("rationale", "")),
-            falsification_condition=str(values.get("falsification_condition", "")),
-            experiment_type=str(values["experiment_type"]),
-            base_config=str(values.get("base_config", self.default_base_config)),
-            config_overrides=dict(values.get("config_overrides", {})),
-            primary_metric=str(values.get("primary_metric", "daily_rank_ic_mean")),
-            expected_direction=str(values.get("expected_direction", "increase")),
-            seeds=seeds,
-        )
-        spec.validate()
-        return spec
+        if not isinstance(values, dict):
+            raise ValueError("LLM ExperimentSpec 根节点应为对象")
+        values.setdefault("base_config", self.default_base_config)
+        return ExperimentSpec.from_dict(values)

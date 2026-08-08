@@ -69,7 +69,7 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 |---|---|---|---|
 | M0 | 重置研究契约 | 新 locked 协议、Top-K 与成本口径、基线快照 | 已完成 |
 | M1 | Top-K 评估内核 | fixed-K long-only、缓冲区、成本与稳定性指标 | 已完成 |
-| M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 待开始 |
+| M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 进行中 |
 | M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 待开始 |
 | M4 | 横截面排序基线 | HGB 与 LambdaMART 同口径比较 | 待开始 |
 | M5 | A 股短周期 embedding | 多期限预训练、缓存 embedding、增量实验 | 待开始 |
@@ -180,7 +180,7 @@ scripts/evaluate_cost_adjusted.py
 
 ### ExperimentSpec v2
 
-建议增加以下结构化字段：
+已经增加以下结构化字段：
 
 ```text
 objective
@@ -201,14 +201,14 @@ stage
 
 ### Typed executors
 
-- [ ] `train_nextday`
-- [ ] `train_minute_tcn`
+- [x] `train_nextday`
+- [x] `train_minute_tcn`
 - [ ] `train_ranker`
 - [ ] `export_predictions`
-- [ ] `audit_predictions`
-- [ ] `topk_cost_sweep`
+- [x] `audit_predictions`
+- [x] `topk_cost_sweep`
 - [ ] `walk_forward_robustness`
-- [ ] `compare_experiments`
+- [x] `compare_experiments`
 
 `data_audit` 和 `cost_analysis` 必须调用各自的确定性实现，不能回退为普通模型训练。
 
@@ -227,20 +227,21 @@ stage
 
 ### Registry 修复
 
-- [ ] 递归登记 `validation.*`、`test.*`、`topk.*` 和 `cost.*` 数值指标。
-- [ ] 为 experiment、run、metric 和 review 增加唯一性或外键约束。
-- [ ] 在执行前登记 experiment，失败、超时和被拒实验也保留状态与原因。
-- [ ] 保存 result path 和 artifact checksum。
+- [x] 递归登记 `validation.*`、`test.*`、`topk.*` 和 `cost.*` 数值指标。
+- [x] 为 experiment、run、metric、review 和 artifact 增加唯一性或外键约束。
+- [x] 在执行前登记 experiment，失败、超时和被拒实验也保留状态与原因。
+- [x] 保存 result path 和 artifact checksum。
 - [ ] `compare` 能直接比较主要指标、对照差值和多 seed 波动。
-- [ ] 防止同一 experiment ID 重复执行产生重复 run 和 metric 行。
+- [x] 防止同一 experiment ID 重复执行产生重复 run 和 metric 行。
 
 ### Evaluation 与权限
 
-- [ ] 由确定性规则输出 `KEEP`、`EXTEND` 或 `DISCARD`。
-- [ ] 将 falsification condition 转换为可计算 gate，不能只保存自然语言。
-- [ ] Audit 异常自动写回 Registry，并成为下一轮 ResearchContext 输入。
+- [x] 由确定性规则输出 `KEEP`、`EXTEND` 或 `DISCARD`。
+- [x] 使用结构化 `success_gates` 表达可计算证伪门槛，不只保存自然语言。
+- [x] Audit 异常自动写回 Registry。
+- [ ] Registry 中的 Audit 异常自动进入下一轮 ResearchContext。
 - [ ] locked approval 绑定 experiment spec、checkpoint、数据指纹和一次性批准记录。
-- [ ] CLI 不再提供默认等于有效批准值的 token。
+- [x] CLI 不再提供默认等于有效批准值的 token。
 
 ### 验收门槛
 
@@ -249,6 +250,17 @@ stage
 1. `cost_analysis` 确实产生成本报告，不启动训练。
 2. 训练实验自动导出预测、执行 Audit、登记嵌套指标并给出 Evaluation 决策。
 3. 任意入口、locked 数据、重复 ID 和 artifact 冲突均被确定性拒绝。
+
+### 阶段记录：M2a（2026-08-08）
+
+- 实现说明与剩余边界：`docs/topk-agentx-m2a-deterministic-loop.md`
+- `ExperimentSpec.from_dict()` 严格拒绝未知字段和旧 `entry_point`，Runner 只分派白名单
+  executor；尚未实现的白名单入口会显式失败，不会回退成训练。
+- 训练产出的预测明细也会再次检查协议日期，并强制执行 Audit；不能通过 artifact 绕过
+  locked 数据边界。
+- Registry v2 保存递归指标、失败状态、review、artifact 路径、大小与流式 SHA-256。
+- 本阶段仍不把 M2 标为完成：一次性 locked approval 绑定、完整 compare 统计、ranker/export/
+  walk-forward executor 和 Registry → ResearchContext 回流留给 M2b。
 
 ## M3：无重训 Top-K 与成本诊断
 
@@ -549,11 +561,11 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1 已完成。下一轮从 M2 开始：
+M0、M1 已完成，M2a 已建立可运行的确定性闭环。下一轮继续 M2b：
 
-1. 将 M2 标记为进行中。
-2. 为每种实验类型增加 typed executor 和 artifact contract。
-3. 修复 Registry 的递归指标、唯一性与失败实验登记。
-4. 让 Orchestrator 强制执行 Audit 与确定性门禁。
+1. 把 locked approval 绑定 spec SHA、checkpoint/predictions SHA、数据指纹和一次性 nonce。
+2. 实现 `export_predictions` 与 `walk_forward_robustness`，并决定 `train_ranker` 的固定入口。
+3. 扩展 compare，输出主要指标对照差值和多 seed 波动。
+4. 从 Registry 构建下一轮 ResearchContext，把 Audit 异常和失败原因自动回流。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。

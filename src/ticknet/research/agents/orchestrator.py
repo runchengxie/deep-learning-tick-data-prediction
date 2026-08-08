@@ -71,6 +71,15 @@ class ResearchOrchestrator:
         except ValueError as error:
             return ResearchStepResult(status="brainstorm_failed", error=str(error))
 
+        try:
+            self.runner.reserve(spec, experiment_id=experiment_id)
+        except RunnerError as error:
+            return ResearchStepResult(
+                status="reservation_failed",
+                spec=spec,
+                error=str(error),
+            )
+
         critique = self.critic.review(spec)
         self.registry.record_review(
             experiment_id,
@@ -79,6 +88,11 @@ class ResearchOrchestrator:
             payload=critique.to_dict(),
         )
         if not critique.approved:
+            self.registry.update_experiment(
+                experiment_id,
+                status="rejected",
+                error="; ".join(critique.issues),
+            )
             return ResearchStepResult(
                 status="critic_rejected",
                 spec=spec,
@@ -88,12 +102,6 @@ class ResearchOrchestrator:
         try:
             result = self.runner.run(spec, experiment_id=experiment_id)
         except PolicyViolation as error:
-            self.registry.record_review(
-                experiment_id,
-                review_type="policy",
-                decision="rejected",
-                payload={"reason": str(error)},
-            )
             return ResearchStepResult(
                 status="policy_rejected",
                 spec=spec,
@@ -101,12 +109,6 @@ class ResearchOrchestrator:
                 error=str(error),
             )
         except RunnerError as error:
-            self.registry.record_review(
-                experiment_id,
-                review_type="runner",
-                decision="failed",
-                payload={"reason": str(error)},
-            )
             return ResearchStepResult(
                 status="runner_failed",
                 spec=spec,
@@ -117,5 +119,9 @@ class ResearchOrchestrator:
             status="completed",
             spec=spec,
             critique=critique.to_dict(),
-            result={"experiment_id": experiment_id, "status": result.status},
+            result={
+                "experiment_id": experiment_id,
+                "status": result.status,
+                "evaluation_decision": result.evaluation_decision,
+            },
         )

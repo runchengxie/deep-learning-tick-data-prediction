@@ -6,6 +6,11 @@ ExperimentSpec 接入。
 """
 
 from ticknet.research.audit import AuditReport, PredictionTable, audit_predictions
+from ticknet.research.evaluation import (
+    EvaluationResult,
+    evaluate_metric_gates,
+    flatten_numeric_metrics,
+)
 from ticknet.research.locked import (
     LockedTestApproval,
     LockedTestNotApproved,
@@ -22,29 +27,42 @@ from ticknet.research.portfolio import (
     write_portfolio_artifacts,
 )
 from ticknet.research.protocol import ResearchProtocol
-from ticknet.research.registry import ExperimentRegistry
+from ticknet.research.registry import ExperimentRegistry, RegistryConflict
 from ticknet.research.runner import ExperimentRunner, RunnerError
-from ticknet.research.spec import ExperimentResult, ExperimentSpec
+from ticknet.research.spec import (
+    EXECUTORS,
+    ExecutionBudget,
+    ExperimentResult,
+    ExperimentSpec,
+    MetricGate,
+)
 
 __all__ = [
+    "EXECUTORS",
     "AuditReport",
     "CostModel",
+    "EvaluationResult",
+    "ExecutionBudget",
     "ExperimentRegistry",
     "ExperimentResult",
     "ExperimentRunner",
     "ExperimentSpec",
     "LockedTestApproval",
     "LockedTestNotApproved",
+    "MetricGate",
     "PolicyViolation",
     "PortfolioEvaluation",
     "PortfolioPolicy",
     "PortfolioPrediction",
     "PredictionTable",
+    "RegistryConflict",
     "ResearchPolicy",
     "ResearchProtocol",
     "RunnerError",
     "audit_predictions",
+    "evaluate_metric_gates",
     "evaluate_topk_portfolio",
+    "flatten_numeric_metrics",
     "load_portfolio_predictions",
     "run_locked_test",
     "write_portfolio_artifacts",
