@@ -163,6 +163,9 @@ class ExperimentRunner:
 
     def _resolve_entry(self, entry: str) -> str:
         """从仓库 .venv/bin 解析命令入口，兼容非交互 shell 缺少 PATH 的情况。"""
+        candidate = Path(entry)
+        if candidate.is_absolute() and candidate.is_file():
+            return str(candidate)
         candidates = [
             self.repository_root / ".venv" / "bin" / entry,
             self.repository_root / ".venv" / "Scripts" / entry,
