@@ -153,6 +153,43 @@ def _split_samples(
     return parts
 
 
+def _save_test_predictions(
+    items: list[MinuteSample],
+    model: Any,
+    path: Path,
+) -> None:
+    """把 test 集每个样本的预测明细写成 parquet，供成本后回测使用。
+
+    每行一个股票日样本：symbol、输入日、标签日、目标收益、三分类概率、
+    以及用于排序的连续分数（上涨概率减下跌概率）。
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    features = np.stack([item.features for item in items])
+    returns = np.asarray([item.target_return for item in items], dtype=np.float64)
+    dates = [item.label_date for item in items]
+    probabilities = model.predict_proba(features)
+    scores = probabilities[:, 2] - probabilities[:, 0]
+    table = pa.table(
+        {
+            "symbol": [item.symbol for item in items],
+            "trading_date": [item.trading_date.isoformat() for item in items],
+            "label_date": [date_value.isoformat() for date_value in dates],
+            "target_return": returns,
+            "score": scores,
+            "prob_up": probabilities[:, 2],
+            "prob_neutral": probabilities[:, 1],
+            "prob_down": probabilities[:, 0],
+        }
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    pq.write_table(table, temporary)
+    os.replace(temporary, path)
+    print(f"已保存 test 预测明细：{path}")
+
+
 def _safe_json(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
@@ -167,6 +204,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--source", choices=sorted(_KNOWN_SOURCES), default=None)
     parser.add_argument("--output", type=Path, default=Path("results/minute-baseline.json"))
     parser.add_argument("--evaluate-test", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--save-predictions",
+        type=Path,
+        default=None,
+        help="把 test 集每日成分与预测明细存为 parquet，供成本后回测",
+    )
     args = parser.parse_args(argv)
     config = _load_config(args.config)
     if args.source is not None:
@@ -214,6 +257,12 @@ def main(argv: list[str] | None = None) -> None:
     test_metrics = None
     if (config.feature_source == "tushare" or args.evaluate_test) and parts["test"]:
         test_metrics = metrics(parts["test"])
+        if args.save_predictions is not None:
+            _save_test_predictions(
+                parts["test"],
+                model,
+                args.save_predictions,
+            )
 
     result = _safe_json(
         {
