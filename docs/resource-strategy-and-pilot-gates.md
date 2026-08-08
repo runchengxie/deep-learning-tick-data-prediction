@@ -1,13 +1,13 @@
 # 有限算力下的研究资源策略与门槛式实验
 
-> 适用范围：在 Google Colab Pro + Google Drive 100GB 的资源下，如何以最省的
-> 计算预算逼近一个关键取舍——“分钟微观结构 / 原始盘口信号到底存不存在、
-> 值不值得继续砸深度模型”。本文是 `hardware-constraints-and-experiment-roadmap.md`
-> 的可执行补充，聚焦“资源怎么用”“小批怎么排”“每一步怎么判断”。
+> 适用范围：在 Google Colab Pro 和 Google Drive 100GB 的资源下，用最省的
+> 计算预算逼近一个关键取舍。这个取舍就是分钟微观结构和原始盘口信号是否存在，
+> 值不值得继续投入深度模型。本文是 `hardware-constraints-and-experiment-roadmap.md`
+> 的可执行补充，聚焦资源怎么用、小批怎么排、每一步怎么判断。
 
 ## 1. 核心原则
 
-资源“够用但有限”。目标不是跑完所有实验，而是用少数几个大方向实验回答：
+资源够用但有限。目标不需要跑完所有实验，用少数几个大方向实验就能回答：
 
 - 时序结构是否比聚合特征（HGB）更有效？
 - 原始盘口是否比分钟特征有可复现的增量？
@@ -41,9 +41,9 @@
 | 近 500 / 1,000 盘口 × 40 特征 | 20 / 40 GB | 分级扩展，一次放 1–2 个 |
 | 每日 64 维 embedding | 约 128 MB | 多日层级模型、反复调参 |
 
-> 结论：Drive 只能存预处理后的“成品”，**不能**当原始数据仓库。
+> 结论：Drive 只能存预处理后的成品，不能当原始数据仓库。
 
-## 3. 骨干执行路径（每步是个"门票决策"）
+## 3. 骨干执行路径（每步是门票决策）
 
 ```text
 远程主机预处理（费 CPU、不费 GPU，免费）
@@ -68,17 +68,17 @@ Colab Pro GPU（只跑关键对比与门槛实验）
    - 依次 200 → 500 → 1000 盘口，每级都比同一口径下的分钟模型。
 4. 一次编码、多日训练
    - 冻结日内编码器，生成 64 维 embedding（约 128MB）。
-   - 多日模型可放；本地快速迭代，不重复编码原始盘口。
+   - 多日模型可以放在本地快速迭代，不用重复编码原始盘口。
 
 ## 4. 用满 Colab 的三个便宜用法
 
-1. **断点续跑 + checkpoint 走 Drive**：Session 会断，靠它兜底额度。
-2. **embedding 一次编码、多日复用**：日内编码器冻结后，多日调参超省算力。
-3. **测试集只解锁一次**：冻结在所有实验末尾。
+1. 断点续跑加 checkpoint 走 Drive。Session 会断，靠它兜底额度。
+2. embedding 一次编码、多日复用。日内编码器冻结后，多日调参超省算力。
+3. 测试集只解锁一次。冻结在所有实验末尾。
 
 ## 5. 权衡有效性的判断口径
 
-要把预算花在能直接回答“信号在不在”的少数重点实验上，而不是均匀砸在调参。
+要把预算花在少数能直接回答信号是否存在的重点实验上，不要把预算均匀砸在调参。
 
 出现以下任一信号，就应停止扩大模型。停止也是有效的结论：
 
@@ -90,13 +90,13 @@ Colab Pro GPU（只跑关键对比与门槛实验）
 
 ## 6. 现阶段最关键的一个实验
 
-**TCN 受控对比（2024 pilot，60 分钟 33 特征）**：
+TCN 受控对比（2024 pilot，60 分钟 33 特征）：
 
 - 作用：判断时序结构是否相对聚合（HGB）有可复现增量。
 - 若通过：投入正式扩展与原始盘口。
 - 若不通过：停止在分钟模型，本文档到此为止。停止结果本身也有价值。
 
-本机 CPU 实测参照：单层 GRU（240×33）约 61 股票日/秒；分块 DeepLOB
+本机 CPU 实测参照：单层 GRU（240×33）约 61 股票日/秒，分块 DeepLOB
 （10×100 盘口）约 8.5 股票日/秒。TCN 参数量约 50 万，适合一台 Colab 会话。
 
 ## 7. Google Drive 目录整理记录（2026-08-07）
@@ -122,12 +122,12 @@ Drive 根目录只保留个人文件夹（Apun、Em、HelloFax、Recordatorio）
 
 - 目录名统一为 `ticknet` 前缀或语义化新名。
 - checkpoint 文件名 `deeplob.setup2.*.pt` → `ticknet.setup2.*.pt`。
-- 旧代码快照（`code-legacy-v1/`、`backup/`）内部的 `deeplob` 包名、文档名
-  **保持原样**：改包名会使旧快照无法运行，它只是历史存档，本地主仓库才是权威。
+- 旧代码快照（`code-legacy-v1/`、`backup/`）内部的 `deeplob` 包名、文档名保持
+  原样。改包名会使旧快照无法运行，它只是历史存档，本地主仓库才是权威。
 
 ### 关键事实（本次整理确认）
 
-A 股 raw-200 pilot 已完整跑完，不是未跑：
+A 股 raw-200 pilot 已完整跑完：
 
 - 数据：`ticknet-data/nextday-raw-pilot-2024-top100/`，2024 全年 23,515 样本。
 - 基线：Logistic，验证集 Rank IC ≈ 0.015，MCC ≈ 0.059。
@@ -142,14 +142,14 @@ Drive 操作全部经远程主机 rclone（本机 `gdrive:` 的 OAuth token 会�
 
 ## 8. 分钟序列时序模型（TCN）vs 聚合基线（2026-08-07）
 
-目标：在完全同口径下对比"未聚合的分钟序列 TCN"与"聚合特征 HGB"，回答时序
+目标：在完全同口径下对比未聚合的分钟序列 TCN 与聚合特征 HGB，回答时序
 建模是否比聚合特征多提供次日横截面排序信息。
 
 ### 数据与口径
 
 - 全量 L2 分钟分片：`ticknet-data/nextday-minute-l2-2024-top100/`，2024 全年
   24,188 样本（与 HGB 基线 written_samples 完全一致），12 个分片，共 174 MB。
-- 分片布局 `samples x 60 x 30` float32；HGB 使用同一股票池、同标签、同切分、
+- 分片布局 `samples x 60 x 30` float32，HGB 使用同一股票池、同标签、同切分、
   同 60 分钟窗口，但输入聚合为 120 维特征。
 - NaN 处理：L2 分钟特征存在逐列缺失（25/30 列，11,251 个样本含 NaN）。用训练
   区间逐列中位数填充（避免验证/测试信息泄漏）。不足 60 分钟的短窗口（21 个）
@@ -199,11 +199,11 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
 
 - 分钟分片 174 MB（2024 top100），显著小于原始 L2 parquet（年度 23 GB），
   适合上传 Drive 与在 Colab 加载。
-- TCN CPU 训练约 6.6 分钟/seed；如需多 seed 或更大隐藏维度，用 Colab GPU。
+- TCN CPU 训练约 6.6 分钟/seed。如需多 seed 或更大隐藏维度，用 Colab GPU。
 
 ## 9. 分钟 HGB 多年份滚动稳健性验证（2026-08-08）
 
-目标：回答"信号在严格样本外是否仍为正"。用同一套分钟 HGB 管线（聚合 120 维
+目标：回答信号在严格样本外是否仍为正。用同一套分钟 HGB 管线（聚合 120 维
 特征、max_iter 500）逐年滚动，得到 4 个独立样本外 test 年。
 
 ### 设计
@@ -229,7 +229,7 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
 
 - 分钟聚合特征 HGB 的信号在 4 个独立样本外年一致为正，排除了 2024 单年侥幸。
   信号真实存在，强度约 Rank IC 0.02 ~ 0.035，弱但跨年稳定。
-- 这回答了资源策略文档第 1 节的第三问："信号在严格样本外是否仍为正"——是。
+- 这回答了资源策略文档第 1 节的第三问，即信号在严格样本外仍然为正。
 - 仍需注意：Rank IC 0.02 ~ 0.035 量级不足以直接构成扣除成本后盈利的策略，
   需结合分组收益与交易成本评估（见第 5 节止损信号）。
 
@@ -250,7 +250,7 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
 - 用 2025 独立样本外年的 HGB 预测明细（`results/predictions-rolling-2025.parquet`）
   做多空组合回测：每日按 score 取 top/bottom 10% 等权持仓，long-short 价差。
 - 成本模型：单边成本（佣金+冲击）按档位 0/3/5/10/20 bp，卖出另加印花税
-  0.05%；换手率按相邻调仓日组合成分差异计算。
+  0.05%。换手率按相邻调仓日组合成分差异计算。
 - 脚本：`scripts/evaluate_cost_adjusted.py`，支持 `--rebalance-days` 控制调仓频率。
 
 ### 结果（2025 H2，125 个交易日，换手率 83%/日）
@@ -282,7 +282,7 @@ TCN 3 seed（seed 0/1/2，best 均选在 epoch 11 前后）锁定测试聚合：
 - `run_minute_baseline.py` 增加 `--save-predictions`，把 test 集每日成分与预测
   明细存为 parquet。
 - 新增 `scripts/evaluate_cost_adjusted.py`：成本后多空回测，支持成本档位与
-  调仓频率；`tests/test_evaluate_cost_adjusted.py` 3 个测试覆盖。
+  调仓频率。`tests/test_evaluate_cost_adjusted.py` 有 3 个测试覆盖。
 
 ### IC 与 spread 背离的审计归因（2026-08-08）
 
@@ -310,7 +310,7 @@ spread 均值被极端日拉高，掩盖了典型日的低收益。这解释了�
 
 - 新增 `src/ticknet/research/audit.py`：`PredictionTable`（读预测 parquet）+
   `audit_predictions()`（IC/spread/decile/月频/极端日/winsorize 诊断 + 异常标注）。
-- `ticknet-research audit` 子命令；`tests/test_research_audit.py` 5 个测试覆盖。
+- `ticknet-research audit` 子命令。`tests/test_research_audit.py` 有 5 个测试覆盖。
 
 ## 11. AgentX 式自动量化研究闭环（2026-08-08）
 
@@ -359,13 +359,13 @@ Registry → SQLite 记忆
 
 ### 关键设计（对应 AgentX 论文原则）
 
-1. **权限由程序控制而非 prompt**：Agent 不能改 `test_end` 等字段（policy 黑名单）；
-   manifest 含锁定日期会被 `ResearchProtocol` 拦截；locked-test 需显式批准 token。
-2. **确定性先于 LLM**：指标提取、统计检验、policy 裁决全部确定性 Python；LLM
-   只负责提假设和解释（第一版甚至用 TemplateClient，不接 LLM）。
-3. **每个提案必须声明 falsification_condition**，强制科研而非 AutoML。
-4. **负面结果资产化**：失败/被拒实验写入 Registry，形成实验 DAG（parent_id）。
-5. **测试集物理隔离**：research cutoff 2024-12-31，2025+ 为锁定测试期。
+1. 权限由程序控制。Agent 不能改 `test_end` 等字段（policy 黑名单），manifest 含
+   锁定日期会被 `ResearchProtocol` 拦截，locked-test 需显式批准 token。
+2. 确定性先于 LLM。指标提取、统计检验、policy 裁决全部用确定性 Python，LLM
+   只负责提假设和解释（第一版用 TemplateClient，不接 LLM）。
+3. 每个提案必须声明 falsification_condition，强制科研而不用 AutoML 思路。
+4. 负面结果资产化。失败和被拒实验写入 Registry，形成实验 DAG（parent_id）。
+5. 测试集物理隔离。research cutoff 为 2024-12-31，2025 及以后是锁定测试期。
 
 ### 验证结果
 
@@ -380,7 +380,8 @@ Registry → SQLite 记忆
 - Developer Agent：开放代码修改（worktree + tests + diff review）。
 - SGPO / Harness Evolution：需积累足够 research trajectories 后实施。
 - Brainstorm 接真实 LLM：`--provider deepseek/openai` 已预留接口。
-### 12. Agent-driven 研究验证：调仓频率假设（2026-08-08）
+
+## 12. Agent-driven 研究验证：调仓频率假设（2026-08-08）
 
 由 LLM（本文档作者）扮演 Brainstorm Agent 驱动的第一轮自动研究，验证系统闭环。
 

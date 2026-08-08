@@ -42,24 +42,11 @@ class CriticAgent:
         for field_name in REQUIRED_FIELDS:
             if not getattr(spec, field_name).strip():
                 issues.append(f"缺少必填字段: {field_name}")
-        if "falsification" not in spec.falsification_condition and not spec.falsification_condition:
-            issues.append("falsification_condition 应包含明确的可证伪条件")
+        if len(spec.falsification_condition.strip()) < 8:
+            issues.append("falsification_condition 应包含具体的可证伪条件")
         if spec.expected_direction not in {"increase", "decrease"}:
             issues.append(f"expected_direction 无效: {spec.expected_direction}")
         if not spec.rationale.strip():
             issues.append("缺少 rationale，无法判断机制")
         score = max(0.0, 1.0 - 0.2 * len(issues))
         return Critique(approved=not issues, score=score, issues=issues)
-
-    def review_with_llm(self, spec: ExperimentSpec, context_text: str) -> Critique:
-        """LLM 增强评审（可选）：让模型补充逻辑/机制审查。"""
-        if self.llm is None:
-            return self.review(spec)
-        prompt = (
-            "审查以下量化实验提案，指出逻辑漏洞、混淆变量或更便宜的替代实验。"
-            f"\n提案：{spec.to_dict()}\n上下文：{context_text}"
-        )
-        output = self.llm.generate("你是严格的量化研究评审。", prompt)
-        issues = [line for line in output.splitlines() if line.strip()]
-        score = max(0.0, 1.0 - 0.2 * len(issues))
-        return Critique(approved=len(issues) <= 2, score=score, issues=issues)

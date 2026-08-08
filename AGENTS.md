@@ -33,11 +33,16 @@ tick/LOB 到次日横截面方向。代码和文档应清楚区分：
 - `src/ticknet/dataset.py` 只负责数据校验、协议选段和窗口索引
 - `src/ticknet/train.py` 负责配置、训练、评估和检查点
 - `src/ticknet/nextday/` 负责次日标签、分片数据集、分块模型、横截面指标和训练
+- `src/ticknet/research/` 负责实验研究闭环，包括提案定义、策略校验、锁定测试隔离、
+  实验登记、预测审计和研究 Agent 框架。它通过 CLI 入口名和 YAML 配置与 `nextday`
+  解耦，不直接 import `nextday` 的实现
 - `scripts/` 放人工执行入口，不承载可复用的核心业务逻辑
 - `tests/` 使用合成数据，不依赖 Google Drive 或完整 FI-2010
+- `legacy/` 是 FI-2010 复现归档，不参与主链路质量门禁，主代码不得反向依赖它
 
 新增功能优先放入现有边界。一个模块同时承担数据发现、模型计算和实验调度时，
-应先拆分职责。
+应先拆分职责。`ticknet.research` 的锁定测试隔离由代码强制，涉及测试集或日期切分的
+改动必须先过 `ResearchProtocol` 校验。
 
 ## 修改要求
 
