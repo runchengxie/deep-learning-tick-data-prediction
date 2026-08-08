@@ -156,6 +156,56 @@ def test_spec_requires_typed_executor_inputs() -> None:
         ).validate()
 
 
+def test_topk_spec_enforces_single_source_and_formal_contract() -> None:
+    def topk_spec(inputs: dict | None = None) -> ExperimentSpec:
+        return _spec(
+            experiment_type="cost_analysis",
+            executor="topk_cost_sweep",
+            base_config="",
+            config_overrides={},
+            inputs=inputs,
+        )
+
+    with pytest.raises(ValueError, match="必须且只能提供"):
+        topk_spec().validate()
+    with pytest.raises(ValueError, match="必须且只能提供"):
+        topk_spec(
+            {
+                "predictions_path": "predictions.parquet",
+                "source_experiment_id": "EXP-SOURCE",
+            }
+        ).validate()
+    with pytest.raises(ValueError, match="必须使用 Registry"):
+        topk_spec(
+            {
+                "predictions_path": "predictions.parquet",
+                "evaluation_mode": "formal",
+                "require_tradability": True,
+                "missing_holding_policy": "error",
+                "target_return_contract": "next_open_to_following_open",
+            }
+        ).validate()
+    with pytest.raises(ValueError, match="require_tradability"):
+        topk_spec(
+            {
+                "source_experiment_id": "EXP-SOURCE",
+                "evaluation_mode": "formal",
+                "missing_holding_policy": "error",
+                "target_return_contract": "next_open_to_following_open",
+            }
+        ).validate()
+
+    topk_spec(
+        {
+            "source_experiment_id": "EXP-SOURCE",
+            "evaluation_mode": "formal",
+            "require_tradability": True,
+            "missing_holding_policy": "error",
+            "target_return_contract": "next_open_to_following_open",
+        }
+    ).validate()
+
+
 def test_evaluation_decisions_are_deterministic() -> None:
     gate = (MetricGate("validation.daily_rank_ic_mean", "gt", 0.01),)
     passing = [

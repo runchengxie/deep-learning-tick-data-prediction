@@ -266,6 +266,7 @@ class ExperimentRunner:
                     seed_dir=seed_dir,
                     config_path=config_path,
                     registry=self.registry,
+                    protocol=self.protocol,
                 )
             )
             metrics = dict(output.metrics)

@@ -72,6 +72,8 @@
 [docs/topk-agentx-m2c-executors-comparison.md](docs/topk-agentx-m2c-executors-comparison.md)。Registry
 驱动的可重放 ResearchContext 见
 [docs/topk-agentx-m2d-registry-context.md](docs/topk-agentx-m2d-registry-context.md)。
+完整 Top-K、buffer、成本矩阵、Registry 来源绑定和甜点区诊断见
+[docs/topk-agentx-m3-topk-diagnostics.md](docs/topk-agentx-m3-topk-diagnostics.md)。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见
@@ -153,6 +155,7 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 - [docs/topk-agentx-m2b-locked-approval.md](docs/topk-agentx-m2b-locked-approval.md)：内容绑定、不可重放的 locked-test 人工批准与消费流程
 - [docs/topk-agentx-m2c-executors-comparison.md](docs/topk-agentx-m2c-executors-comparison.md)：Registry prediction 导出、多 seed 对比与 walk-forward 稳健性聚合
 - [docs/topk-agentx-m2d-registry-context.md](docs/topk-agentx-m2d-registry-context.md)：Registry 基线、历史决策、失败和 Audit 异常的可重放 ResearchContext
+- [docs/topk-agentx-m3-topk-diagnostics.md](docs/topk-agentx-m3-topk-diagnostics.md)：完整 Top-K、buffer、成本矩阵与正式/烟测诊断边界
 - [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)：分钟信号验证、成本评估和实验研究闭环
 - [docs/raw-200-end-to-end-pipeline.md](docs/raw-200-end-to-end-pipeline.md)：原始盘口主线从本地加工到训练的门槛式推进
 - [docs/reproduction-audit.md](docs/reproduction-audit.md)：FI-2010 复现的模型、协议和核对结论

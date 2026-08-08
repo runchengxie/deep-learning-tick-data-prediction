@@ -71,6 +71,12 @@ def test_initial_entry_cost_and_zero_cost_identity() -> None:
     assert daily["sell_turnover"] == pytest.approx(0.0)
     assert daily["transaction_cost"] == pytest.approx(0.001)
     assert daily["net_return"] == pytest.approx(daily["gross_return"] - 0.001)
+    assert daily["net_active_return"] == pytest.approx(
+        daily["net_return"] - daily["universe_return"]
+    )
+    month = charged.summary["monthly_stability"]["2024-01"]
+    assert month["net_active_mean"] == pytest.approx(daily["net_active_return"])
+    assert "top_5_absolute_active_contribution" in charged.summary["extreme_days"]
 
     free = evaluate_topk_portfolio(
         predictions,

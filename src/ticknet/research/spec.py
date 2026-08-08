@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
@@ -192,12 +193,14 @@ class ExperimentSpec:
 
     def _validate_executor_inputs(self) -> None:
         if (
-            self.executor in {"audit_predictions", "topk_cost_sweep"}
+            self.executor == "audit_predictions"
             and not str(self.inputs.get("predictions_path", "")).strip()
         ):
-            raise ValueError(f"{self.executor} 需要 inputs.predictions_path")
+            raise ValueError("audit_predictions 需要 inputs.predictions_path")
         if self.executor == "export_predictions":
             self._validate_export_inputs()
+        if self.executor == "topk_cost_sweep":
+            self._validate_topk_inputs()
         if self.executor in {"walk_forward_robustness", "compare_experiments"}:
             self._validate_comparison_inputs()
 
@@ -211,6 +214,170 @@ class ExperimentSpec:
         source_seed = self.inputs.get("source_seed", 0)
         if isinstance(source_seed, bool) or not isinstance(source_seed, int) or source_seed < 0:
             raise ValueError("inputs.source_seed 必须为非负整数")
+
+    def _validate_topk_inputs(self) -> None:
+        has_experiment = self._validate_topk_source()
+        top_ks, buffers, costs = self._validate_topk_grids()
+        self._validate_topk_diagnostic_options(top_ks=top_ks, costs=costs)
+        require_tradability, missing_policy, mode, target_contract = (
+            self._validate_topk_contract_options()
+        )
+        if mode == "formal":
+            self._validate_formal_topk_inputs(
+                has_experiment=has_experiment,
+                require_tradability=require_tradability,
+                missing_policy=missing_policy,
+                target_contract=target_contract,
+                buffers=buffers,
+            )
+
+    def _validate_topk_source(self) -> bool:
+        predictions_path = self.inputs.get("predictions_path")
+        source_experiment_id = self.inputs.get("source_experiment_id")
+        has_path = isinstance(predictions_path, str) and bool(predictions_path.strip())
+        has_experiment = isinstance(source_experiment_id, str) and bool(
+            source_experiment_id.strip()
+        )
+        if has_path == has_experiment:
+            raise ValueError(
+                "topk_cost_sweep 必须且只能提供 inputs.predictions_path 或 "
+                "inputs.source_experiment_id"
+            )
+        if predictions_path is not None and not has_path:
+            raise ValueError("inputs.predictions_path 必须为非空字符串")
+        if source_experiment_id is not None and not has_experiment:
+            raise ValueError("inputs.source_experiment_id 必须为非空字符串")
+        if has_experiment:
+            self._validate_registered_source_options()
+        return has_experiment
+
+    def _validate_topk_grids(
+        self,
+    ) -> tuple[list[int | float], list[int | float], list[int | float]]:
+        top_ks = self._validate_numeric_grid("top_k", [25, 50, 75, 100], integer=True)
+        buffers = self._validate_numeric_grid("exit_buffer", [0, 10, 25, 50], integer=True)
+        costs = self._validate_numeric_grid("cost_bps", [5, 10, 15, 20], integer=False)
+        if any(value <= 0 for value in top_ks):
+            raise ValueError("inputs.top_k 只能包含正整数")
+        if any(value < 0 for value in buffers):
+            raise ValueError("inputs.exit_buffer 不能包含负数")
+        if any(value < 0 for value in costs):
+            raise ValueError("inputs.cost_bps 不能包含负数")
+        return top_ks, buffers, costs
+
+    def _validate_topk_diagnostic_options(
+        self,
+        *,
+        top_ks: list[int | float],
+        costs: list[int | float],
+    ) -> None:
+        default_cost = 10.0 if 10.0 in costs else float(costs[0])
+        decision_cost = self._validate_nonnegative_number("decision_cost_bps", default_cost)
+        if float(decision_cost) not in {float(value) for value in costs}:
+            raise ValueError("inputs.decision_cost_bps 必须包含在 cost_bps 网格中")
+        minimum = self.inputs.get("min_symbols_per_day", max(int(value) for value in top_ks))
+        if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < max(top_ks):
+            raise ValueError("inputs.min_symbols_per_day 必须为不小于最大 top_k 的整数")
+        minimum_dates = self.inputs.get("minimum_evaluated_dates", 60)
+        if (
+            isinstance(minimum_dates, bool)
+            or not isinstance(minimum_dates, int)
+            or minimum_dates <= 0
+        ):
+            raise ValueError("inputs.minimum_evaluated_dates 必须为正整数")
+        for name, default in {
+            "minimum_positive_month_ratio": 0.5,
+            "maximum_top5_absolute_contribution": 0.5,
+        }.items():
+            value = self._validate_nonnegative_number(name, default)
+            if value > 1:
+                raise ValueError(f"inputs.{name} 必须在 [0, 1] 范围内")
+        self._validate_nonnegative_number("min_score_gap", 0.0)
+        self._validate_nonnegative_number("sell_stamp_tax_bps", 5.0)
+
+    def _validate_topk_contract_options(self) -> tuple[bool, str, str, str]:
+        require_tradability = self.inputs.get("require_tradability", False)
+        if not isinstance(require_tradability, bool):
+            raise ValueError("inputs.require_tradability 必须为布尔值")
+        missing_policy = self.inputs.get("missing_holding_policy", "liquidate")
+        if missing_policy not in {"liquidate", "error"}:
+            raise ValueError("inputs.missing_holding_policy 应为 liquidate 或 error")
+        mode = self.inputs.get("evaluation_mode", "smoke")
+        if mode not in {"smoke", "formal"}:
+            raise ValueError("inputs.evaluation_mode 应为 smoke 或 formal")
+        target_contract = self.inputs.get("target_return_contract", "unspecified")
+        if not isinstance(target_contract, str) or not target_contract.strip():
+            raise ValueError("inputs.target_return_contract 必须为非空字符串")
+        return require_tradability, str(missing_policy), str(mode), target_contract
+
+    def _validate_registered_source_options(self) -> None:
+        artifact_name = self.inputs.get("artifact_name", "predictions")
+        if not isinstance(artifact_name, str) or not artifact_name.strip():
+            raise ValueError("inputs.artifact_name 不能为空")
+        source_seed = self.inputs.get("source_seed", 0)
+        if isinstance(source_seed, bool) or not isinstance(source_seed, int) or source_seed < 0:
+            raise ValueError("inputs.source_seed 必须为非负整数")
+
+    def _validate_numeric_grid(
+        self,
+        name: str,
+        default: list[int],
+        *,
+        integer: bool,
+    ) -> list[int | float]:
+        values = self.inputs.get(name, default)
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"inputs.{name} 必须为非空列表")
+        if integer:
+            if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+                raise ValueError(f"inputs.{name} 只能包含整数")
+            normalized: list[int | float] = [cast(int, value) for value in values]
+        else:
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in values
+            ):
+                raise ValueError(f"inputs.{name} 只能包含有限数值")
+            normalized = [float(value) for value in values]
+        if len(set(normalized)) != len(normalized):
+            raise ValueError(f"inputs.{name} 不能重复")
+        return normalized
+
+    def _validate_nonnegative_number(self, name: str, default: float) -> float:
+        value = self.inputs.get(name, default)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or value < 0
+        ):
+            raise ValueError(f"inputs.{name} 必须为非负数")
+        return float(value)
+
+    def _validate_formal_topk_inputs(
+        self,
+        *,
+        has_experiment: bool,
+        require_tradability: bool,
+        missing_policy: str,
+        target_contract: str,
+        buffers: list[int | float],
+    ) -> None:
+        if not has_experiment:
+            raise ValueError("formal topk_cost_sweep 必须使用 Registry source_experiment_id")
+        if not require_tradability:
+            raise ValueError("formal topk_cost_sweep 必须设置 require_tradability=true")
+        if missing_policy != "error":
+            raise ValueError("formal topk_cost_sweep 必须设置 missing_holding_policy=error")
+        if target_contract != "next_open_to_following_open":
+            raise ValueError(
+                "formal topk_cost_sweep 的 target_return_contract 必须为 "
+                "next_open_to_following_open"
+            )
+        if 0 not in buffers:
+            raise ValueError("formal topk_cost_sweep 的 exit_buffer 必须包含 0 作为对照")
 
     def _validate_comparison_inputs(self) -> None:
         experiment_ids = self.inputs.get("experiment_ids")

@@ -26,6 +26,8 @@ from ticknet.research.portfolio import (
     load_portfolio_predictions,
     write_portfolio_artifacts,
 )
+from ticknet.research.portfolio_sweep import summarize_topk_sweep
+from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry, file_sha256
 from ticknet.research.spec import ExperimentSpec
 
@@ -57,6 +59,7 @@ class ExecutorContext:
     seed_dir: Path
     config_path: Path
     registry: ExperimentRegistry
+    protocol: ResearchProtocol
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,20 @@ class ExecutorOutput:
     stderr: str = ""
     exit_code: int = 0
     anomalies: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class PredictionSource:
+    """已解析并校验过内容身份的 prediction 输入。"""
+
+    path: Path
+    sha256: str
+    size_bytes: int
+    mode: str
+    dataset_fingerprint: str | None = None
+    source_experiment_id: str | None = None
+    source_seed: int | None = None
+    artifact_name: str | None = None
 
 
 class ResearchExecutor(Protocol):
@@ -87,6 +104,105 @@ def _resolve_input_path(value: object, repository_root: Path) -> Path:
     if not path.is_absolute():
         path = repository_root / path
     return path.resolve()
+
+
+def _registered_prediction_source(
+    context: ExecutorContext,
+    inputs: dict[str, Any],
+) -> PredictionSource:
+    source_experiment_id = str(inputs["source_experiment_id"])
+    source_seed = int(inputs.get("source_seed", 0))
+    artifact_name = str(inputs.get("artifact_name", "predictions"))
+    experiment = context.registry.get_experiment(source_experiment_id)
+    if experiment is None:
+        raise ExecutorFailure(f"源实验不存在: {source_experiment_id}")
+    if experiment["status"] not in {"completed", "frozen", "locked_tested"}:
+        raise ExecutorFailure(
+            f"源实验尚未完成: {source_experiment_id} status={experiment['status']}"
+        )
+    candidates = [
+        row
+        for row in context.registry.get_artifacts(
+            source_experiment_id,
+            name=artifact_name,
+        )
+        if int(row["seed"]) == source_seed
+    ]
+    if len(candidates) != 1:
+        raise ExecutorFailure(
+            f"源 prediction artifact 必须唯一: {source_experiment_id} "
+            f"seed={source_seed} name={artifact_name}"
+        )
+    artifact = candidates[0]
+    source = Path(str(artifact["path"])).expanduser().resolve()
+    if not source.is_file():
+        raise ExecutorFailure(f"源 prediction artifact 不存在: {source}")
+    digest = file_sha256(source)
+    if digest != artifact["sha256"]:
+        raise ExecutorFailure(f"源 prediction artifact SHA-256 不一致: {source}")
+    context.protocol.assert_predictions_safe(source)
+    return PredictionSource(
+        path=source,
+        sha256=digest,
+        size_bytes=source.stat().st_size,
+        mode="registry_artifact",
+        dataset_fingerprint=(
+            str(experiment["dataset_fingerprint"])
+            if experiment["dataset_fingerprint"] is not None
+            else None
+        ),
+        source_experiment_id=source_experiment_id,
+        source_seed=source_seed,
+        artifact_name=artifact_name,
+    )
+
+
+def _prediction_source(context: ExecutorContext) -> PredictionSource:
+    inputs = context.spec.inputs
+    if str(inputs.get("source_experiment_id", "")).strip():
+        source = _registered_prediction_source(context, inputs)
+    else:
+        path = _resolve_input_path(inputs["predictions_path"], context.repository_root)
+        if not path.is_file():
+            raise ExecutorFailure(f"预测明细不存在: {path}")
+        context.protocol.assert_predictions_safe(path)
+        source = PredictionSource(
+            path=path,
+            sha256=file_sha256(path),
+            size_bytes=path.stat().st_size,
+            mode="direct_path",
+        )
+    if inputs.get("evaluation_mode", "smoke") == "formal" and not source.dataset_fingerprint:
+        raise ExecutorFailure("formal topk_cost_sweep 的源实验必须包含 dataset_fingerprint")
+    return source
+
+
+def _materialize_prediction_source(source: PredictionSource, destination: Path) -> None:
+    shutil.copyfile(source.path, destination)
+    if file_sha256(destination) != source.sha256:
+        raise ExecutorFailure("物化 prediction artifact 后 SHA-256 不一致")
+
+
+def _prediction_source_metrics(
+    source: PredictionSource,
+    *,
+    materialized_path: Path,
+    evaluation_mode: str,
+    target_return_contract: str,
+) -> dict[str, Any]:
+    schema = pq.read_schema(materialized_path)
+    return {
+        "mode": source.mode,
+        "sha256": source.sha256,
+        "size_bytes": source.size_bytes,
+        "source_experiment_id": source.source_experiment_id,
+        "source_seed": source.source_seed,
+        "artifact_name": source.artifact_name,
+        "dataset_fingerprint": source.dataset_fingerprint,
+        "evaluation_mode": evaluation_mode,
+        "target_return_contract": target_return_contract,
+        "tradability_columns_present": {"can_buy", "can_sell"} <= set(schema.names),
+    }
 
 
 def _metric_directions(inputs: dict[str, Any]) -> dict[str, str]:
@@ -226,47 +342,15 @@ class ExportPredictionsExecutor:
     """校验并物化 Registry 中已有的 prediction artifact。"""
 
     def execute(self, context: ExecutorContext) -> ExecutorOutput:
-        inputs = context.spec.inputs
-        source_experiment_id = str(inputs["source_experiment_id"])
-        source_seed = int(inputs.get("source_seed", 0))
-        artifact_name = str(inputs.get("artifact_name", "predictions"))
-        experiment = context.registry.get_experiment(source_experiment_id)
-        if experiment is None:
-            raise ExecutorFailure(f"源实验不存在: {source_experiment_id}")
-        if experiment["status"] not in {"completed", "frozen", "locked_tested"}:
-            raise ExecutorFailure(
-                f"源实验尚未完成: {source_experiment_id} status={experiment['status']}"
-            )
-        candidates = [
-            row
-            for row in context.registry.get_artifacts(
-                source_experiment_id,
-                name=artifact_name,
-            )
-            if int(row["seed"]) == source_seed
-        ]
-        if len(candidates) != 1:
-            raise ExecutorFailure(
-                f"源 prediction artifact 必须唯一: {source_experiment_id} "
-                f"seed={source_seed} name={artifact_name}"
-            )
-        artifact = candidates[0]
-        source = Path(str(artifact["path"])).expanduser().resolve()
-        if not source.is_file():
-            raise ExecutorFailure(f"源 prediction artifact 不存在: {source}")
-        digest = file_sha256(source)
-        if digest != artifact["sha256"]:
-            raise ExecutorFailure(f"源 prediction artifact SHA-256 不一致: {source}")
+        source = _registered_prediction_source(context, context.spec.inputs)
         required = {"symbol", "trading_date", "label_date", "target_return", "score"}
-        schema = pq.read_schema(source)
+        schema = pq.read_schema(source.path)
         missing = required - set(schema.names)
         if missing:
             raise ExecutorFailure(f"源 prediction artifact 缺少字段: {sorted(missing)}")
 
         destination = context.seed_dir / "predictions.parquet"
-        shutil.copyfile(source, destination)
-        if file_sha256(destination) != digest:
-            raise ExecutorFailure("物化 prediction artifact 后 SHA-256 不一致")
+        _materialize_prediction_source(source, destination)
         identity = pq.read_table(
             destination,
             columns=["symbol", "trading_date", "label_date"],
@@ -277,26 +361,24 @@ class ExportPredictionsExecutor:
                 "symbol_count": len(set(identity["symbol"].to_pylist())),
                 "trading_date_count": len(set(identity["trading_date"].to_pylist())),
                 "label_date_count": len(set(identity["label_date"].to_pylist())),
-                "source_seed": source_seed,
+                "source_seed": source.source_seed,
             }
         }
         return ExecutorOutput(
             metrics=metrics,
             artifacts={"predictions": destination},
-            dataset_fingerprint=(
-                str(experiment["dataset_fingerprint"])
-                if experiment["dataset_fingerprint"] is not None
-                else None
-            ),
+            dataset_fingerprint=source.dataset_fingerprint,
         )
 
 
 class TopKCostSweepExecutor:
-    """对 K、buffer 和成本网格运行 M1 组合内核。"""
+    """对完整 K、buffer 和成本网格运行 M1 内核并生成 M3 诊断。"""
 
     def execute(self, context: ExecutorContext) -> ExecutorOutput:
         inputs = context.spec.inputs
-        predictions_path = _resolve_input_path(inputs["predictions_path"], context.repository_root)
+        source = _prediction_source(context)
+        predictions_path = context.seed_dir / "source-predictions.parquet"
+        _materialize_prediction_source(source, predictions_path)
         predictions = load_portfolio_predictions(predictions_path)
         top_ks = [int(value) for value in inputs.get("top_k", [25, 50, 75, 100])]
         buffers = [int(value) for value in inputs.get("exit_buffer", [0, 10, 25, 50])]
@@ -304,7 +386,7 @@ class TopKCostSweepExecutor:
         stamp_tax = float(inputs.get("sell_stamp_tax_bps", 5.0))
         minimum = int(inputs.get("min_symbols_per_day", max(top_ks)))
         metrics: dict[str, Any] = {"topk": {}}
-        artifacts: dict[str, Path] = {}
+        artifacts: dict[str, Path] = {"source_predictions": predictions_path}
         for top_k in top_ks:
             for buffer in buffers:
                 for cost in costs:
@@ -332,10 +414,39 @@ class TopKCostSweepExecutor:
                     metrics["topk"][key] = evaluation.summary
                     for artifact_type, path in paths.items():
                         artifacts[f"{key}.{artifact_type}"] = Path(path)
+        evaluation_mode = str(inputs.get("evaluation_mode", "smoke"))
+        default_decision_cost = 10.0 if 10.0 in costs else costs[0]
+        diagnostic = summarize_topk_sweep(
+            metrics["topk"],
+            evaluation_mode=evaluation_mode,
+            decision_cost_bps=float(inputs.get("decision_cost_bps", default_decision_cost)),
+            minimum_evaluated_dates=int(inputs.get("minimum_evaluated_dates", 60)),
+            minimum_positive_month_ratio=float(inputs.get("minimum_positive_month_ratio", 0.5)),
+            maximum_top5_absolute_contribution=float(
+                inputs.get("maximum_top5_absolute_contribution", 0.5)
+            ),
+        )
+        diagnostic["source"] = _prediction_source_metrics(
+            source,
+            materialized_path=predictions_path,
+            evaluation_mode=evaluation_mode,
+            target_return_contract=str(inputs.get("target_return_contract", "unspecified")),
+        )
+        metrics["diagnostic"] = diagnostic
         sweep_path = context.seed_dir / "topk-sweep.json"
         sweep_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
+        diagnostic_path = context.seed_dir / "m3-diagnostic.json"
+        diagnostic_path.write_text(
+            json.dumps(diagnostic, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         artifacts["topk_sweep"] = sweep_path
-        return ExecutorOutput(metrics=metrics, artifacts=artifacts)
+        artifacts["m3_diagnostic"] = diagnostic_path
+        return ExecutorOutput(
+            metrics=metrics,
+            artifacts=artifacts,
+            dataset_fingerprint=source.dataset_fingerprint,
+        )
 
 
 class CompareExperimentsExecutor:

@@ -70,7 +70,7 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 | M0 | 重置研究契约 | 新 locked 协议、Top-K 与成本口径、基线快照 | 已完成 |
 | M1 | Top-K 评估内核 | fixed-K long-only、缓冲区、成本与稳定性指标 | 已完成 |
 | M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 已完成 |
-| M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 待开始 |
+| M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 进行中 |
 | M4 | 横截面排序基线 | HGB 与 LambdaMART 同口径比较 | 待开始 |
 | M5 | A 股短周期 embedding | 多期限预训练、缓存 embedding、增量实验 | 待开始 |
 | M6 | 神经 Top-K 损失 | DayBatchSampler、pairwise 或 LambdaRank 损失 | 待开始 |
@@ -314,6 +314,19 @@ stage
 | 单边成本 | 5、10、15、20 bp |
 | 调仓 | 每日评分，允许缓冲区抑制无效换手 |
 | 组合 | long-only 等权 |
+
+### 当前进展
+
+- [x] `topk_cost_sweep` 支持完整笛卡尔积、相同日期样本校验和确定性甜点区判断。
+- [x] 支持 Registry prediction artifact 的状态、唯一性、SHA-256、锁定日期和数据指纹绑定。
+- [x] 正式模式强制交易状态、严格缺失持仓策略和 open-to-following-open 标签声明。
+- [x] `TRD-TOPK-SMOKE-001` 已运行 64 组 smoke，工程 gate 通过。
+- [ ] 生成并登记动态 Top-400 正式 predictions。
+- [ ] 运行 `TRD-TOPK-400-001` 与 `TRD-BUFFER-400-001`，形成 M3 正式结论。
+
+smoke 在 10bp 下得到 `NO_TRADEABLE_REGION`。最好的相对股票池等权收益盈亏平衡单边成本
+约 6.55bp。该预测缺少交易状态，标签也是 next-open-to-same-close，只能作为工程证据。完整
+契约、结果和限制见 `docs/topk-agentx-m3-topk-diagnostics.md`。
 
 ### 对照
 
@@ -596,10 +609,11 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1、M2 已完成。下一轮进入 M3 的无重训组合诊断：
+M0、M1、M2 已完成，M3 的完整矩阵和工程 smoke 已完成。下一轮补齐正式 M3 输入：
 
-1. 从 Registry 选择现有 HGB prediction artifact，不重新训练模型。
-2. 运行 K=25/50/75/100、buffer=0/10/25/50 和单边成本 5/10/15/20bp 的完整矩阵。
-3. 输出换手、毛收益、净收益和最差时段，先判断是否存在值得进入 M4 的可交易甜点区。
+1. 生成动态 Top-400、open-to-following-open、带 `can_buy` 和 `can_sell` 的 HGB predictions。
+2. 把预测作为唯一 artifact 登记到干净的 v2 Registry，并记录数据指纹和标签契约。
+3. 运行 `TRD-TOPK-400-001` 和 `TRD-BUFFER-400-001`。若 10bp 下仍无相对等权甜点区，进入
+   M4 的 HGB 与 LambdaMART 同口径比较。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。
