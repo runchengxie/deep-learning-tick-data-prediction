@@ -13,6 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq
 import yaml
 
 from ticknet.research.policy import PolicyViolation
@@ -108,4 +109,26 @@ class ResearchProtocol:
                 f"协议 {self.protocol_version} 禁止读取锁定测试期："
                 f"manifest 最大交易日 {max_trading_date.isoformat()} "
                 f"≥ locked_start {self.locked_start}"
+            )
+
+    def assert_predictions_safe(self, predictions_path: str | Path) -> None:
+        """阻止 audit/cost executor 通过预测 Parquet 绕过 manifest 隔离。"""
+        path = Path(predictions_path).expanduser().resolve()
+        if not path.is_file():
+            raise PolicyViolation(f"预测明细不存在: {path}")
+        schema = pq.read_schema(path)
+        date_column = "label_date" if "label_date" in schema.names else "trading_date"
+        if date_column not in schema.names:
+            raise PolicyViolation(f"预测明细缺少 label_date/trading_date: {path}")
+        values = pq.read_table(path, columns=[date_column])[date_column].to_pylist()
+        if not values:
+            raise PolicyViolation(f"预测明细为空: {path}")
+        try:
+            maximum = max(_parse_date(str(value)) for value in values)
+        except ValueError as error:
+            raise PolicyViolation(f"预测明细日期无效: {path}") from error
+        if maximum >= self.locked_begin:
+            raise PolicyViolation(
+                f"协议 {self.protocol_version} 禁止读取锁定测试期："
+                f"预测明细最大交易日 {maximum.isoformat()} ≥ locked_start {self.locked_start}"
             )

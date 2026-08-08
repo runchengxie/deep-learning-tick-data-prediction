@@ -27,7 +27,7 @@ class LockedTestApproval:
     reason: str
     approved_by: str = "human-reviewer"
     approved_at: str = ""
-    token: str = "APPROVED"
+    token: str = ""
 
     def __post_init__(self) -> None:
         if self.token != "APPROVED":

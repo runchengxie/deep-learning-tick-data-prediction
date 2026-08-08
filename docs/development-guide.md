@@ -10,7 +10,7 @@
 | `ticknet.dataset` | 共享张量形状常量与合成数据工具 |
 | `ticknet.train` | 主链路与 FI-2010 复现共用的训练工具（`set_seed` / `resolve_device` / `f1_metrics`） |
 | `ticknet.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练 |
-| `ticknet.research` | 实验研究闭环，包括提案定义、策略校验、锁定测试隔离、实验登记、预测审计和研究 Agent 框架 |
+| `ticknet.research` | 实验研究闭环，包括 ExperimentSpec v2、typed executor、策略与锁定期隔离、Registry、预测审计和确定性 Evaluation |
 
 FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口、文本转换和绘图）已
 归档到 `legacy/`，不再参与主链路开发与质量门禁。如需运行，参见 `legacy/` 下的对应脚本
@@ -82,10 +82,10 @@ FI-2010 复现链路（归档）覆盖：
 
 研究闭环覆盖：
 
-- 实验提案定义与策略校验，包括禁止改动测试集字段
-- 锁定测试期隔离，`topk-agentx-v1` 下 manifest 含 2026 年数据时程序级拦截
-- SQLite 实验登记与指标读写
-- Brainstorm、Critic、编排器的确定性执行
+- ExperimentSpec v2 严格解析、白名单 executor、结构化 metric gates 和 artifact contract
+- 锁定测试期隔离：manifest、显式 predictions 输入和训练产生的 predictions 都受程序级拦截
+- SQLite Registry v2 的递归指标、唯一性、父实验、失败状态和 artifact SHA-256
+- Brainstorm、Critic、编排器、强制 Audit 与 KEEP/EXTEND/DISCARD 的确定性执行
 - fixed-K long-only、排名缓冲、不可交易约束、权重漂移、成本和明细 artifact
 
 冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或
