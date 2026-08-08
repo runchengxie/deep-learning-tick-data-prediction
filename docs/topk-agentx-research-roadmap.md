@@ -68,7 +68,7 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 | 里程碑 | 方向 | 主要产物 | 状态 |
 |---|---|---|---|
 | M0 | 重置研究契约 | 新 locked 协议、Top-K 与成本口径、基线快照 | 已完成 |
-| M1 | Top-K 评估内核 | fixed-K long-only、缓冲区、成本与稳定性指标 | 待开始 |
+| M1 | Top-K 评估内核 | fixed-K long-only、缓冲区、成本与稳定性指标 | 已完成 |
 | M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 待开始 |
 | M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 待开始 |
 | M4 | 横截面排序基线 | HGB 与 LambdaMART 同口径比较 | 待开始 |
@@ -129,17 +129,17 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 
 ### 最小实现
 
-- [ ] 从预测 Parquet 读取 `symbol`、`trading_date`、`label_date`、`score` 和
+- [x] 从预测 Parquet 读取 `symbol`、`trading_date`、`label_date`、`score` 和
   `target_return`。
-- [ ] 支持固定 `top_k`，不再只支持分位数。
-- [ ] 支持 long-only 等权组合。
-- [ ] 支持排名缓冲区，例如目标 K 为 50，老持仓跌出 70 才卖出。
-- [ ] 支持最低换仓收益门槛或最小分数差。
-- [ ] 正确处理动态股票池成分变化和持仓股票次日缺失。
-- [ ] 输出逐日持仓、交易、换手、毛收益、成本和净收益明细。
-- [ ] 输出 Top-K 排序指标、月度稳定性、极端日贡献和风险暴露。
-- [ ] 把 `scripts/evaluate_cost_adjusted.py` 保持为薄 CLI，核心逻辑进入可复用模块。
-- [ ] 增加合成数据测试，覆盖初始建仓、缓冲区、动态成分、缺失收益和成本计算。
+- [x] 支持固定 `top_k`，不再只支持分位数。
+- [x] 支持 long-only 等权组合。
+- [x] 支持排名缓冲区，例如目标 K 为 50，老持仓跌出 70 才卖出。
+- [x] 支持最低换仓收益门槛或最小分数差。
+- [x] 正确处理动态股票池成分变化和持仓股票次日缺失。
+- [x] 输出逐日持仓、交易、换手、毛收益、成本和净收益明细。
+- [x] 输出 Top-K 排序指标、月度稳定性、极端日贡献和风险暴露。
+- [x] 把 `scripts/evaluate_cost_adjusted.py` 保持为薄 CLI，核心逻辑进入可复用模块。
+- [x] 增加合成数据测试，覆盖初始建仓、缓冲区、动态成分、缺失收益和成本计算。
 
 ### 建议模块边界
 
@@ -163,6 +163,14 @@ scripts/evaluate_cost_adjusted.py
 - long-only 与现有 long-short 结果明确区分。
 - 成本为零时净收益严格等于毛收益。
 - 增加缓冲区后，换手变化能由逐日交易明细解释。
+
+### 完成记录（2026-08-08）
+
+- 核心模块：`src/ticknet/research/portfolio.py`
+- 使用与 artifact 契约：`docs/topk-agentx-m1-portfolio-evaluator.md`
+- 历史分位数多空路径保留为 `legacy_quantile_long_short_diagnostic`。
+- Top-K 路径支持 `can_buy`、`can_sell`、严格缺失持仓策略和交易后权重漂移。
+- M2 可以把同一个 `evaluate_topk_portfolio()` 接入 typed `topk_cost_sweep` executor。
 
 ## M2：修复 AgentX 确定性研究闭环
 
@@ -541,11 +549,11 @@ next_action: ""
 
 ## 当前下一步
 
-M0 已完成。下一轮从 M1 开始：
+M0、M1 已完成。下一轮从 M2 开始：
 
-1. 将 M1 标记为进行中。
-2. 实现 fixed-K long-only 组合评估。
-3. 实现退出缓冲、不可交易持仓和一致的成本模型。
-4. 用合成数据覆盖边界条件，再用现有 Top 100 预测做 smoke。
+1. 将 M2 标记为进行中。
+2. 为每种实验类型增加 typed executor 和 artifact contract。
+3. 修复 Registry 的递归指标、唯一性与失败实验登记。
+4. 让 Orchestrator 强制执行 Audit 与确定性门禁。
 
 在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。

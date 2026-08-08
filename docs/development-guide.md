@@ -25,7 +25,7 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 | `run_nextday_baseline.py` | 聚合日内特征的 Logistic Regression 对照 |
 | `run_minute_baseline.py` | 分钟级聚合特征的 HGB 基线，支持多年滚动验证和预测明细导出 |
 | `prepare_minute_shards.py` | 分钟序列切分为 `samples x time x features` 分片，供时序模型使用 |
-| `evaluate_cost_adjusted.py` | 成本后多空组合回测，支持成本档位和调仓频率 |
+| `evaluate_cost_adjusted.py` | Top-K long-only 成本评估薄入口；兼容历史分位数多空诊断 |
 
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的
 含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
@@ -83,9 +83,10 @@ FI-2010 复现链路（归档）覆盖：
 研究闭环覆盖：
 
 - 实验提案定义与策略校验，包括禁止改动测试集字段
-- 锁定测试期隔离，manifest 含 2025 年数据时程序级拦截
+- 锁定测试期隔离，`topk-agentx-v1` 下 manifest 含 2026 年数据时程序级拦截
 - SQLite 实验登记与指标读写
 - Brainstorm、Critic、编排器的确定性执行
+- fixed-K long-only、排名缓冲、不可交易约束、权重漂移、成本和明细 artifact
 
 冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或
 本地 pre-push hook 单独执行，不参与 pytest 收集。

@@ -100,3 +100,32 @@ def test_insufficient_daily_cross_section_is_skipped() -> None:
                     "500",
                 ]
             )
+
+
+def test_topk_cli_writes_auditable_artifacts(tmp_path) -> None:
+    path = tmp_path / "predictions.parquet"
+    output_dir = tmp_path / "topk"
+    _make_synthetic(path)
+    result = run_backtest(
+        [
+            "--predictions",
+            str(path),
+            "--top-k",
+            "10",
+            "--exit-buffer",
+            "5",
+            "--cost-bps",
+            "0",
+            "--stamp-tax-bps",
+            "0",
+            "--min-symbols-per-day",
+            "50",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    assert result["mode"] == "topk_long_only"
+    assert result["policy"]["top_k"] == 10
+    assert result["net"] == result["gross"]
+    assert pq.read_table(output_dir / "daily.parquet").num_rows == 10
+    assert pq.read_table(output_dir / "holdings.parquet").num_rows == 100

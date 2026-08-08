@@ -12,6 +12,15 @@ from ticknet.research.locked import (
     run_locked_test,
 )
 from ticknet.research.policy import PolicyViolation, ResearchPolicy
+from ticknet.research.portfolio import (
+    CostModel,
+    PortfolioEvaluation,
+    PortfolioPolicy,
+    PortfolioPrediction,
+    evaluate_topk_portfolio,
+    load_portfolio_predictions,
+    write_portfolio_artifacts,
+)
 from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry
 from ticknet.research.runner import ExperimentRunner, RunnerError
@@ -19,6 +28,7 @@ from ticknet.research.spec import ExperimentResult, ExperimentSpec
 
 __all__ = [
     "AuditReport",
+    "CostModel",
     "ExperimentRegistry",
     "ExperimentResult",
     "ExperimentRunner",
@@ -26,10 +36,16 @@ __all__ = [
     "LockedTestApproval",
     "LockedTestNotApproved",
     "PolicyViolation",
+    "PortfolioEvaluation",
+    "PortfolioPolicy",
+    "PortfolioPrediction",
     "PredictionTable",
     "ResearchPolicy",
     "ResearchProtocol",
     "RunnerError",
     "audit_predictions",
+    "evaluate_topk_portfolio",
+    "load_portfolio_predictions",
     "run_locked_test",
+    "write_portfolio_artifacts",
 ]
