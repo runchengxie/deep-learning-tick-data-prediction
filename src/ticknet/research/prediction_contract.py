@@ -171,6 +171,7 @@ def validate_formal_prediction_artifact(
         "symbol",
         "trading_date",
         "label_date",
+        "return_end_date",
         "target_return",
         "score",
         "can_buy",
@@ -192,6 +193,7 @@ def validate_formal_prediction_artifact(
 
     seen: set[tuple[date, str]] = set()
     signal_dates: dict[date, set[date]] = defaultdict(set)
+    return_end_dates: dict[date, set[date]] = defaultdict(set)
     candidate_counts: Counter[date] = Counter()
     candidate_rows = cannot_buy = cannot_sell = 0
     label_dates: list[date] = []
@@ -202,13 +204,17 @@ def validate_formal_prediction_artifact(
         symbol = raw_symbol.strip()
         trading_date = _as_date(row["trading_date"], field="trading_date")
         label_date = _as_date(row["label_date"], field="label_date")
+        return_end_date = _as_date(row["return_end_date"], field="return_end_date")
         if label_date <= trading_date:
             raise PredictionContractError("label_date 必须晚于 trading_date")
+        if return_end_date <= label_date:
+            raise PredictionContractError("return_end_date 必须晚于 label_date")
         key = (label_date, symbol)
         if key in seen:
             raise PredictionContractError(f"prediction artifact 存在重复股票日: {key}")
         seen.add(key)
         signal_dates[label_date].add(trading_date)
+        return_end_dates[label_date].add(return_end_date)
         label_dates.append(label_date)
 
         _as_finite_float(row["score"], field="score", row_index=row_index)
@@ -224,6 +230,8 @@ def validate_formal_prediction_artifact(
 
     if any(len(dates) != 1 for dates in signal_dates.values()):
         raise PredictionContractError("同一 label_date 必须对应唯一 trading_date")
+    if any(len(dates) != 1 for dates in return_end_dates.values()):
+        raise PredictionContractError("同一 label_date 必须对应唯一 return_end_date")
     if set(candidate_counts) != set(signal_dates):
         raise PredictionContractError("每个 label_date 都必须包含候选股票")
     invalid_counts = {

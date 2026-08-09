@@ -23,9 +23,10 @@
 - 连续超额收益分数，用于横截面排序
 - 下跌、中性、上涨三类概率
 
-标签按下一交易日个股开盘到收盘收益减去中证全指同期收益计算。同一天所有股票按这个超额
-收益排序，最低的 20% 标为下跌，中间的 60% 标为中性，最高的 20% 标为上涨。每个股票每个
-交易日只生成一个样本，不会出现同一天多个 tick 共享一个标签的情况。
+原始序列模型的历史诊断标签按下一交易日个股开盘到收盘收益减去中证全指同期收益计算。同一天
+所有股票按这个超额收益排序，最低的 20% 标为下跌，中间的 60% 标为中性，最高的 20% 标为上涨。
+M3 正式 Top-K 组合改用 T+1 开盘到 T+2 开盘收益，使收益周期与每日开盘调仓一致；两套口径在
+配置、数据指纹和 prediction metadata 中显式区分。每个股票每个交易日只生成一个样本。
 
 ### 输入和模型
 
@@ -74,8 +75,10 @@
 [docs/topk-agentx-m2d-registry-context.md](docs/topk-agentx-m2d-registry-context.md)。
 完整 Top-K、buffer、成本矩阵、Registry 来源绑定和甜点区诊断见
 [docs/topk-agentx-m3-topk-diagnostics.md](docs/topk-agentx-m3-topk-diagnostics.md)。
-正式 prediction 还会校验 open-to-open 标签、动态股票池、交易状态、每日候选数和 Parquet
-metadata；外部产物必须先经 `import_predictions` 登记，不能直接作为正式 M3 输入。
+正式 HGB prediction 生成链路已经实现 open-to-following-open 标签、滞后成交额动态 Top-400、
+次日停牌/一字涨跌停状态、调出股票状态行、收益结束日清洗、缺失分钟特征保留和 Parquet
+metadata 校验；外部产物必须先经 `import_predictions` 登记，不能直接作为正式 M3 输入。全量
+L2 prediction 物化和正式成本矩阵仍待运行，因此目前没有新的交易结论。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见

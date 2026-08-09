@@ -72,6 +72,23 @@ ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
 - 按月利用 ticker row-group 范围跳过无关股票
 - 输出 float16 大分片、manifest 和 `data-audit.json`
 
+以上是原始序列模型保留的历史诊断口径。M3 Top-K 的正式 HGB 输入使用独立配置
+`configs/nextday-minute-formal-2025.yaml`，目标改为 T 日信号对应 T+1 open 至 T+2 open 的持有
+收益，并按同期中证全指 open-to-open 收益形成分类监督。动态 Top-400 只使用 T 日以前的成交额；
+T+1 停牌、一字涨停和一字跌停分别写入交易状态，调出但尚不可卖的持仓继续写
+`in_universe=false` 状态行。正式切分还要求 `return_end_date` 落在同一时间段内。
+
+```bash
+uv run python scripts/run_minute_baseline.py \
+  --config configs/nextday-minute-formal-2025.yaml \
+  --evaluate-test \
+  --save-predictions results/predictions-hgb-top400-open2open-2025.parquet \
+  --output results/nextday-minute-formal-2025.json
+```
+
+该命令的输出会携带正式数据指纹和 prediction metadata，供 `import_predictions` 登记。缺少
+L2 分钟窗口的候选使用 HGB 原生支持的全 NaN 特征并保留在 Top-400 中，不能静默删除。
+
 修正后的本机 smoke v2 覆盖 2024-01-02 至 2024-01-12 的动态前 20 股票：180 个目标中
 写出 178 个，两个股票日缺少可用 snapshot。178 个写出样本均有完整 200 个有效 tick。
 430 个 row group 中读取 44 个并跳过 386 个。候选时段共剔除 1,017 行无效盘口。该结果

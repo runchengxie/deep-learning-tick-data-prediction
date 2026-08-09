@@ -117,14 +117,20 @@ class ResearchProtocol:
         if not path.is_file():
             raise PolicyViolation(f"预测明细不存在: {path}")
         schema = pq.read_schema(path)
-        date_column = "label_date" if "label_date" in schema.names else "trading_date"
-        if date_column not in schema.names:
+        date_columns = [name for name in ("label_date", "return_end_date") if name in schema.names]
+        if not date_columns and "trading_date" in schema.names:
+            date_columns = ["trading_date"]
+        if not date_columns:
             raise PolicyViolation(f"预测明细缺少 label_date/trading_date: {path}")
-        values = pq.read_table(path, columns=[date_column])[date_column].to_pylist()
-        if not values:
+        table = pq.read_table(path, columns=date_columns)
+        if table.num_rows == 0:
             raise PolicyViolation(f"预测明细为空: {path}")
         try:
-            maximum = max(_parse_date(str(value)) for value in values)
+            maximum = max(
+                _parse_date(str(value))
+                for name in date_columns
+                for value in table[name].to_pylist()
+            )
         except ValueError as error:
             raise PolicyViolation(f"预测明细日期无效: {path}") from error
         if maximum >= self.locked_begin:
