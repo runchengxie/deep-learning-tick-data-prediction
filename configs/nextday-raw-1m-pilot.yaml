@@ -1,4 +1,5 @@
-# 2024 raw-200 pilot。四季度测试集保持锁定，训练和选模只查看验证期。
+# raw-200 百万参数容量压力测试。
+# 复用已查看过结果的 2024 pilot，只能作为开发诊断，不能重新称为 locked test。
 
 manifest_path: ./data/nextday-raw-pilot-2024-top100/manifest.json
 train_start: "2024-01-01"
@@ -20,17 +21,16 @@ resume: true
 evaluate_test: false
 verify_data_checksums: true
 
-checkpoint_dir: ./checkpoints-nextday-pilot
-checkpoint_name: raw-200-pilot-2024-top100
-conv_channels: 16
-inception_channels: 32
-intraday_embedding_size: 64
-day_hidden_size: 64
+checkpoint_dir: ./checkpoints-nextday-1m-pilot
+checkpoint_name: raw-200-1m-pilot-2024-top100
+conv_channels: 32
+inception_channels: 64
+intraday_embedding_size: 320
+day_hidden_size: 192
 day_layers: 1
 dropout: 0.1
 class_weighting: balanced
 selection_metric: daily_rank_ic_mean
-# 低于动态股票池 80% 覆盖的日期不进入日度横截面指标。
 min_symbols_per_day: 80
 portfolio_quantile: 0.1
 classification_loss_weight: 1.0

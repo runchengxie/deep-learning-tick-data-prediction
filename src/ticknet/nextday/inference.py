@@ -12,6 +12,7 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from ticknet.nextday.config import DEFAULT_CONV_CHANNELS, DEFAULT_INCEPTION_CHANNELS
 from ticknet.nextday.dataset import manifest_fingerprint
 from ticknet.nextday.io import pack_events
 from ticknet.nextday.model import ChunkedDeepLOB, build_nextday_model
@@ -91,6 +92,10 @@ class NextDayPredictor:
         self.model: ChunkedDeepLOB = build_nextday_model(
             chunks_per_sample=self.chunks_per_sample,
             chunk_size=self.chunk_size,
+            conv_channels=int(experiment.get("conv_channels", DEFAULT_CONV_CHANNELS)),
+            inception_channels=int(
+                experiment.get("inception_channels", DEFAULT_INCEPTION_CHANNELS)
+            ),
             intraday_embedding_size=int(experiment["intraday_embedding_size"]),
             day_hidden_size=int(experiment["day_hidden_size"]),
             day_layers=int(experiment["day_layers"]),

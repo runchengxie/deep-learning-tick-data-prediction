@@ -1,7 +1,7 @@
 # 原始盘口 200 tick 端到端主线：本地加工到 Colab 训练
 
-> 适用范围：客户的最终交付物是深度模型直接接受原始十档 snapshot tick 并输出次日
-> 方向。本文与 `resource-strategy-and-pilot-gates.md` 互补：那份讲资源怎么省着用，
+> 适用范围：验证深度模型直接接受原始十档 snapshot tick 并输出次日方向的端到端能力。
+> 本文与 `resource-strategy-and-pilot-gates.md` 互补：那份讲资源怎么省着用，
 > 这份讲 raw-200 这条主线怎么从本地数据一路走到锁定测试，并且每一步用什么门槛
 > 拦住。
 
@@ -11,12 +11,13 @@
 
 输入是每个股票日 14:55 前最后 200 个十档盘口 snapshot tick，输出次日开盘到收盘的
 超额收益分数，以及下跌、中性、上涨三分类概率。模型是共享 DeepLOB 编码 2 个
-100-event 块，GRU 汇总后接双头输出。参数量约 60k，可在一台 Colab 会话内训练。
+100-event 块，GRU 汇总后接双头输出。默认配置有 86,775 个参数；容量扩展配置有
+1,033,383 个参数。两者均可在单卡 Colab 会话内训练。
 
 ### 现状
 
-- `raw_snapshot.py` 数据准备链路、`train.py` 训练器、`nextday-raw-pilot.yaml`
-  配置都已就位，但只通过合成数据测试，还没跑过真实数据。
+- `raw_snapshot.py` 数据准备链路、`train.py` 训练器和 raw-200 pilot 配置都已就位；默认
+  86k 模型已有真实 2024 pilot 多 seed 结果，百万参数版本仍待运行。
 - 数据加工在本地主机完成，Colab 只做训练，这正是参考
   `notebooks/nextday_end_to_end_colab.ipynb` 的分工。
 - 本地主机 CPU 实测约 8.5 股票日/秒，三年分块 DeepLOB 一个 epoch 约 9.8 小时，
@@ -94,6 +95,24 @@ Drive → Colab → checkpoint 闭环。确认：
 - `EVALUATE_LOCKED_TEST` 只有显式填确认字符串才解锁，解锁后只评估一次。
 - 报告跨 seed 的测试 Rank IC 和 Macro F1 均值与标准差，不按测试结果选 seed。
 
+### 3.4 百万参数容量实验
+
+`configs/nextday-raw-1m-pilot.yaml` 只改变模型容量，复用 raw-200 pilot 的输入、标签、日期切分
+和训练超参：
+
+| 结构参数 | 86k 基线 | 1.03M 容量实验 |
+|---|---:|---:|
+| `conv_channels` | 16 | 32 |
+| `inception_channels` | 32 | 64 |
+| `intraday_embedding_size` | 64 | 320 |
+| `day_hidden_size` | 64 | 192 |
+| 总参数量 | 86,775 | 1,033,383 |
+
+先在 Colab notebook 选择 `MODEL_PROFILE = "capacity_1m"` 运行 100 batch，记录吞吐与峰值显存，
+再分别以 seed 0、1、2 训练。2024Q4 已用于既有 pilot 结果，只能作为开发诊断；本轮用验证期
+Rank IC、Macro F1、训练耗时和跨 seed 波动比较容量增量，不重新把该区间称为 locked test。
+只有训练指标提高而验证指标不提高时，停止继续扩容。
+
 ## 4. 用满 Colab 的约定（与 notebook 一致）
 
 1. 训练期间不通过 Drive 挂载点随机读 NPY，先复制到 `/content`。
@@ -113,10 +132,9 @@ Drive → Colab → checkpoint 闭环。确认：
 
 ## 6. 下一步动作
 
-1. 本地跑 raw-200 数据加工，产出 2024 top100 分片与 data-audit.json。
-2. 跑 Logistic 基线，确认分片有信息。
-3. Colab smoke 吞吐测试，确认预算。
-4. 正式 pilot 训练与锁定测试。
+1. 在 Colab 对 1.03M 配置运行 100 batch 吞吐与显存 smoke。
+2. 用 seed 0、1、2 运行 86k 与 1.03M 同口径验证期比较。
+3. 若容量增量跨 seed 稳定，再补中间参数档位；否则保留 86k 基线。
 
 参考：`notebooks/nextday_end_to_end_colab.ipynb`、`configs/nextday-raw-pilot.yaml`、
-`configs/nextday-pilot.yaml`。
+`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`。

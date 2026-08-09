@@ -23,6 +23,8 @@ verify_data_checksums: true
 
 checkpoint_dir: ./checkpoints-nextday
 checkpoint_name: raw-200-dual-head
+conv_channels: 16
+inception_channels: 32
 intraday_embedding_size: 64
 day_hidden_size: 64
 day_layers: 1

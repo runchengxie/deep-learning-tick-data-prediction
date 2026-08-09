@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from ticknet.nextday.splits import WalkForwardSplit
 
 SELECTION_METRICS = {"daily_rank_ic_mean", "macro_f1", "balanced_accuracy", "mcc"}
+DEFAULT_CONV_CHANNELS = 16
+DEFAULT_INCEPTION_CHANNELS = 32
 LOCKED_TEST_AGGREGATE_METRICS = (
     "daily_rank_ic_mean",
     "macro_f1",
@@ -49,6 +51,8 @@ class NextDayConfig:
     verify_data_checksums: bool = True
     checkpoint_dir: str = "./checkpoints-nextday"
     checkpoint_name: str = "chunked-ticknet"
+    conv_channels: int = DEFAULT_CONV_CHANNELS
+    inception_channels: int = DEFAULT_INCEPTION_CHANNELS
     intraday_embedding_size: int = 64
     day_hidden_size: int = 64
     day_layers: int = 1
@@ -71,7 +75,14 @@ class NextDayConfig:
             raise ValueError("lr 应为正数，weight_decay 不能为负数")
         if self.num_workers < 0:
             raise ValueError("num_workers 不能为负数")
-        if self.intraday_embedding_size < 1 or self.day_hidden_size < 1 or self.day_layers < 1:
+        model_dimensions = (
+            self.conv_channels,
+            self.inception_channels,
+            self.intraday_embedding_size,
+            self.day_hidden_size,
+            self.day_layers,
+        )
+        if any(value < 1 for value in model_dimensions):
             raise ValueError("模型隐藏维度和层数应为正整数")
         if not 0 <= self.dropout < 1:
             raise ValueError("dropout 应在 [0, 1) 内")

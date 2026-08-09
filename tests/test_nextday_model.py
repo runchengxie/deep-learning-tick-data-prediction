@@ -32,3 +32,18 @@ def test_chunked_model_rejects_wrong_number_of_chunks():
     model = build_nextday_model(chunks_per_sample=2, chunk_size=20)
     with pytest.raises(ValueError, match="输入应为"):
         model(torch.randn(2, 3, 1, 20, 40))
+
+
+def test_balanced_capacity_model_has_one_million_parameters():
+    model = build_nextday_model(
+        chunks_per_sample=2,
+        chunk_size=20,
+        conv_channels=32,
+        inception_channels=64,
+        intraday_embedding_size=320,
+        day_hidden_size=192,
+    )
+    assert sum(parameter.numel() for parameter in model.parameters()) == 1_033_383
+    output = model(torch.randn(1, 2, 1, 20, 40))
+    assert output.logits.shape == (1, 3)
+    assert output.score.shape == (1,)

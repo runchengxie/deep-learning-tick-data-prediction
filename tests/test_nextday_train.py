@@ -28,6 +28,8 @@ def test_nextday_yaml_and_cli_override(tmp_path):
                 'test_start: "2024-03-01"',
                 'test_end: "2024-03-31"',
                 "batch_size: 16",
+                "conv_channels: 32",
+                "inception_channels: 64",
             ]
         ),
         encoding="utf-8",
@@ -47,6 +49,8 @@ def test_nextday_yaml_and_cli_override(tmp_path):
     assert config.resume is False
     assert config.evaluate_test is True
     assert config.verify_data_checksums is False
+    assert config.conv_channels == 32
+    assert config.inception_channels == 64
     assert config.date_split().train.end.isoformat() == "2024-01-31"
 
 
@@ -67,6 +71,31 @@ def test_nextday_config_rejects_overlapping_dates():
     )
     with pytest.raises(ValueError, match="训练区间"):
         config.validate()
+
+
+@pytest.mark.parametrize("field", ["conv_channels", "inception_channels"])
+def test_nextday_config_rejects_non_positive_frontend_width(field):
+    config = NextDayConfig(manifest_path="manifest.json")
+    setattr(config, field, 0)
+    with pytest.raises(ValueError, match="模型隐藏维度"):
+        config.validate()
+
+
+def test_checkpoint_signature_defaults_legacy_frontend_widths():
+    config = NextDayConfig(manifest_path="manifest.json")
+    expected = train_module._experiment_signature(config, "dataset-fingerprint")
+    legacy = dict(expected)
+    legacy.pop("conv_channels")
+    legacy.pop("inception_channels")
+    assert train_module._checkpoint_matches_experiment(
+        {"experiment": legacy},
+        expected,
+    )
+    wider = dict(expected, conv_channels=32)
+    assert not train_module._checkpoint_matches_experiment(
+        {"experiment": legacy},
+        wider,
+    )
 
 
 class _TinyNextDayModel(torch.nn.Module):
@@ -174,6 +203,11 @@ def test_nextday_training_checkpoint_and_resume(tmp_path, monkeypatch):
     config.epochs = 3
     train_module.train(config)
     assert [row["epoch"] for row in json.loads(history.read_text())] == [1, 2]
+
+    config.conv_channels = 32
+    with pytest.raises(ValueError, match="实验配置"):
+        train_module.train(config)
+    config.conv_channels = 16
 
     manifest_content = json.loads(manifest.read_text(encoding="utf-8"))
     manifest_content["samples"][0]["target_return"] = 0.123

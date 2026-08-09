@@ -275,7 +275,16 @@ def test_policy_rejects_forbidden_unknown_and_excess_seed_fields() -> None:
         policy.validate(_spec(config_overrides={"totally_new_param": 1}))
     with pytest.raises(PolicyViolation, match="预算超限"):
         policy.validate(_spec(seeds=(0, 1, 2, 3)))
-    policy.validate(_spec(config_overrides={"lr": 0.0005, "dropout": 0.2}))
+    policy.validate(
+        _spec(
+            config_overrides={
+                "lr": 0.0005,
+                "dropout": 0.2,
+                "conv_channels": 32,
+                "inception_channels": 64,
+            }
+        )
+    )
 
 
 def test_registry_recursively_records_metrics_and_prevents_duplicates(tmp_path) -> None:
