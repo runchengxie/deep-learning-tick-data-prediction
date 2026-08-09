@@ -114,3 +114,14 @@ def test_audit_from_parquet_roundtrip(tmp_path):
     assert loaded.symbols.shape == table.symbols.shape
     report = audit_predictions(loaded, min_symbols_per_day=50)
     assert report.daily_ic_mean > 0.2
+
+
+def test_audit_excludes_dynamic_universe_status_rows():
+    table = PredictionTable(
+        symbols=np.asarray(["A", "B", "OLD"]),
+        label_dates=np.asarray([date(2025, 1, 3)] * 3),
+        target_returns=np.asarray([0.01, 0.02, 99.0]),
+        scores=np.asarray([1.0, 2.0, 999.0]),
+        in_universe=np.asarray([True, True, False]),
+    )
+    assert table.group_by_date() == {date(2025, 1, 3): [0, 1]}

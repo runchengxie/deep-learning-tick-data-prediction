@@ -26,6 +26,7 @@ EXECUTORS = frozenset(
         "train_nextday",
         "train_minute_tcn",
         "train_ranker",
+        "import_predictions",
         "export_predictions",
         "audit_predictions",
         "topk_cost_sweep",
@@ -36,6 +37,7 @@ EXECUTORS = frozenset(
 
 DETERMINISTIC_EXECUTORS = frozenset(
     {
+        "import_predictions",
         "export_predictions",
         "audit_predictions",
         "topk_cost_sweep",
@@ -53,6 +55,7 @@ IMPLEMENTED_EXECUTORS = frozenset(
 )
 
 EXECUTOR_EXPERIMENT_TYPES = {
+    "import_predictions": "prediction_export",
     "export_predictions": "prediction_export",
     "audit_predictions": "data_audit",
     "topk_cost_sweep": "cost_analysis",
@@ -199,6 +202,8 @@ class ExperimentSpec:
             raise ValueError("audit_predictions 需要 inputs.predictions_path")
         if self.executor == "export_predictions":
             self._validate_export_inputs()
+        if self.executor == "import_predictions":
+            self._validate_import_inputs()
         if self.executor == "topk_cost_sweep":
             self._validate_topk_inputs()
         if self.executor in {"walk_forward_robustness", "compare_experiments"}:
@@ -215,17 +220,30 @@ class ExperimentSpec:
         if isinstance(source_seed, bool) or not isinstance(source_seed, int) or source_seed < 0:
             raise ValueError("inputs.source_seed 必须为非负整数")
 
+    def _validate_import_inputs(self) -> None:
+        predictions_path = self.inputs.get("predictions_path")
+        if not isinstance(predictions_path, str) or not predictions_path.strip():
+            raise ValueError("import_predictions 需要 inputs.predictions_path")
+        if self.inputs.get("evaluation_mode") != "formal":
+            raise ValueError("import_predictions 必须设置 evaluation_mode=formal")
+        if self.inputs.get("target_return_contract") != "next_open_to_following_open":
+            raise ValueError(
+                "import_predictions 的 target_return_contract 必须为 next_open_to_following_open"
+            )
+        self._validate_expected_universe_size()
+
     def _validate_topk_inputs(self) -> None:
         has_experiment = self._validate_topk_source()
         top_ks, buffers, costs = self._validate_topk_grids()
         self._validate_topk_diagnostic_options(top_ks=top_ks, costs=costs)
-        require_tradability, missing_policy, mode, target_contract = (
+        require_tradability, require_membership, missing_policy, mode, target_contract = (
             self._validate_topk_contract_options()
         )
         if mode == "formal":
             self._validate_formal_topk_inputs(
                 has_experiment=has_experiment,
                 require_tradability=require_tradability,
+                require_membership=require_membership,
                 missing_policy=missing_policy,
                 target_contract=target_contract,
                 buffers=buffers,
@@ -295,10 +313,13 @@ class ExperimentSpec:
         self._validate_nonnegative_number("min_score_gap", 0.0)
         self._validate_nonnegative_number("sell_stamp_tax_bps", 5.0)
 
-    def _validate_topk_contract_options(self) -> tuple[bool, str, str, str]:
+    def _validate_topk_contract_options(self) -> tuple[bool, bool, str, str, str]:
         require_tradability = self.inputs.get("require_tradability", False)
         if not isinstance(require_tradability, bool):
             raise ValueError("inputs.require_tradability 必须为布尔值")
+        require_membership = self.inputs.get("require_universe_membership", False)
+        if not isinstance(require_membership, bool):
+            raise ValueError("inputs.require_universe_membership 必须为布尔值")
         missing_policy = self.inputs.get("missing_holding_policy", "liquidate")
         if missing_policy not in {"liquidate", "error"}:
             raise ValueError("inputs.missing_holding_policy 应为 liquidate 或 error")
@@ -308,7 +329,19 @@ class ExperimentSpec:
         target_contract = self.inputs.get("target_return_contract", "unspecified")
         if not isinstance(target_contract, str) or not target_contract.strip():
             raise ValueError("inputs.target_return_contract 必须为非空字符串")
-        return require_tradability, str(missing_policy), str(mode), target_contract
+        return (
+            require_tradability,
+            require_membership,
+            str(missing_policy),
+            str(mode),
+            target_contract,
+        )
+
+    def _validate_expected_universe_size(self) -> int:
+        value = self.inputs.get("expected_universe_size", 400)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError("inputs.expected_universe_size 必须为正整数")
+        return value
 
     def _validate_registered_source_options(self) -> None:
         artifact_name = self.inputs.get("artifact_name", "predictions")
@@ -361,6 +394,7 @@ class ExperimentSpec:
         *,
         has_experiment: bool,
         require_tradability: bool,
+        require_membership: bool,
         missing_policy: str,
         target_contract: str,
         buffers: list[int | float],
@@ -369,6 +403,8 @@ class ExperimentSpec:
             raise ValueError("formal topk_cost_sweep 必须使用 Registry source_experiment_id")
         if not require_tradability:
             raise ValueError("formal topk_cost_sweep 必须设置 require_tradability=true")
+        if not require_membership:
+            raise ValueError("formal topk_cost_sweep 必须设置 require_universe_membership=true")
         if missing_policy != "error":
             raise ValueError("formal topk_cost_sweep 必须设置 missing_holding_policy=error")
         if target_contract != "next_open_to_following_open":
@@ -378,6 +414,7 @@ class ExperimentSpec:
             )
         if 0 not in buffers:
             raise ValueError("formal topk_cost_sweep 的 exit_buffer 必须包含 0 作为对照")
+        self._validate_expected_universe_size()
 
     def _validate_comparison_inputs(self) -> None:
         experiment_ids = self.inputs.get("experiment_ids")

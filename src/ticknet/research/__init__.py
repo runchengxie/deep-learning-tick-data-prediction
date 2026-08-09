@@ -33,6 +33,16 @@ from ticknet.research.portfolio import (
     load_portfolio_predictions,
     write_portfolio_artifacts,
 )
+from ticknet.research.prediction_contract import (
+    FORMAL_SUSPENDED_MARK_POLICY,
+    FORMAL_TARGET_RETURN_CONTRACT,
+    FORMAL_TRADABILITY_CONTRACT,
+    FORMAL_UNIVERSE_CONTRACT,
+    FormalPredictionReport,
+    PredictionContractError,
+    attach_formal_prediction_metadata,
+    validate_formal_prediction_artifact,
+)
 from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry, RegistryConflict
 from ticknet.research.runner import ExperimentRunner, RunnerError
@@ -51,6 +61,10 @@ __all__ = [
     "DETERMINISTIC_EXECUTORS",
     "EXECUTORS",
     "EXECUTOR_EXPERIMENT_TYPES",
+    "FORMAL_SUSPENDED_MARK_POLICY",
+    "FORMAL_TARGET_RETURN_CONTRACT",
+    "FORMAL_TRADABILITY_CONTRACT",
+    "FORMAL_UNIVERSE_CONTRACT",
     "IMPLEMENTED_EXECUTORS",
     "AuditReport",
     "ComparisonError",
@@ -61,6 +75,7 @@ __all__ = [
     "ExperimentResult",
     "ExperimentRunner",
     "ExperimentSpec",
+    "FormalPredictionReport",
     "LockedTestApproval",
     "LockedTestFailed",
     "LockedTestNotApproved",
@@ -69,11 +84,13 @@ __all__ = [
     "PortfolioEvaluation",
     "PortfolioPolicy",
     "PortfolioPrediction",
+    "PredictionContractError",
     "PredictionTable",
     "RegistryConflict",
     "ResearchPolicy",
     "ResearchProtocol",
     "RunnerError",
+    "attach_formal_prediction_metadata",
     "audit_predictions",
     "compare_registered_experiments",
     "evaluate_metric_gates",
@@ -83,5 +100,6 @@ __all__ = [
     "load_portfolio_predictions",
     "run_locked_test",
     "summarize_walk_forward",
+    "validate_formal_prediction_artifact",
     "write_portfolio_artifacts",
 ]

@@ -27,6 +27,10 @@ from ticknet.research.portfolio import (
     write_portfolio_artifacts,
 )
 from ticknet.research.portfolio_sweep import summarize_topk_sweep
+from ticknet.research.prediction_contract import (
+    PredictionContractError,
+    validate_formal_prediction_artifact,
+)
 from ticknet.research.protocol import ResearchProtocol
 from ticknet.research.registry import ExperimentRegistry, file_sha256
 from ticknet.research.spec import ExperimentSpec
@@ -202,6 +206,7 @@ def _prediction_source_metrics(
         "evaluation_mode": evaluation_mode,
         "target_return_contract": target_return_contract,
         "tradability_columns_present": {"can_buy", "can_sell"} <= set(schema.names),
+        "universe_membership_column_present": "in_universe" in schema.names,
     }
 
 
@@ -371,6 +376,37 @@ class ExportPredictionsExecutor:
         )
 
 
+class ImportPredictionsExecutor:
+    """校验外部正式 prediction artifact，并把内容身份登记进 Registry。"""
+
+    def execute(self, context: ExecutorContext) -> ExecutorOutput:
+        inputs = context.spec.inputs
+        source = _resolve_input_path(inputs["predictions_path"], context.repository_root)
+        context.protocol.assert_predictions_safe(source)
+        try:
+            report = validate_formal_prediction_artifact(
+                source,
+                expected_universe_size=int(inputs.get("expected_universe_size", 400)),
+                expected_target_return_contract=str(inputs["target_return_contract"]),
+            )
+        except PredictionContractError as error:
+            raise ExecutorFailure(str(error)) from error
+        destination = context.seed_dir / "predictions.parquet"
+        materialized = PredictionSource(
+            path=source,
+            sha256=report.sha256,
+            size_bytes=source.stat().st_size,
+            mode="formal_import",
+            dataset_fingerprint=report.dataset_fingerprint,
+        )
+        _materialize_prediction_source(materialized, destination)
+        return ExecutorOutput(
+            metrics={"formal_prediction_import": report.to_dict()},
+            artifacts={"predictions": destination},
+            dataset_fingerprint=report.dataset_fingerprint,
+        )
+
+
 class TopKCostSweepExecutor:
     """对完整 K、buffer 和成本网格运行 M1 内核并生成 M3 诊断。"""
 
@@ -379,6 +415,17 @@ class TopKCostSweepExecutor:
         source = _prediction_source(context)
         predictions_path = context.seed_dir / "source-predictions.parquet"
         _materialize_prediction_source(source, predictions_path)
+        formal_report = None
+        if inputs.get("evaluation_mode", "smoke") == "formal":
+            try:
+                formal_report = validate_formal_prediction_artifact(
+                    predictions_path,
+                    expected_universe_size=int(inputs.get("expected_universe_size", 400)),
+                    expected_dataset_fingerprint=source.dataset_fingerprint,
+                    expected_target_return_contract=str(inputs["target_return_contract"]),
+                )
+            except PredictionContractError as error:
+                raise ExecutorFailure(str(error)) from error
         predictions = load_portfolio_predictions(predictions_path)
         top_ks = [int(value) for value in inputs.get("top_k", [25, 50, 75, 100])]
         buffers = [int(value) for value in inputs.get("exit_buffer", [0, 10, 25, 50])]
@@ -403,6 +450,9 @@ class TopKCostSweepExecutor:
                                 str(inputs.get("missing_holding_policy", "liquidate")),
                             ),
                             require_tradability=bool(inputs.get("require_tradability", False)),
+                            require_universe_membership=bool(
+                                inputs.get("require_universe_membership", False)
+                            ),
                         ),
                         cost_model=CostModel(
                             per_side_bps=cost,
@@ -432,6 +482,8 @@ class TopKCostSweepExecutor:
             evaluation_mode=evaluation_mode,
             target_return_contract=str(inputs.get("target_return_contract", "unspecified")),
         )
+        if formal_report is not None:
+            diagnostic["source"]["formal_prediction_contract"] = formal_report.to_dict()
         metrics["diagnostic"] = diagnostic
         sweep_path = context.seed_dir / "topk-sweep.json"
         sweep_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -539,6 +591,7 @@ def default_executors(
         "train_nextday": CommandExecutor(commands["train_nextday"]),
         "train_minute_tcn": CommandExecutor(commands["train_minute_tcn"]),
         "train_ranker": UnsupportedExecutor("train_ranker"),
+        "import_predictions": ImportPredictionsExecutor(),
         "export_predictions": ExportPredictionsExecutor(),
         "audit_predictions": AuditPredictionsExecutor(),
         "topk_cost_sweep": TopKCostSweepExecutor(),

@@ -20,9 +20,11 @@ DeepLOB 和后续 AgentX executor 只要产出同一预测契约，就能共享 
 | `label_date` | T+1 开盘调仓日期 |
 | `score` | 只使用 T 日及以前信息得到的横截面分数 |
 | `target_return` | 正式口径为 T+1 open 到 T+2 open |
+| `in_universe` | 是否属于当日动态候选股票池；正式模式必填 |
 
 可选的 `can_buy` 与 `can_sell` 必须成对提供。缺省时 smoke 会假设可交易；正式结果必须使用
-`--require-tradability --missing-holding-policy error`，否则与 M0 的交易状态契约不一致。
+`--require-tradability --missing-holding-policy error`。正式模式还要求 `in_universe`，只用
+`true` 行做排名、IC 和股票池基准；`false` 行是旧持仓的状态行，不能成为新买入候选。
 
 评估不会根据未来收益过滤候选。如果选中持仓的 `target_return` 缺失，会直接失败，避免用
 收益是否存在进行隐含的前视筛选。
@@ -37,8 +39,9 @@ DeepLOB 和后续 AgentX executor 只要产出同一预测契约，就能共享 
 4. 尽量恢复等权，但不可买/不可卖约束形成权重上下界，不会通过调权隐式成交。
 5. 持有期结束后按个股实际收益漂移权重；下一日恢复等权产生的交易也计入换手与成本。
 
-动态股票池里消失的旧持仓有两种策略：`liquidate` 明确记录 `universe_exit` 卖出，适合 smoke；
-`error` 直接停止，适合要求完整交易状态的正式评估。
+smoke 中，动态股票池里完全消失的旧持仓可用 `liquidate` 明确记录 `universe_exit` 卖出。
+正式评估使用 `error`：上游必须给调出股票保留 `in_universe=false` 状态行。可卖时记录
+`universe_exit`；不可卖时强制持有，直到后续状态允许退出。这样股票池轮换和数据缺失不会混为一谈。
 
 ## 成本与指标
 

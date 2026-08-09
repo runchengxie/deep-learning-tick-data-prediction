@@ -22,12 +22,14 @@ def _day(
     returns: dict[str, float] | None = None,
     cannot_buy: set[str] | None = None,
     cannot_sell: set[str] | None = None,
+    out_of_universe: set[str] | None = None,
 ) -> list[PortfolioPrediction]:
     label_date = date(2024, 1, 3) + timedelta(days=day_offset)
     trading_date = label_date - timedelta(days=1)
     returns = returns or {symbol: score / 100.0 for symbol, score in scores.items()}
     cannot_buy = cannot_buy or set()
     cannot_sell = cannot_sell or set()
+    out_of_universe = out_of_universe or set()
     return [
         PortfolioPrediction(
             symbol=symbol,
@@ -37,6 +39,7 @@ def _day(
             target_return=returns[symbol],
             can_buy=symbol not in cannot_buy,
             can_sell=symbol not in cannot_sell,
+            in_universe=symbol not in out_of_universe,
         )
         for symbol, score in scores.items()
     ]
@@ -48,6 +51,7 @@ def _policy(
     min_score_gap: float = 0.0,
     missing_holding_policy: MissingHoldingPolicy = "liquidate",
     require_tradability: bool = False,
+    require_universe_membership: bool = False,
 ) -> PortfolioPolicy:
     return PortfolioPolicy(
         top_k=2,
@@ -56,6 +60,7 @@ def _policy(
         min_symbols_per_day=4,
         missing_holding_policy=missing_holding_policy,
         require_tradability=require_tradability,
+        require_universe_membership=require_universe_membership,
     )
 
 
@@ -142,6 +147,48 @@ def test_dynamic_universe_exit_is_explicit_trade() -> None:
     assert any(row["symbol"] == "C" and row["action"] == "buy" for row in second_day_trades)
 
 
+def test_status_only_row_allows_strict_dynamic_universe_exit() -> None:
+    predictions = _day(0, {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
+    predictions += _day(
+        1,
+        {"C": 4.0, "A": 3.0, "D": 2.0, "E": 1.0, "B": -100.0},
+        out_of_universe={"B"},
+    )
+    evaluation = evaluate_topk_portfolio(
+        predictions,
+        policy=_policy(
+            missing_holding_policy="error",
+            require_universe_membership=True,
+        ),
+    )
+    second_trades = [row for row in evaluation.trades if row["label_date"] == "2024-01-04"]
+    assert evaluation.daily[1]["universe_size"] == 4
+    assert any(
+        row["symbol"] == "B" and row["action"] == "sell" and row["reason"] == "universe_exit"
+        for row in second_trades
+    )
+
+
+def test_unsellable_status_only_row_is_forced_holding() -> None:
+    predictions = _day(0, {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
+    predictions += _day(
+        1,
+        {"C": 4.0, "A": 3.0, "D": 2.0, "E": 1.0, "B": -100.0},
+        cannot_sell={"B"},
+        out_of_universe={"B"},
+    )
+    evaluation = evaluate_topk_portfolio(
+        predictions,
+        policy=_policy(missing_holding_policy="error"),
+    )
+    holdings = [row for row in evaluation.holdings if row["label_date"] == "2024-01-04"]
+    trades = [row for row in evaluation.trades if row["label_date"] == "2024-01-04"]
+    held_b = next(row for row in holdings if row["symbol"] == "B")
+    assert held_b["selection_reason"] == "retained_untradeable"
+    assert held_b["in_universe"] is False
+    assert not any(row["symbol"] == "B" for row in trades)
+
+
 def test_untradeable_existing_position_is_retained() -> None:
     predictions = _day(
         0,
@@ -226,6 +273,25 @@ def test_formal_mode_rejects_missing_tradability_status() -> None:
     ]
     with pytest.raises(ValueError, match="正式评估要求"):
         evaluate_topk_portfolio(predictions, policy=_policy(require_tradability=True))
+
+
+def test_formal_mode_rejects_missing_universe_membership() -> None:
+    predictions = [
+        PortfolioPrediction(
+            symbol=row.symbol,
+            trading_date=row.trading_date,
+            label_date=row.label_date,
+            score=row.score,
+            target_return=row.target_return,
+            universe_membership_known=False,
+        )
+        for row in _day(0, {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
+    ]
+    with pytest.raises(ValueError, match="in_universe"):
+        evaluate_topk_portfolio(
+            predictions,
+            policy=_policy(require_universe_membership=True),
+        )
 
 
 def test_artifacts_include_daily_holdings_trades_and_summary(tmp_path) -> None:
