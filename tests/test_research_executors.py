@@ -37,6 +37,11 @@ def _write_predictions(
                     "symbol": f"{600000 + index:06d}",
                     "trading_date": trading_date.isoformat(),
                     "label_date": label_date.isoformat(),
+                    **(
+                        {"return_end_date": (label_date + timedelta(days=1)).isoformat()}
+                        if formal_fingerprint is not None
+                        else {}
+                    ),
                     "score": score,
                     "target_return": 0.02 * score + float(0.001 * rng.randn()),
                     "can_buy": True,

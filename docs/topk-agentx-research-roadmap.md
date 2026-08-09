@@ -323,6 +323,8 @@ stage
 - [x] 正式 Parquet metadata、每日候选数与数据指纹由 `import_predictions` 校验并登记。
 - [x] `in_universe=false` 状态行支持动态股票池退出和不可卖旧持仓，不污染排名与 Audit。
 - [x] `TRD-TOPK-SMOKE-001` 已运行 64 组 smoke，工程 gate 通过。
+- [x] 正式 HGB 生成器已实现动态 Top-400、T+1 至 T+2 open 收益、交易状态、状态行、缺失特征
+  保留、数据指纹和 `return_end_date` 防泄漏校验；真实日线全区间审计与单日 L2 smoke 已通过。
 - [ ] 生成并登记动态 Top-400 正式 predictions。
 - [ ] 运行 `TRD-TOPK-400-001` 与 `TRD-BUFFER-400-001`，形成 M3 正式结论。
 
@@ -611,12 +613,12 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1、M2 已完成，M3 的完整矩阵、工程 smoke、正式 prediction artifact 契约和 Registry
-导入入口已完成。下一轮补齐正式 M3 输入生成：
+M0、M1、M2 已完成，M3 的完整矩阵、工程 smoke、正式 prediction artifact 契约、Registry
+导入入口和正式 HGB 输入生成器已完成。下一轮执行全量物化与登记：
 
-1. 构建 open-to-following-open 标签与次日 `can_buy`、`can_sell`，生成动态 Top-400 HGB
-   predictions；调出但仍持有的股票输出 `in_universe=false` 状态行。
-2. 给 Parquet 写入版本化正式 metadata，通过 `import_predictions` 登记到干净的 v2 Registry。
+1. 对约 110 GB 的 2021–2025 L2 分钟缓存运行正式生成器，记录逐年耗时、峰值内存、缺失特征
+   比例和全量数据指纹；不得因缺分钟行缩小每日 Top-400。
+2. 校验 Parquet 内容与版本化 metadata，通过 `import_predictions` 登记到干净的 v2 Registry。
 3. 运行 `TRD-TOPK-400-001` 和 `TRD-BUFFER-400-001`。若 10bp 下仍无相对等权甜点区，进入
    M4 的 HGB 与 LambdaMART 同口径比较。
 

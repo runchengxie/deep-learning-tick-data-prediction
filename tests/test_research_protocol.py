@@ -92,6 +92,25 @@ def test_protocol_rejects_locked_prediction_table(tmp_path):
         ResearchProtocol().assert_predictions_safe(predictions)
 
 
+def test_protocol_rejects_hidden_locked_return_end_date(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    predictions = tmp_path / "locked-return-end.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "trading_date": ["2025-12-29"],
+                "label_date": ["2025-12-31"],
+                "return_end_date": ["2026-01-02"],
+            }
+        ),
+        predictions,
+    )
+    with pytest.raises(PolicyViolation, match="锁定测试期"):
+        ResearchProtocol().assert_predictions_safe(predictions)
+
+
 def test_policy_validate_manifest_delegates_to_protocol(tmp_path):
     policy = ResearchPolicy()
     protocol = ResearchProtocol()

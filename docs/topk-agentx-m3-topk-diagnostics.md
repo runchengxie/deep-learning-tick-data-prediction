@@ -43,8 +43,9 @@ M3 的工程链路已经可以把一份预测明细展开为完整的 K、buffer
 - `ticknet.tradability_contract=next_open_suspension_one_price_limit`
 - `ticknet.suspended_mark_policy=previous_close`
 
-内容必须包含 `symbol`、`trading_date`、`label_date`、`target_return`、`score`、`can_buy`、
-`can_sell` 和 `in_universe`。每个 `label_date` 恰有 `expected_universe_size` 个
+内容必须包含 `symbol`、`trading_date`、`label_date`、`return_end_date`、`target_return`、
+`score`、`can_buy`、`can_sell` 和 `in_universe`。`return_end_date` 必须晚于 `label_date`，且
+每个 `label_date` 只能对应一个收益结束日。每个 `label_date` 恰有 `expected_universe_size` 个
 `in_universe=true` 候选；调出股票可用 `in_universe=false` 状态行表达次日可卖状态。Audit、排名和
 股票池基准忽略状态行，组合状态机仍用它处理旧持仓退出或停牌强制持有。
 
@@ -59,6 +60,39 @@ inputs:
   target_return_contract: next_open_to_following_open
   expected_universe_size: 400
 ```
+
+## 正式输入生成状态
+
+`configs/nextday-minute-formal-2025.yaml` 已把正式 HGB 输入固定为：2021–2024 训练、2025
+上半年验证、2025 下半年输出；每日股票池只使用信号日以前 20 个交易日成交额，严格保留 400
+只候选。模型监督目标是个股 T+1 open 到 T+2 open 减同期基准收益，prediction 中供组合核算的
+`target_return` 则保存未减基准的个股持有收益。停牌以此前最近有效收盘价估值，一字涨停不可买、
+一字跌停不可卖。缺少分钟窗口的候选不从股票池删除，而是保留全 NaN 特征交给 HGB 的缺失值
+分支，并写出 `feature_available=false`。
+
+生成命令为：
+
+```bash
+uv run python scripts/run_minute_baseline.py \
+  --config configs/nextday-minute-formal-2025.yaml \
+  --evaluate-test \
+  --save-predictions results/predictions-hgb-top400-open2open-2025.parquet \
+  --output results/nextday-minute-formal-2025.json
+```
+
+本轮在本地真实日线数据上完成了全区间标签审计，但没有把约 110 GB 的五年 L2 缓存全部物化：
+
+- 2021-01-04 至 2025-12-29 共 1,210 个完整信号日，每日均为 400 个候选，合计 484,000
+  个候选标签；没有不完整股票池或缺失市场状态日期。
+- 另生成 13,329 条调出股票状态行；候选及状态中记录到 3,282 条停牌、264 条一字涨停和
+  209 条一字跌停状态。
+- 2025-07-01 的真实 L2 单日抽取请求 400 个候选，399 个有完整三模态分钟行，1 个走全 NaN
+  缺失特征路径；读取 6 个相关 row group，按日期元数据跳过 835 个无关 row group。
+- 所有日线面板显式截断到 2025-12-31；prediction 契约新增 `return_end_date`，防止 2025
+  样本借用 2026 locked 收益。
+
+这些结果证明数据口径和缺失路径可执行，不构成模型效果或可交易性结论。正式结论仍需完成全量
+特征物化、prediction 登记和成本矩阵。
 
 ## 甜点区判定
 
@@ -160,8 +194,8 @@ results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/
 
 M3 正式结论仍需：
 
-1. 生成动态 Top-400、open-to-following-open、带完整交易状态和 metadata 的 HGB predictions，
-   再通过 `import_predictions` 登记。
+1. 全量运行已实现的正式 HGB 生成器，生成动态 Top-400、open-to-following-open、带完整交易
+   状态和 metadata 的 predictions，再通过 `import_predictions` 登记。
 2. 使用同一数据指纹运行 `TRD-TOPK-400-001` 完整矩阵。
 3. 对有希望的 buffer 区域运行滚动年份或月份稳健性检查，形成
    `TRD-BUFFER-400-001`。

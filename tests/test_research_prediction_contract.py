@@ -20,8 +20,11 @@ def _write_formal_predictions(
     candidate_count: int = 2,
 ) -> None:
     rows = []
-    for offset, (trading_date, label_date) in enumerate(
-        [("2025-01-02", "2025-01-03"), ("2025-01-03", "2025-01-06")]
+    for offset, (trading_date, label_date, return_end_date) in enumerate(
+        [
+            ("2025-01-02", "2025-01-03", "2025-01-06"),
+            ("2025-01-03", "2025-01-06", "2025-01-07"),
+        ]
     ):
         for index in range(candidate_count):
             rows.append(
@@ -29,6 +32,7 @@ def _write_formal_predictions(
                     "symbol": f"{600000 + index:06d}",
                     "trading_date": trading_date,
                     "label_date": label_date,
+                    "return_end_date": return_end_date,
                     "target_return": 0.01 * (index + 1),
                     "score": float(candidate_count - index),
                     "can_buy": index != 0,
@@ -41,6 +45,7 @@ def _write_formal_predictions(
                 "symbol": f"STATUS{offset}",
                 "trading_date": trading_date,
                 "label_date": label_date,
+                "return_end_date": return_end_date,
                 "target_return": -0.01,
                 "score": -100.0,
                 "can_buy": False,
@@ -79,6 +84,7 @@ def test_formal_prediction_contract_rejects_missing_metadata(tmp_path) -> None:
                 "symbol": ["600000"],
                 "trading_date": ["2025-01-02"],
                 "label_date": ["2025-01-03"],
+                "return_end_date": ["2025-01-06"],
                 "target_return": [0.01],
                 "score": [1.0],
                 "can_buy": [True],

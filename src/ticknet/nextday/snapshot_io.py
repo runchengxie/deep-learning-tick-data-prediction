@@ -34,6 +34,8 @@ def read_wide_daily_panel(
     path: str | Path,
     *,
     symbols: Sequence[str] | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> DailyPanel:
     """读取 ``value`` 日期列加股票宽列的日线 Parquet。"""
     source = Path(path).expanduser().resolve()
@@ -47,7 +49,16 @@ def read_wide_daily_panel(
         preview = sorted(missing)[:5]
         raise ValueError(f"{source} 缺少股票列：{preview}")
     selected = tuple(sorted(set(selected)))
-    table = parquet.read(columns=["value", *selected])
+    filters: list[tuple[str, str, int]] = []
+    if start_date is not None:
+        filters.append(("value", ">=", int(start_date.strftime("%Y%m%d"))))
+    if end_date is not None:
+        filters.append(("value", "<=", int(end_date.strftime("%Y%m%d"))))
+    table = pq.read_table(
+        source,
+        columns=["value", *selected],
+        filters=filters or None,
+    )
     dates = tuple(_yyyymmdd(value) for value in table["value"].to_pylist())
     if selected:
         values = np.column_stack(

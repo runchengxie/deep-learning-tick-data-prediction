@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import bisect
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -24,15 +25,26 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 
+from ticknet.nextday.formal_targets import (
+    FORMAL_TARGET_RETURN_CONTRACT,
+    FormalTargetBuildReport,
+    build_formal_next_open_targets,
+    load_formal_market_panels,
+)
 from ticknet.nextday.snapshot_config import SnapshotPreparationConfig
 from ticknet.nextday.snapshot_io import load_market_panels
 from ticknet.nextday.snapshot_targets import build_snapshot_targets
-from ticknet.nextday.splits import WalkForwardSplit
+from ticknet.nextday.splits import WalkForwardSplit, parse_date
 
 L2_MODALITIES = ("snapshot", "order", "trade")
 TUSHARE_FEATURE_COLUMNS = ("open", "close", "high", "low", "vol", "amount")
 
 DayRows = dict[tuple[int, str], list[tuple[int, np.ndarray]]]
+DIAGNOSTIC_TARGET_RETURN_CONTRACT = "next_open_to_same_close"
+TARGET_RETURN_CONTRACTS = {
+    DIAGNOSTIC_TARGET_RETURN_CONTRACT,
+    FORMAL_TARGET_RETURN_CONTRACT,
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,8 @@ class MinuteSample:
     label: int
     target_return: float
     features: np.ndarray
+    return_end_date: date | None = None
+    feature_available: bool = True
 
 
 @dataclass(frozen=True)
@@ -76,6 +90,7 @@ class MinuteBaselineConfig:
     min_symbols_per_day: int = 20
     portfolio_quantile: float = 0.1
     seed: int = 0
+    target_return_contract: str = DIAGNOSTIC_TARGET_RETURN_CONTRACT
 
     def date_split(self) -> WalkForwardSplit:
         return WalkForwardSplit.from_strings(
@@ -104,6 +119,19 @@ class MinuteBaselineConfig:
             min_cross_section=self.min_cross_section,
         )
 
+    @property
+    def formal(self) -> bool:
+        return self.target_return_contract == FORMAL_TARGET_RETURN_CONTRACT
+
+
+@dataclass(frozen=True)
+class TargetBuildBundle:
+    """候选与状态目标，以及生成时使用的动态股票池。"""
+
+    targets: list[Any]
+    universe: dict[date, tuple[str, ...]]
+    formal_report: FormalTargetBuildReport | None = None
+
 
 @dataclass
 class MinuteExtractionReport:
@@ -113,14 +141,25 @@ class MinuteExtractionReport:
     written_samples: int = 0
     missing_rows: int = 0
     insufficient_window: int = 0
+    imputed_missing_samples: int = 0
     scanned_row_groups: int = 0
+    skipped_row_groups: int = 0
 
 
-def build_targets(config: MinuteBaselineConfig) -> list[Any]:
-    """复用 snapshot 链路的动态股票池与次日标签构建。"""
+def build_target_bundle(config: MinuteBaselineConfig) -> TargetBuildBundle:
+    """按配置构造诊断或正式目标。"""
     snapshot_config = config.snapshot_config()
+    if config.formal:
+        targets, universe, report = build_formal_next_open_targets(
+            snapshot_config,
+            load_formal_market_panels(
+                config.basic_root,
+                end_date=parse_date(config.end_date),
+            ),
+        )
+        return TargetBuildBundle(targets, universe, report)
     open_panel, close_panel, volume_panel = load_market_panels(config.basic_root)
-    targets, _universe = build_snapshot_targets(
+    targets, universe = build_snapshot_targets(
         snapshot_config,
         open_panel,
         close_panel,
@@ -128,7 +167,16 @@ def build_targets(config: MinuteBaselineConfig) -> list[Any]:
     )
     if not targets:
         raise ValueError("指定日期和股票池没有生成任何次日标签")
-    return targets
+    return TargetBuildBundle(targets, universe)
+
+
+def build_targets(config: MinuteBaselineConfig) -> list[Any]:
+    """兼容原有调用方，仅返回模型候选目标。"""
+    return [
+        target
+        for target in build_target_bundle(config).targets
+        if getattr(target, "in_universe", True)
+    ]
 
 
 def _date_int(trading_date: date) -> int:
@@ -163,9 +211,22 @@ def _stream_l2_modality(
         raise ValueError(f"{path} 缺少 {modality} 特征列")
     columns = ["date", "ticker", "minute", *features]
     wanted_dates_array = np.fromiter(wanted_dates, dtype=np.int64)
+    wanted_dates_sorted = sorted(wanted_dates)
     wanted_symbols_array = np.fromiter(wanted_symbols, dtype="U8")
     result: dict[tuple[int, str], OrderedDict[int, np.ndarray]] = {}
+    date_column = parquet.schema_arrow.get_field_index("date")
     for row_group in range(parquet.metadata.num_row_groups):
+        statistics = parquet.metadata.row_group(row_group).column(date_column).statistics
+        if statistics is not None and statistics.has_min_max:
+            lower = int(statistics.min)
+            upper = int(statistics.max)
+            wanted_index = bisect.bisect_left(wanted_dates_sorted, lower)
+            if (
+                wanted_index >= len(wanted_dates_sorted)
+                or wanted_dates_sorted[wanted_index] > upper
+            ):
+                report.skipped_row_groups += 1
+                continue
         report.scanned_row_groups += 1
         table = parquet.read_row_group(row_group, columns=columns)
         dates = table["date"].to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
@@ -348,6 +409,7 @@ def build_samples(
                 label=target.label,
                 target_return=target.target_return,
                 features=_aggregate_trailing(matrix),
+                return_end_date=getattr(target, "return_end_date", None),
             )
         )
         report.written_samples += 1

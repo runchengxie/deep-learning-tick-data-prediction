@@ -93,6 +93,22 @@ def _write_wide(path, dates, values_by_symbol):
     pq.write_table(pa.table(content), path)
 
 
+def test_read_wide_daily_panel_applies_date_bounds(tmp_path):
+    dates = tuple(date(2024, 1, day) for day in (2, 3, 4, 5))
+    path = tmp_path / "open_data.parquet"
+    _write_wide(path, dates, {"000001": [1.0, 2.0, 3.0, 4.0]})
+
+    panel = snapshot_io.read_wide_daily_panel(
+        path,
+        start_date=dates[1],
+        end_date=dates[2],
+    )
+
+    assert panel.dates == dates[1:3]
+    assert panel.symbols == ("000001",)
+    np.testing.assert_allclose(panel.values[:, 0], [2.0, 3.0])
+
+
 def test_prepare_snapshot_dataset_writes_float16_end_to_end_shards(tmp_path):
     dates = tuple(date(2024, 1, day) for day in (2, 3, 4, 5))
     symbols = ("000001", "000002")

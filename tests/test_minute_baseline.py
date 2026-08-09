@@ -148,7 +148,16 @@ def test_stream_l2_modality_filters(tmp_path) -> None:
         (20240603, "000002", 10, 3.0),
         (20240602, "000001", 10, 4.0),
     ]
-    _write_l2_snapshot(path, rows)
+    table = pa.table(
+        {
+            "date": pa.array([item[0] for item in rows], type=pa.int64()),
+            "ticker": pa.array([item[1] for item in rows], type=pa.string()),
+            "minute": pa.array([item[2] for item in rows], type=pa.int16()),
+            "snapshot__spread_bps": pa.array([item[3] for item in rows], type=pa.float64()),
+            "snapshot__valid": pa.array([1] * len(rows), type=pa.int8()),
+        }
+    )
+    pq.write_table(table, path, row_group_size=4)
     report = MinuteExtractionReport()
     result = _stream_l2_modality(
         path,
@@ -162,6 +171,8 @@ def test_stream_l2_modality_filters(tmp_path) -> None:
     day_rows = dict(result[(20240603, "000001")])
     assert sorted(day_rows) == [10, 11]
     assert day_rows[10][0] == 1.0
+    assert report.scanned_row_groups == 1
+    assert report.skipped_row_groups == 1
 
 
 def test_read_l2_inner_join_across_modalities(tmp_path) -> None:

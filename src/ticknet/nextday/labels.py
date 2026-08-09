@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from itertools import pairwise
+from typing import TypeVar
 
 import numpy as np
 
@@ -15,6 +16,7 @@ DOWN = 0
 NEUTRAL = 1
 UP = 2
 LABEL_METHODS = {"fixed", "cross_sectional"}
+TargetT = TypeVar("TargetT", bound="NextDayTarget")
 
 
 @dataclass(frozen=True)
@@ -75,16 +77,16 @@ def _fixed_label(target_return: float, neutral_threshold: float) -> int:
 
 
 def _rank_labels(
-    targets: list[NextDayTarget],
+    targets: Sequence[TargetT],
     *,
     lower_quantile: float,
     upper_quantile: float,
-) -> list[NextDayTarget]:
+) -> list[TargetT]:
     """按收益分位点赋方向标签，切点处的并列收益留在中性组。"""
     returns = np.asarray([target.target_return for target in targets], dtype=np.float64)
     lower_cut = float(np.quantile(returns, lower_quantile))
     upper_cut = float(np.quantile(returns, upper_quantile))
-    labelled: list[NextDayTarget] = []
+    labelled: list[TargetT] = []
     for target in targets:
         if target.target_return < lower_cut:
             label = DOWN
