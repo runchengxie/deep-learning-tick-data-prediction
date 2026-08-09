@@ -22,12 +22,14 @@ import numpy as np
 from ticknet.nextday.dataset import file_sha256, manifest_fingerprint
 from ticknet.nextday.minute_baseline import (
     MINUTE_FEATURE_SOURCES,
+    DayRows,
     MinuteBaselineConfig,
     MinuteExtractionReport,
     build_targets,
     load_minute_baseline_config,
     read_l2_minute_rows,
     read_tushare_minute_rows,
+    trailing_minute_matrix,
 )
 from ticknet.nextday.splits import parse_date
 
@@ -45,7 +47,7 @@ def _read_rows(
     config: MinuteBaselineConfig,
     targets: list[Any],
     report: MinuteExtractionReport,
-) -> dict[tuple[int, str], list[tuple[int, np.ndarray]]]:
+) -> DayRows:
     if config.feature_source == "l2_cache":
         if not config.l2_root:
             raise SystemExit("feature_source 为 l2_cache 时必须提供 l2_root")
@@ -119,12 +121,11 @@ def main(argv: list[str] | None = None) -> None:
         if not day_rows:
             report.missing_rows += 1
             continue
-        window_rows = day_rows[-config.window_minutes :]
-        if len(window_rows) < config.min_window_minutes:
+        matrix, row_count = trailing_minute_matrix(day_rows, config.window_minutes)
+        if row_count < config.min_window_minutes:
             report.insufficient_window += 1
             continue
-        matrix = np.stack([row for _minute, row in window_rows])
-        if matrix.ndim != 2 or matrix.shape[0] != len(window_rows):
+        if matrix.ndim != 2 or matrix.shape[0] != row_count:
             raise RuntimeError(f"{key} 窗口矩阵形状异常")
         matrix, missing_minutes = _pad_to_window(
             matrix,
@@ -138,7 +139,7 @@ def main(argv: list[str] | None = None) -> None:
             "label": target.label,
             "raw_return": target.raw_return,
             "target_return": target.target_return,
-            "minutes": len(window_rows),
+            "minutes": row_count,
         }
         if missing_minutes:
             record["padded_minutes"] = missing_minutes

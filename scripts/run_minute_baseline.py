@@ -25,6 +25,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from ticknet.nextday.metrics import evaluate_predictions
 from ticknet.nextday.minute_baseline import (
     MINUTE_FEATURE_SOURCES,
+    DayRows,
     MinuteBaselineConfig,
     MinuteExtractionReport,
     MinuteSample,
@@ -59,7 +60,7 @@ def _read_rows(
     config: MinuteBaselineConfig,
     targets: list[Any],
     report: MinuteExtractionReport,
-) -> dict[tuple[int, str], list[tuple[int, np.ndarray]]]:
+) -> DayRows:
     if config.feature_source == "l2_cache":
         if not config.l2_root:
             raise SystemExit("feature_source 为 l2_cache 时必须提供 l2_root")

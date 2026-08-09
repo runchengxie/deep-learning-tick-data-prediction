@@ -79,8 +79,9 @@ M3 正式 Top-K 组合改用 T+1 开盘到 T+2 开盘收益，使收益周期与
 次日停牌/一字涨跌停状态、调出股票状态行、收益结束日清洗、缺失分钟特征保留和 Parquet
 metadata 校验。五年 L2 聚合新增按月原子分片、SHA-256 校验和断点续跑，正式 HGB 只接受覆盖
 全部 60 个月的完整 manifest。外部 prediction 必须先经 `import_predictions` 登记，不能直接
-作为正式 M3 输入。当前已完成一个真实月份，剩余全量物化和正式成本矩阵仍待运行，因此没有
-新的交易结论。
+作为正式 M3 输入。L2 抽取已改为按股票日连续数组分组，真实 2025-07 新旧分片 SHA-256
+完全一致；当前已完成 2025-07 至 2025-12 共 6 个真实月份。剩余全量物化和正式成本矩阵仍待
+运行，因此没有新的交易结论。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见

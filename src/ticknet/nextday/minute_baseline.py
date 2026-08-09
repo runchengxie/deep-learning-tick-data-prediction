@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -39,13 +39,50 @@ from ticknet.nextday.splits import WalkForwardSplit, parse_date
 L2_MODALITIES = ("snapshot", "order", "trade")
 TUSHARE_FEATURE_COLUMNS = ("open", "close", "high", "low", "vol", "amount")
 
-DayRows = dict[tuple[int, str], list[tuple[int, np.ndarray]]]
+DayRows = Mapping[tuple[int, str], Sequence[tuple[int, np.ndarray]]]
 DIAGNOSTIC_TARGET_RETURN_CONTRACT = "next_open_to_same_close"
 TARGET_RETURN_CONTRACTS = {
     DIAGNOSTIC_TARGET_RETURN_CONTRACT,
     FORMAL_TARGET_RETURN_CONTRACT,
 }
 MINUTE_FEATURE_SOURCES = {"l2_cache", "tushare"}
+
+
+@dataclass(frozen=True)
+class MinuteRows(Sequence[tuple[int, np.ndarray]]):
+    """连续数组表示的单股票日分钟行，避免为每分钟创建 Python 对象。"""
+
+    minutes: np.ndarray
+    features: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.minutes.ndim != 1 or self.features.ndim != 2:
+            raise ValueError("MinuteRows 要求一维分钟数组和二维特征矩阵")
+        if len(self.minutes) != len(self.features):
+            raise ValueError("MinuteRows 的分钟数与特征行数不一致")
+
+    def __len__(self) -> int:
+        return len(self.minutes)
+
+    @overload
+    def __getitem__(self, index: int) -> tuple[int, np.ndarray]: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> Sequence[tuple[int, np.ndarray]]: ...
+
+    def __getitem__(
+        self, index: int | slice
+    ) -> tuple[int, np.ndarray] | Sequence[tuple[int, np.ndarray]]:
+        if isinstance(index, slice):
+            return [
+                (int(minute), row)
+                for minute, row in zip(
+                    self.minutes[index],
+                    self.features[index],
+                    strict=True,
+                )
+            ]
+        return int(self.minutes[index]), self.features[index]
 
 
 @dataclass(frozen=True)
@@ -259,6 +296,31 @@ def _trim_rows(
         rows.popitem(last=False)
 
 
+def _merge_minute_arrays(
+    existing: MinuteRows | None,
+    minutes: np.ndarray,
+    features: np.ndarray,
+    *,
+    keep_minutes: int,
+) -> MinuteRows:
+    """稳定保留每分钟最后一行，再截取时间最晚的固定分钟数。"""
+    if existing is not None:
+        minutes = np.concatenate((existing.minutes, minutes))
+        features = np.concatenate((existing.features, features), axis=0)
+    order = np.argsort(minutes, kind="stable")
+    sorted_minutes = minutes[order]
+    sorted_features = features[order]
+    keep_last = np.ones(len(sorted_minutes), dtype=bool)
+    if len(sorted_minutes) > 1:
+        keep_last[:-1] = sorted_minutes[:-1] != sorted_minutes[1:]
+    sorted_minutes = sorted_minutes[keep_last]
+    sorted_features = sorted_features[keep_last]
+    if len(sorted_minutes) > keep_minutes:
+        sorted_minutes = sorted_minutes[-keep_minutes:]
+        sorted_features = sorted_features[-keep_minutes:]
+    return MinuteRows(sorted_minutes, sorted_features)
+
+
 def _stream_l2_modality(
     path: Path,
     wanted_dates: set[int],
@@ -267,7 +329,9 @@ def _stream_l2_modality(
     keep_minutes: int,
     report: MinuteExtractionReport,
 ) -> DayRows:
-    """流式读取单个 L2 模态，每股票日只保留尾部分钟。"""
+    """流式读取单个 L2 模态，按连续股票日块向量化保留尾部分钟。"""
+    if keep_minutes < 1:
+        raise ValueError("keep_minutes 必须为正整数")
     parquet = pq.ParquetFile(path)
     features = _feature_columns(parquet.schema_arrow.names, modality)
     if not features:
@@ -276,7 +340,7 @@ def _stream_l2_modality(
     wanted_dates_array = np.fromiter(wanted_dates, dtype=np.int64)
     wanted_dates_sorted = sorted(wanted_dates)
     wanted_symbols_array = np.fromiter(wanted_symbols, dtype="U8")
-    result: dict[tuple[int, str], OrderedDict[int, np.ndarray]] = {}
+    result: dict[tuple[int, str], MinuteRows] = {}
     date_column = parquet.schema_arrow.get_field_index("date")
     for row_group in range(parquet.metadata.num_row_groups):
         statistics = parquet.metadata.row_group(row_group).column(date_column).statistics
@@ -298,24 +362,36 @@ def _stream_l2_modality(
         mask = np.isin(dates, wanted_dates_array) & np.isin(tickers, wanted_symbols_array)
         if not np.any(mask):
             continue
-        dates = dates[mask]
-        tickers = tickers[mask]
-        minutes = minutes[mask]
+        selected = np.flatnonzero(mask)
+        dates = dates[selected]
+        tickers = tickers[selected]
+        minutes = minutes[selected]
         feature_matrix = np.column_stack(
             [
-                table[column].to_numpy(zero_copy_only=False).astype(np.float32, copy=False)[mask]
+                table[column]
+                .to_numpy(zero_copy_only=False)
+                .astype(np.float32, copy=False)[selected]
                 for column in features
             ]
         )
-        for index in range(len(dates)):
-            key = (int(dates[index]), str(tickers[index]))
-            minute_rows = result.get(key)
-            if minute_rows is None:
-                minute_rows = OrderedDict()
-                result[key] = minute_rows
-            minute_rows[int(minutes[index])] = feature_matrix[index]
-            _trim_rows(minute_rows, keep_minutes)
-    return {key: list(rows.items()) for key, rows in result.items()}
+        starts = np.flatnonzero(
+            np.concatenate(
+                (
+                    np.asarray([True]),
+                    (dates[1:] != dates[:-1]) | (tickers[1:] != tickers[:-1]),
+                )
+            )
+        )
+        ends = np.concatenate((starts[1:], np.asarray([len(dates)])))
+        for start, end in zip(starts, ends, strict=True):
+            key = (int(dates[start]), str(tickers[start]))
+            result[key] = _merge_minute_arrays(
+                result.get(key),
+                minutes[start:end],
+                feature_matrix[start:end],
+                keep_minutes=keep_minutes,
+            )
+    return result
 
 
 def _merge_modalities(
@@ -323,23 +399,29 @@ def _merge_modalities(
     keep_minutes: int,
 ) -> DayRows:
     """按分钟对多个 L2 模态做严格内连接，保证每行特征维度一致。"""
-    by_key: dict[tuple[int, str], list[dict[int, np.ndarray]]] = {}
+    by_key: dict[tuple[int, str], list[MinuteRows]] = {}
     for (_modality, _year), rows in modal_rows.items():
         for key, day_rows in rows.items():
-            by_key.setdefault(key, []).append(dict(day_rows))
-    merged: dict[tuple[int, str], OrderedDict[int, np.ndarray]] = {}
+            if not isinstance(day_rows, MinuteRows):
+                raise TypeError("L2 模态内部行必须使用 MinuteRows")
+            by_key.setdefault(key, []).append(day_rows)
+    merged: dict[tuple[int, str], MinuteRows] = {}
     for key, per_modality in by_key.items():
         if len(per_modality) < len(L2_MODALITIES):
             continue
-        common_minutes = set.intersection(*(set(rows) for rows in per_modality))
-        if not common_minutes:
+        common_minutes = per_modality[0].minutes
+        for rows in per_modality[1:]:
+            common_minutes = np.intersect1d(common_minutes, rows.minutes, assume_unique=True)
+        if common_minutes.size == 0:
             continue
-        combined: OrderedDict[int, np.ndarray] = OrderedDict()
-        for minute_value in sorted(common_minutes):
-            combined[minute_value] = np.concatenate([rows[minute_value] for rows in per_modality])
-        _trim_rows(combined, keep_minutes)
-        merged[key] = combined
-    return {key: list(rows.items()) for key, rows in merged.items()}
+        if common_minutes.size > keep_minutes:
+            common_minutes = common_minutes[-keep_minutes:]
+        combined = np.concatenate(
+            [rows.features[np.searchsorted(rows.minutes, common_minutes)] for rows in per_modality],
+            axis=1,
+        )
+        merged[key] = MinuteRows(common_minutes, combined)
+    return merged
 
 
 def read_l2_minute_rows(
@@ -438,6 +520,18 @@ def _aggregate_trailing(matrix: np.ndarray) -> np.ndarray:
     )
 
 
+def trailing_minute_matrix(
+    day_rows: Sequence[tuple[int, np.ndarray]],
+    window_minutes: int,
+) -> tuple[np.ndarray, int]:
+    """提取尾部特征矩阵，连续 L2 数组路径不创建逐分钟 Python 对象。"""
+    count = min(len(day_rows), window_minutes)
+    if isinstance(day_rows, MinuteRows):
+        return day_rows.features[-window_minutes:], count
+    window_rows = day_rows[-window_minutes:]
+    return np.stack([row for _minute, row in window_rows]), count
+
+
 def build_samples(
     rows: Mapping[tuple[int, str], Sequence[tuple[int, np.ndarray]]],
     targets: Sequence[Any],
@@ -459,11 +553,10 @@ def build_samples(
         if not day_rows:
             report.missing_rows += 1
             continue
-        window_rows = day_rows[-window_minutes:]
-        if len(window_rows) < min_window_minutes:
+        matrix, row_count = trailing_minute_matrix(day_rows, window_minutes)
+        if row_count < min_window_minutes:
             report.insufficient_window += 1
             continue
-        matrix = np.stack([row for _minute, row in window_rows])
         samples.append(
             MinuteSample(
                 trading_date=target.trading_date,
