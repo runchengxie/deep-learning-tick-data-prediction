@@ -194,15 +194,65 @@ def test_topk_spec_enforces_single_source_and_formal_contract() -> None:
                 "target_return_contract": "next_open_to_following_open",
             }
         ).validate()
+    with pytest.raises(ValueError, match="require_universe_membership"):
+        topk_spec(
+            {
+                "source_experiment_id": "EXP-SOURCE",
+                "evaluation_mode": "formal",
+                "require_tradability": True,
+                "missing_holding_policy": "error",
+                "target_return_contract": "next_open_to_following_open",
+            }
+        ).validate()
 
     topk_spec(
         {
             "source_experiment_id": "EXP-SOURCE",
             "evaluation_mode": "formal",
             "require_tradability": True,
+            "require_universe_membership": True,
             "missing_holding_policy": "error",
             "target_return_contract": "next_open_to_following_open",
         }
+    ).validate()
+
+
+def test_import_predictions_spec_requires_formal_contract() -> None:
+    with pytest.raises(ValueError, match="evaluation_mode=formal"):
+        _spec(
+            experiment_type="prediction_export",
+            executor="import_predictions",
+            base_config="",
+            config_overrides={},
+            inputs={
+                "predictions_path": "formal.parquet",
+                "target_return_contract": "next_open_to_following_open",
+            },
+        ).validate()
+    with pytest.raises(ValueError, match="next_open_to_following_open"):
+        _spec(
+            experiment_type="prediction_export",
+            executor="import_predictions",
+            base_config="",
+            config_overrides={},
+            inputs={
+                "predictions_path": "formal.parquet",
+                "evaluation_mode": "formal",
+                "target_return_contract": "next_open_to_close",
+            },
+        ).validate()
+
+    _spec(
+        experiment_type="prediction_export",
+        executor="import_predictions",
+        base_config="",
+        config_overrides={},
+        inputs={
+            "predictions_path": "formal.parquet",
+            "evaluation_mode": "formal",
+            "target_return_contract": "next_open_to_following_open",
+            "expected_universe_size": 400,
+        },
     ).validate()
 
 

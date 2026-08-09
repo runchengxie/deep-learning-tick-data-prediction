@@ -31,6 +31,7 @@ class PredictionTable:
     target_returns: np.ndarray
     scores: np.ndarray
     prob_up: np.ndarray | None = None
+    in_universe: np.ndarray | None = None
 
     @classmethod
     def from_parquet(cls, path: str | Path) -> PredictionTable:
@@ -47,11 +48,18 @@ class PredictionTable:
                 if "prob_up" in table.column_names
                 else None
             ),
+            in_universe=(
+                np.asarray(table["in_universe"], dtype=np.bool_)
+                if "in_universe" in table.column_names
+                else None
+            ),
         )
 
     def group_by_date(self) -> dict[date, list[int]]:
         indices: dict[date, list[int]] = defaultdict(list)
         for index, label_date in enumerate(self.label_dates):
+            if self.in_universe is not None and not bool(self.in_universe[index]):
+                continue
             indices[label_date].append(index)
         return indices
 

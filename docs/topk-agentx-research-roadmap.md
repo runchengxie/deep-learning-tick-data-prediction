@@ -320,6 +320,8 @@ stage
 - [x] `topk_cost_sweep` 支持完整笛卡尔积、相同日期样本校验和确定性甜点区判断。
 - [x] 支持 Registry prediction artifact 的状态、唯一性、SHA-256、锁定日期和数据指纹绑定。
 - [x] 正式模式强制交易状态、严格缺失持仓策略和 open-to-following-open 标签声明。
+- [x] 正式 Parquet metadata、每日候选数与数据指纹由 `import_predictions` 校验并登记。
+- [x] `in_universe=false` 状态行支持动态股票池退出和不可卖旧持仓，不污染排名与 Audit。
 - [x] `TRD-TOPK-SMOKE-001` 已运行 64 组 smoke，工程 gate 通过。
 - [ ] 生成并登记动态 Top-400 正式 predictions。
 - [ ] 运行 `TRD-TOPK-400-001` 与 `TRD-BUFFER-400-001`，形成 M3 正式结论。
@@ -609,10 +611,12 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1、M2 已完成，M3 的完整矩阵和工程 smoke 已完成。下一轮补齐正式 M3 输入：
+M0、M1、M2 已完成，M3 的完整矩阵、工程 smoke、正式 prediction artifact 契约和 Registry
+导入入口已完成。下一轮补齐正式 M3 输入生成：
 
-1. 生成动态 Top-400、open-to-following-open、带 `can_buy` 和 `can_sell` 的 HGB predictions。
-2. 把预测作为唯一 artifact 登记到干净的 v2 Registry，并记录数据指纹和标签契约。
+1. 构建 open-to-following-open 标签与次日 `can_buy`、`can_sell`，生成动态 Top-400 HGB
+   predictions；调出但仍持有的股票输出 `in_universe=false` 状态行。
+2. 给 Parquet 写入版本化正式 metadata，通过 `import_predictions` 登记到干净的 v2 Registry。
 3. 运行 `TRD-TOPK-400-001` 和 `TRD-BUFFER-400-001`。若 10bp 下仍无相对等权甜点区，进入
    M4 的 HGB 与 LambdaMART 同口径比较。
 

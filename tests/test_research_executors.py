@@ -11,6 +11,7 @@ import pytest
 
 from ticknet.research.comparison import ComparisonError, compare_registered_experiments
 from ticknet.research.policy import PolicyViolation
+from ticknet.research.prediction_contract import attach_formal_prediction_metadata
 from ticknet.research.registry import ExperimentRegistry, file_sha256
 from ticknet.research.runner import ExperimentRunner, RunnerError
 from ticknet.research.spec import ExperimentResult, ExperimentSpec, MetricGate
@@ -22,6 +23,7 @@ def _write_predictions(
     days: int = 3,
     symbols: int = 100,
     start: date = date(2025, 1, 2),
+    formal_fingerprint: str | None = None,
 ) -> None:
     rng = np.random.RandomState(7)
     rows = []
@@ -39,9 +41,16 @@ def _write_predictions(
                     "target_return": 0.02 * score + float(0.001 * rng.randn()),
                     "can_buy": True,
                     "can_sell": True,
+                    **({"in_universe": True} if formal_fingerprint is not None else {}),
                 }
             )
-    pq.write_table(pa.Table.from_pylist(rows), path)
+    table = pa.Table.from_pylist(rows)
+    if formal_fingerprint is not None:
+        table = attach_formal_prediction_metadata(
+            table,
+            dataset_fingerprint=formal_fingerprint,
+        )
+    pq.write_table(table, path)
 
 
 def test_cost_analysis_uses_topk_executor_without_training(tmp_path) -> None:
@@ -334,9 +343,62 @@ def test_export_predictions_rejects_mutated_source_artifact(tmp_path) -> None:
     registry.close()
 
 
+def test_import_predictions_validates_materializes_and_registers_fingerprint(tmp_path) -> None:
+    source_predictions = tmp_path / "formal-source.parquet"
+    _write_predictions(
+        source_predictions,
+        formal_fingerprint="formal-import-fingerprint",
+    )
+    registry = ExperimentRegistry(tmp_path / "registry.sqlite")
+    spec = ExperimentSpec(
+        hypothesis="外部正式预测必须通过内容契约才能登记",
+        objective="验证正式 prediction import、Audit 和数据指纹链路",
+        experiment_type="prediction_export",
+        executor="import_predictions",
+        inputs={
+            "predictions_path": str(source_predictions),
+            "evaluation_mode": "formal",
+            "target_return_contract": "next_open_to_following_open",
+            "expected_universe_size": 100,
+        },
+        primary_metrics=("formal_prediction_import.candidate_row_count",),
+        success_gates=(MetricGate("formal_prediction_import.candidate_row_count", "gte", 300),),
+        artifact_contract=(
+            "resolved_spec",
+            "resolved_config",
+            "stdout",
+            "stderr",
+            "result",
+            "run_manifest",
+            "predictions",
+            "audit",
+        ),
+        rationale="正式 M3 只消费经过 Registry 登记的不可变预测",
+        falsification_condition="契约或数据指纹不完整时必须失败",
+        novelty_signature="test-formal-prediction-import",
+    )
+    result = ExperimentRunner(
+        registry,
+        repository_root=tmp_path,
+        artifact_root=tmp_path / "artifacts",
+    ).run(spec, experiment_id="EXP-IMPORT-FORMAL")
+    imported = tmp_path / "artifacts/EXP-IMPORT-FORMAL/seed0/predictions.parquet"
+    report = result.per_seed_metrics[0]["formal_prediction_import"]
+    assert result.dataset_fingerprint == "formal-import-fingerprint"
+    assert result.evaluation_decision == "EXTEND"
+    assert report["candidate_row_count"] == 300
+    assert report["status_only_row_count"] == 0
+    assert file_sha256(imported) == file_sha256(source_predictions)
+    registry.close()
+
+
 def test_topk_sweep_materializes_registry_source_and_propagates_fingerprint(tmp_path) -> None:
     source_predictions = tmp_path / "source.parquet"
-    _write_predictions(source_predictions, symbols=10)
+    _write_predictions(
+        source_predictions,
+        symbols=10,
+        formal_fingerprint="formal-source-fingerprint",
+    )
     registry = ExperimentRegistry(tmp_path / "registry.sqlite")
     _register_metric_experiment(
         registry,
@@ -361,7 +423,9 @@ def test_topk_sweep_materializes_registry_source_and_propagates_fingerprint(tmp_
             "min_symbols_per_day": 10,
             "minimum_evaluated_dates": 2,
             "require_tradability": True,
+            "require_universe_membership": True,
             "missing_holding_policy": "error",
+            "expected_universe_size": 10,
         },
         primary_metrics=("diagnostic.grid.validated_combinations",),
         success_gates=(MetricGate("diagnostic.grid.validated_combinations", "gte", 4),),
@@ -393,6 +457,8 @@ def test_topk_sweep_materializes_registry_source_and_propagates_fingerprint(tmp_
     assert diagnostic["source"]["mode"] == "registry_artifact"
     assert diagnostic["source"]["source_experiment_id"] == "EXP-SOURCE"
     assert diagnostic["source"]["tradability_columns_present"] is True
+    assert diagnostic["source"]["universe_membership_column_present"] is True
+    assert diagnostic["source"]["formal_prediction_contract"]["candidate_row_count"] == 30
     assert file_sha256(materialized) == file_sha256(source_predictions)
     registry.close()
 

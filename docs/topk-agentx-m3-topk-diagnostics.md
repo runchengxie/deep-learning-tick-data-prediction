@@ -28,12 +28,37 @@ M3 的工程链路已经可以把一份预测明细展开为完整的 K、buffer
 
 - 使用 `source_experiment_id`，不能使用任意文件路径。
 - `require_tradability: true`。
+- `require_universe_membership: true`，并按 `expected_universe_size` 校验每日候选数。
 - `missing_holding_policy: error`。
 - `target_return_contract: next_open_to_following_open`。
 - buffer 网格包含 0，作为换手和收益变化的固定对照。
 
-正式模式仍依赖上游实验如实登记标签契约。后续正式 prediction export 应把标签、股票池和交易
-状态版本写入上游 spec 和数据指纹，不能仅依靠文件名推断。
+正式模式不再只相信上游 spec 的文字声明。`import_predictions` 会先校验 Parquet 内容与 metadata，
+通过后才物化为 Registry prediction artifact；`topk_cost_sweep` 消费时会用 Registry
+`dataset_fingerprint` 再校验一次。metadata 必须包含：
+
+- `ticknet.dataset_fingerprint`
+- `ticknet.target_return_contract=next_open_to_following_open`
+- `ticknet.universe_contract=lagged_turnover_top_n`
+- `ticknet.tradability_contract=next_open_suspension_one_price_limit`
+- `ticknet.suspended_mark_policy=previous_close`
+
+内容必须包含 `symbol`、`trading_date`、`label_date`、`target_return`、`score`、`can_buy`、
+`can_sell` 和 `in_universe`。每个 `label_date` 恰有 `expected_universe_size` 个
+`in_universe=true` 候选；调出股票可用 `in_universe=false` 状态行表达次日可卖状态。Audit、排名和
+股票池基准忽略状态行，组合状态机仍用它处理旧持仓退出或停牌强制持有。
+
+正式预测首次登记使用：
+
+```yaml
+experiment_type: prediction_export
+executor: import_predictions
+inputs:
+  predictions_path: results/predictions-hgb-top400-open2open.parquet
+  evaluation_mode: formal
+  target_return_contract: next_open_to_following_open
+  expected_universe_size: 400
+```
 
 ## 甜点区判定
 
@@ -84,7 +109,9 @@ inputs:
   sell_stamp_tax_bps: 5
   min_symbols_per_day: 400
   require_tradability: true
+  require_universe_membership: true
   missing_holding_policy: error
+  expected_universe_size: 400
 ```
 
 完整运行仍通过统一入口：
@@ -133,7 +160,8 @@ results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/
 
 M3 正式结论仍需：
 
-1. 生成并登记动态 Top-400、open-to-following-open、带完整交易状态的 HGB predictions。
+1. 生成动态 Top-400、open-to-following-open、带完整交易状态和 metadata 的 HGB predictions，
+   再通过 `import_predictions` 登记。
 2. 使用同一数据指纹运行 `TRD-TOPK-400-001` 完整矩阵。
 3. 对有希望的 buffer 区域运行滚动年份或月份稳健性检查，形成
    `TRD-BUFFER-400-001`。
@@ -143,3 +171,6 @@ M3 正式结论仍需：
 当前本地 `results/registry.sqlite` 是旧 schema，包含重复 run、metric 和 review，不能由 v2
 Registry 静默迁移。本次 smoke 使用独立 Registry。正式实验开始前应显式导入或重建干净的 v2
 Registry，保留旧文件作为只读历史证据。
+
+现有 `results/predictions-rolling-2025.parquet` 已用正式 validator 实测拒绝：缺少 `can_buy`、
+`can_sell` 和 `in_universe`。这是一条确定性失败边界，不会用默认可交易状态伪装成正式输入。

@@ -55,6 +55,8 @@ class PortfolioPrediction:
     can_buy: bool = True
     can_sell: bool = True
     tradability_known: bool = True
+    in_universe: bool = True
+    universe_membership_known: bool = True
 
     def __post_init__(self) -> None:
         if not self.symbol.strip():
@@ -74,6 +76,7 @@ class PortfolioPolicy:
     annualization_days: int = 244
     missing_holding_policy: MissingHoldingPolicy = "liquidate"
     require_tradability: bool = False
+    require_universe_membership: bool = False
 
     def __post_init__(self) -> None:
         if self.top_k <= 0:
@@ -132,6 +135,7 @@ def load_portfolio_predictions(path: str | Path) -> list[PortfolioPrediction]:
     if tradability_columns and tradability_columns != {"can_buy", "can_sell"}:
         raise ValueError("can_buy 与 can_sell 必须同时提供")
     tradability_known = len(tradability_columns) == 2
+    universe_membership_known = "in_universe" in table.column_names
     records = table.to_pylist()
     if not records:
         raise ValueError("预测明细为空")
@@ -155,6 +159,8 @@ def load_portfolio_predictions(path: str | Path) -> list[PortfolioPrediction]:
                 can_buy=_as_bool(record.get("can_buy"), field="can_buy", default=True),
                 can_sell=_as_bool(record.get("can_sell"), field="can_sell", default=True),
                 tradability_known=tradability_known,
+                in_universe=_as_bool(record.get("in_universe"), field="in_universe", default=True),
+                universe_membership_known=universe_membership_known,
             )
         )
     return predictions
@@ -177,7 +183,10 @@ def _select_symbols(
     previous_symbols: set[str],
     policy: PortfolioPolicy,
 ) -> tuple[list[str], dict[str, str], dict[str, int]]:
-    ranked = sorted(day.values(), key=lambda row: (-row.score, row.symbol))
+    ranked = sorted(
+        (row for row in day.values() if row.in_universe),
+        key=lambda row: (-row.score, row.symbol),
+    )
     rank_by_symbol = {row.symbol: rank for rank, row in enumerate(ranked, start=1)}
     present_previous = previous_symbols & set(day)
     missing_previous = previous_symbols - set(day)
@@ -190,7 +199,7 @@ def _select_symbols(
     buffered = {
         symbol
         for symbol in present_previous
-        if rank_by_symbol[symbol] <= policy.top_k + policy.exit_buffer
+        if day[symbol].in_universe and rank_by_symbol[symbol] <= policy.top_k + policy.exit_buffer
     }
     selected = forced | buffered
     reasons = {
@@ -199,7 +208,7 @@ def _select_symbols(
     }
 
     replaceable = sorted(
-        present_previous - selected,
+        {symbol for symbol in present_previous - selected if day[symbol].in_universe},
         key=lambda symbol: (-day[symbol].score, symbol),
     )
     entries = [row.symbol for row in ranked if row.symbol not in previous_symbols and row.can_buy]
@@ -224,6 +233,10 @@ def _select_symbols(
         selected.add(chosen)
         slots -= 1
 
+    status_rank = len(ranked) + 1
+    rank_by_symbol.update(
+        {symbol: status_rank for symbol in selected if symbol not in rank_by_symbol}
+    )
     ordered = sorted(selected, key=lambda symbol: (rank_by_symbol[symbol], symbol))
     return ordered, reasons, rank_by_symbol
 
@@ -238,7 +251,7 @@ def _trade_reason(
     if old_weight == 0:
         return selection_reasons.get(symbol, "entry")
     if new_weight == 0:
-        return "universe_exit" if symbol not in day else "rank_exit"
+        return "universe_exit" if symbol not in day or not day[symbol].in_universe else "rank_exit"
     return "equal_weight_rebalance"
 
 
@@ -257,7 +270,11 @@ def _bounded_equal_weights(
         for symbol in selected
     }
     upper = {
-        symbol: (old_weights[symbol] if symbol in old_weights and not day[symbol].can_buy else 1.0)
+        symbol: (
+            old_weights[symbol]
+            if symbol in old_weights and (not day[symbol].can_buy or not day[symbol].in_universe)
+            else 1.0
+        )
         for symbol in selected
     }
     if sum(lower.values()) > 1.0 + 1e-12 or sum(upper.values()) < 1.0 - 1e-12:
@@ -462,6 +479,10 @@ def evaluate_topk_portfolio(
         raise ValueError("预测明细为空")
     if policy.require_tradability and any(not row.tradability_known for row in predictions):
         raise ValueError("正式评估要求预测明细同时提供 can_buy 与 can_sell")
+    if policy.require_universe_membership and any(
+        not row.universe_membership_known for row in predictions
+    ):
+        raise ValueError("正式评估要求预测明细提供 in_universe")
     costs = cost_model or CostModel()
     grouped: dict[date, list[PortfolioPrediction]] = defaultdict(list)
     seen: set[tuple[date, str]] = set()
@@ -475,7 +496,7 @@ def evaluate_topk_portfolio(
     eligible_dates = sorted(
         label_date
         for label_date, rows in grouped.items()
-        if len(rows) >= policy.min_symbols_per_day
+        if sum(row.in_universe for row in rows) >= policy.min_symbols_per_day
     )
     if not eligible_dates:
         raise ValueError("没有可评估的交易日")
@@ -520,7 +541,9 @@ def evaluate_topk_portfolio(
             raise ValueError(f"{label_date} 组合毛收益必须大于 -100%")
         net_return = gross_return - transaction_cost
 
-        finite_universe = [row for row in rows if math.isfinite(row.target_return)]
+        finite_universe = [
+            row for row in rows if row.in_universe and math.isfinite(row.target_return)
+        ]
         universe_return = float(np.mean([row.target_return for row in finite_universe]))
         realized_top = {
             row.symbol
@@ -537,7 +560,7 @@ def evaluate_topk_portfolio(
             {
                 "trading_date": next(iter(signal_dates)).isoformat(),
                 "label_date": label_date.isoformat(),
-                "universe_size": len(rows),
+                "universe_size": sum(row.in_universe for row in rows),
                 "positions": len(selected),
                 "buy_turnover": buy_turnover,
                 "sell_turnover": sell_turnover,
@@ -571,6 +594,7 @@ def evaluate_topk_portfolio(
                     "selection_reason": reasons[symbol],
                     "can_buy": row.can_buy,
                     "can_sell": row.can_sell,
+                    "in_universe": row.in_universe,
                 }
             )
         trade_rows.extend(day_trades)
@@ -602,6 +626,7 @@ def evaluate_topk_portfolio(
             "annualization_days": policy.annualization_days,
             "missing_holding_policy": policy.missing_holding_policy,
             "require_tradability": policy.require_tradability,
+            "require_universe_membership": policy.require_universe_membership,
         },
         "cost_model": {
             "per_side_bps": costs.per_side_bps,

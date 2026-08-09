@@ -74,6 +74,8 @@
 [docs/topk-agentx-m2d-registry-context.md](docs/topk-agentx-m2d-registry-context.md)。
 完整 Top-K、buffer、成本矩阵、Registry 来源绑定和甜点区诊断见
 [docs/topk-agentx-m3-topk-diagnostics.md](docs/topk-agentx-m3-topk-diagnostics.md)。
+正式 prediction 还会校验 open-to-open 标签、动态股票池、交易状态、每日候选数和 Parquet
+metadata；外部产物必须先经 `import_predictions` 登记，不能直接作为正式 M3 输入。
 
 完整的研究问题、数据资源、硬件预算和分阶段实验路线见
 [docs/hardware-constraints-and-experiment-roadmap.md](docs/hardware-constraints-and-experiment-roadmap.md)。数据格式、适配命令、泄漏控制和评估口径见
