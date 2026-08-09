@@ -45,6 +45,7 @@ TARGET_RETURN_CONTRACTS = {
     DIAGNOSTIC_TARGET_RETURN_CONTRACT,
     FORMAL_TARGET_RETURN_CONTRACT,
 }
+MINUTE_FEATURE_SOURCES = {"l2_cache", "tushare"}
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,66 @@ class MinuteBaselineConfig:
         return self.target_return_contract == FORMAL_TARGET_RETURN_CONTRACT
 
 
+def load_minute_baseline_config(path: str | Path) -> MinuteBaselineConfig:
+    """读取分钟基线 YAML，并统一校验训练、特征与目标口径。"""
+    import yaml
+
+    with Path(path).open(encoding="utf-8") as file:
+        loaded = yaml.safe_load(file) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError("minute YAML 根节点应为对象")
+    values = loaded
+    config = MinuteBaselineConfig(
+        basic_root=values.get("basic_root", ""),
+        benchmark_path=values.get("benchmark_path", ""),
+        start_date=values.get("start_date", ""),
+        end_date=values.get("end_date", ""),
+        top_n=int(values.get("top_n", 400)),
+        min_history_days=int(values.get("min_history_days", 120)),
+        liquidity_lookback_days=int(values.get("liquidity_lookback_days", 20)),
+        min_liquidity_observations=int(values.get("min_liquidity_observations", 15)),
+        lower_quantile=float(values.get("lower_quantile", 0.2)),
+        upper_quantile=float(values.get("upper_quantile", 0.8)),
+        min_cross_section=int(values.get("min_cross_section", 20)),
+        train_start=values.get("train_start", ""),
+        train_end=values.get("train_end", ""),
+        val_start=values.get("val_start", ""),
+        val_end=values.get("val_end", ""),
+        test_start=values.get("test_start", ""),
+        test_end=values.get("test_end", ""),
+        feature_source=str(values.get("feature_source", "l2_cache")),
+        l2_root=str(values.get("l2_root", "")),
+        tushare_root=str(values.get("tushare_root", "")),
+        window_minutes=int(values.get("window_minutes", 60)),
+        min_window_minutes=int(values.get("min_window_minutes", 30)),
+        min_symbols_per_day=int(values.get("min_symbols_per_day", 20)),
+        portfolio_quantile=float(values.get("portfolio_quantile", 0.1)),
+        seed=int(values.get("seed", 0)),
+        target_return_contract=str(
+            values.get("target_return_contract", DIAGNOSTIC_TARGET_RETURN_CONTRACT)
+        ),
+    )
+    if config.feature_source not in MINUTE_FEATURE_SOURCES:
+        raise ValueError(f"feature_source 应为 {sorted(MINUTE_FEATURE_SOURCES)} 之一")
+    if config.target_return_contract not in TARGET_RETURN_CONTRACTS:
+        raise ValueError(f"target_return_contract 应为 {sorted(TARGET_RETURN_CONTRACTS)} 之一")
+    for name in (
+        "basic_root",
+        "benchmark_path",
+        "start_date",
+        "end_date",
+        "train_start",
+        "train_end",
+        "val_start",
+        "val_end",
+        "test_start",
+        "test_end",
+    ):
+        if not getattr(config, name):
+            raise ValueError(f"{name} 不能为空")
+    return config
+
+
 @dataclass(frozen=True)
 class TargetBuildBundle:
     """候选与状态目标，以及生成时使用的动态股票池。"""
@@ -144,6 +205,8 @@ class MinuteExtractionReport:
     imputed_missing_samples: int = 0
     scanned_row_groups: int = 0
     skipped_row_groups: int = 0
+    materialized_shards: int = 0
+    materialized_rows: int = 0
 
 
 def build_target_bundle(config: MinuteBaselineConfig) -> TargetBuildBundle:

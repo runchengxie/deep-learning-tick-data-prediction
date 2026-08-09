@@ -79,15 +79,25 @@ T+1 停牌、一字涨停和一字跌停分别写入交易状态，调出但尚�
 `in_universe=false` 状态行。正式切分还要求 `return_end_date` 落在同一时间段内。
 
 ```bash
+uv run python scripts/materialize_minute_features.py \
+  --config configs/nextday-minute-formal-2025.yaml \
+  --output results/m3-formal-minute-features-v1
+
 uv run python scripts/run_minute_baseline.py \
   --config configs/nextday-minute-formal-2025.yaml \
+  --materialized-features results/m3-formal-minute-features-v1 \
   --evaluate-test \
   --save-predictions results/predictions-hgb-top400-open2open-2025.parquet \
   --output results/nextday-minute-formal-2025.json
 ```
 
-该命令的输出会携带正式数据指纹和 prediction metadata，供 `import_predictions` 登记。缺少
-L2 分钟窗口的候选使用 HGB 原生支持的全 NaN 特征并保留在 Top-400 中，不能静默删除。
+第一条命令按月原子写入 Parquet，记录源文件身份、目标键、每月资源统计和分片 SHA-256；中断后
+重复执行即可从完整月份继续。第二条命令只接受覆盖全部目标月份的 manifest，输出正式数据指纹
+和 prediction metadata，供 `import_predictions` 登记。缺少 L2 分钟窗口的候选使用 HGB 原生
+支持的全 NaN 特征并保留在 Top-400 中，不能静默删除。
+
+真实 2025-07 月度 smoke 已物化 9,200 行，其中 7 行缺少分钟特征；耗时 100.3 秒，峰值内存约
+2.26 GB，分片约 4.2 MB。该结果只验证全量执行的资源和恢复边界，不代表预测效果。
 
 修正后的本机 smoke v2 覆盖 2024-01-02 至 2024-01-12 的动态前 20 股票：180 个目标中
 写出 178 个，两个股票日缺少可用 snapshot。178 个写出样本均有完整 200 个有效 tick。

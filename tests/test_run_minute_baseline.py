@@ -9,6 +9,7 @@ import numpy as np
 from scripts.run_minute_baseline import (
     _complete_formal_samples,
     _formal_dataset_fingerprint,
+    _load_config,
     _save_formal_test_predictions,
     _split_samples,
     _validate_formal_run,
@@ -69,6 +70,13 @@ class _Model:
     def predict_proba(self, features):
         assert features.shape == (2, 4)
         return np.asarray([[0.1, 0.2, 0.7], [0.6, 0.3, 0.1]])
+
+
+def test_shared_loader_preserves_formal_target_contract() -> None:
+    config = _load_config("configs/nextday-minute-formal-2025.yaml")
+    assert config.formal is True
+    assert config.top_n == 400
+    assert config.feature_source == "l2_cache"
 
 
 def test_complete_formal_samples_imputes_missing_candidate() -> None:

@@ -24,14 +24,19 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 
 from ticknet.nextday.metrics import evaluate_predictions
 from ticknet.nextday.minute_baseline import (
-    TARGET_RETURN_CONTRACTS,
+    MINUTE_FEATURE_SOURCES,
     MinuteBaselineConfig,
     MinuteExtractionReport,
     MinuteSample,
     build_samples,
     build_target_bundle,
+    load_minute_baseline_config,
     read_l2_minute_rows,
     read_tushare_minute_rows,
+)
+from ticknet.nextday.minute_materialization import (
+    complete_formal_samples,
+    load_materialized_minute_features,
 )
 from ticknet.nextday.splits import WalkForwardSplit, parse_date
 from ticknet.research.prediction_contract import (
@@ -40,59 +45,14 @@ from ticknet.research.prediction_contract import (
 )
 from ticknet.research.protocol import ResearchProtocol
 
-_KNOWN_SOURCES = {"l2_cache", "tushare"}
+_KNOWN_SOURCES = MINUTE_FEATURE_SOURCES
 
 
 def _load_config(path: str | Path) -> MinuteBaselineConfig:
-    import yaml
-
-    values: dict[str, Any] = {}
-    if path:
-        with Path(path).open(encoding="utf-8") as file:
-            loaded = yaml.safe_load(file) or {}
-        if not isinstance(loaded, dict):
-            raise SystemExit("minute YAML 根节点应为对象")
-        values.update(loaded)
-    defaults = MinuteBaselineConfig(
-        basic_root=values.get("basic_root", ""),
-        benchmark_path=values.get("benchmark_path", ""),
-        start_date=values.get("start_date", ""),
-        end_date=values.get("end_date", ""),
-        top_n=int(values.get("top_n", 400)),
-        min_history_days=int(values.get("min_history_days", 120)),
-        liquidity_lookback_days=int(values.get("liquidity_lookback_days", 20)),
-        min_liquidity_observations=int(values.get("min_liquidity_observations", 15)),
-        lower_quantile=float(values.get("lower_quantile", 0.2)),
-        upper_quantile=float(values.get("upper_quantile", 0.8)),
-        min_cross_section=int(values.get("min_cross_section", 20)),
-        train_start=values.get("train_start", ""),
-        train_end=values.get("train_end", ""),
-        val_start=values.get("val_start", ""),
-        val_end=values.get("val_end", ""),
-        test_start=values.get("test_start", ""),
-        test_end=values.get("test_end", ""),
-        feature_source=str(values.get("feature_source", "l2_cache")),
-        l2_root=str(values.get("l2_root", "")),
-        tushare_root=str(values.get("tushare_root", "")),
-        window_minutes=int(values.get("window_minutes", 60)),
-        min_window_minutes=int(values.get("min_window_minutes", 30)),
-        min_symbols_per_day=int(values.get("min_symbols_per_day", 20)),
-        portfolio_quantile=float(values.get("portfolio_quantile", 0.1)),
-        seed=int(values.get("seed", 0)),
-        target_return_contract=str(values.get("target_return_contract", "next_open_to_same_close")),
-    )
-    if defaults.feature_source not in _KNOWN_SOURCES:
-        raise SystemExit(f"feature_source 应为 {sorted(_KNOWN_SOURCES)} 之一")
-    if defaults.target_return_contract not in TARGET_RETURN_CONTRACTS:
-        raise SystemExit(f"target_return_contract 应为 {sorted(TARGET_RETURN_CONTRACTS)} 之一")
-    if not defaults.basic_root or not defaults.benchmark_path:
-        raise SystemExit("basic_root 和 benchmark_path 不能为空")
-    if not defaults.start_date or not defaults.end_date:
-        raise SystemExit("start_date 和 end_date 不能为空")
-    for name in ("train_start", "train_end", "val_start", "val_end", "test_start", "test_end"):
-        if not getattr(defaults, name):
-            raise SystemExit(f"{name} 不能为空")
-    return defaults
+    try:
+        return load_minute_baseline_config(path)
+    except (OSError, TypeError, ValueError) as error:
+        raise SystemExit(str(error)) from error
 
 
 def _read_rows(
@@ -177,31 +137,12 @@ def _complete_formal_samples(
     """保留完整股票池；缺失分钟窗口使用 HGB 原生支持的全 NaN 特征。"""
     if not samples:
         raise ValueError("正式 HGB 没有任何可用于确定特征维度的分钟样本")
-    feature_count = samples[0].features.size
-    if any(sample.features.size != feature_count for sample in samples):
-        raise ValueError("分钟样本特征维度不一致")
-    indexed = {(sample.trading_date, sample.symbol): sample for sample in samples}
-    completed: list[MinuteSample] = []
-    for target in sorted(targets, key=lambda item: (item.trading_date, item.symbol)):
-        key = (target.trading_date, target.symbol)
-        sample = indexed.get(key)
-        if sample is not None:
-            completed.append(sample)
-            continue
-        completed.append(
-            MinuteSample(
-                trading_date=target.trading_date,
-                symbol=target.symbol,
-                label_date=target.label_date,
-                label=target.label,
-                target_return=target.target_return,
-                features=np.full(feature_count, np.nan, dtype=np.float32),
-                return_end_date=target.return_end_date,
-                feature_available=False,
-            )
-        )
-        report.imputed_missing_samples += 1
-    return completed
+    return complete_formal_samples(
+        targets,
+        samples,
+        feature_count=samples[0].features.size,
+        report=report,
+    )
 
 
 def _formal_dataset_fingerprint(
@@ -411,6 +352,11 @@ def _validate_formal_run(config: MinuteBaselineConfig, args: argparse.Namespace)
         raise ValueError("正式 prediction export 必须设置 --save-predictions")
     if parse_date(config.end_date) > ResearchProtocol().validation_end_date:
         raise ValueError("研究阶段正式 prediction export 不能进入 2026 locked 区间")
+    if (
+        getattr(args, "materialized_features", None) is not None
+        and config.feature_source != "l2_cache"
+    ):
+        raise ValueError("正式已物化特征要求 feature_source=l2_cache")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -418,6 +364,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--source", choices=sorted(_KNOWN_SOURCES), default=None)
     parser.add_argument("--output", type=Path, default=Path("results/minute-baseline.json"))
+    parser.add_argument(
+        "--materialized-features",
+        type=Path,
+        default=None,
+        help="读取已完整物化并校验的分钟聚合特征目录，跳过原始 L2 扫描",
+    )
     parser.add_argument("--evaluate-test", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument(
         "--save-predictions",
@@ -435,9 +387,20 @@ def main(argv: list[str] | None = None) -> None:
     report = MinuteExtractionReport()
     bundle = build_target_bundle(config)
     targets = [target for target in bundle.targets if getattr(target, "in_universe", True)]
-    samples = _build_samples_by_year(config, targets, report)
-    if config.formal:
-        samples = _complete_formal_samples(targets, samples, report)
+    materialized_feature_summary = None
+    if args.materialized_features is not None:
+        materialized = load_materialized_minute_features(
+            config,
+            targets,
+            args.materialized_features,
+            report,
+        )
+        samples = materialized.samples
+        materialized_feature_summary = materialized.summary()
+    else:
+        samples = _build_samples_by_year(config, targets, report)
+        if config.formal:
+            samples = _complete_formal_samples(targets, samples, report)
     parts = _split_samples(samples, config.date_split())
     dataset_fingerprint = (
         _formal_dataset_fingerprint(config, samples, bundle.targets) if config.formal else None
@@ -509,6 +472,7 @@ def main(argv: list[str] | None = None) -> None:
             "feature_count": int(train_x.shape[1]),
             "samples": {key: len(value) for key, value in parts.items()},
             "extraction": report.__dict__,
+            "materialized_features": materialized_feature_summary,
             "formal_target_build": (
                 asdict(bundle.formal_report) if bundle.formal_report is not None else None
             ),
