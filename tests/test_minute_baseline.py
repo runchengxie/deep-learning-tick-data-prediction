@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 from ticknet.nextday.labels import NextDayTarget
 from ticknet.nextday.minute_baseline import (
     MinuteExtractionReport,
+    MinuteRows,
     _aggregate_trailing,
     _feature_columns,
     _stream_l2_modality,
@@ -18,6 +19,7 @@ from ticknet.nextday.minute_baseline import (
     build_samples,
     read_l2_minute_rows,
     read_tushare_minute_rows,
+    trailing_minute_matrix,
 )
 
 
@@ -173,6 +175,46 @@ def test_stream_l2_modality_filters(tmp_path) -> None:
     assert day_rows[10][0] == 1.0
     assert report.scanned_row_groups == 1
     assert report.skipped_row_groups == 1
+
+
+def test_stream_l2_modality_vectorized_groups_keep_last_duplicate_across_row_groups(
+    tmp_path,
+) -> None:
+    path = tmp_path / "2024.parquet"
+    rows = [
+        (20240603, "000001", 11, 1.0),
+        (20240603, "000002", 10, 9.0),
+        (20240603, "000001", 10, 2.0),
+        (20240603, "000001", 11, 3.0),
+        (20240603, "000001", 12, 4.0),
+    ]
+    _write_l2_snapshot(path, rows)
+    # 强制同一股票跨 row group，并让重复分钟出现在后一个 row group。
+    table = pq.read_table(path)
+    pq.write_table(table, path, row_group_size=2)
+    report = MinuteExtractionReport()
+    result = _stream_l2_modality(
+        path,
+        wanted_dates={20240603},
+        wanted_symbols={"000001"},
+        modality="snapshot",
+        keep_minutes=2,
+        report=report,
+    )
+    assert isinstance(result[(20240603, "000001")], MinuteRows)
+    day_rows = dict(result[(20240603, "000001")])
+    assert sorted(day_rows) == [11, 12]
+    assert day_rows[11][0] == 3.0
+    assert day_rows[12][0] == 4.0
+
+
+def test_trailing_minute_matrix_matches_sequence_path() -> None:
+    minutes = np.asarray([10, 11, 12], dtype=np.int64)
+    matrix = np.asarray([[1.0], [2.0], [3.0]], dtype=np.float32)
+    contiguous, contiguous_count = trailing_minute_matrix(MinuteRows(minutes, matrix), 2)
+    sequence, sequence_count = trailing_minute_matrix(list(zip(minutes, matrix, strict=True)), 2)
+    assert contiguous_count == sequence_count == 2
+    np.testing.assert_array_equal(contiguous, sequence)
 
 
 def test_read_l2_inner_join_across_modalities(tmp_path) -> None:
