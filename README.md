@@ -167,6 +167,7 @@ mini-batch 为 32，验证准确率连续 20 个 epoch 未提升时早停。
 - [docs/topk-agentx-m3-topk-diagnostics.md](docs/topk-agentx-m3-topk-diagnostics.md)：完整 Top-K、buffer、成本矩阵与正式/烟测诊断边界
 - [docs/resource-strategy-and-pilot-gates.md](docs/resource-strategy-and-pilot-gates.md)：分钟信号验证、成本评估和实验研究闭环
 - [docs/raw-200-end-to-end-pipeline.md](docs/raw-200-end-to-end-pipeline.md)：原始盘口主线从本地加工到训练的门槛式推进
+- [docs/raw-data-expansion-roadmap.md](docs/raw-data-expansion-roadmap.md)：五年 Top-400 raw-200 数据生成、审计、Drive 上传和扩展门槛
 - [docs/reproduction-audit.md](docs/reproduction-audit.md)：FI-2010 复现的模型、协议和核对结论
 - [docs/development-guide.md](docs/development-guide.md)：模块划分、测试范围和质量门禁
 
