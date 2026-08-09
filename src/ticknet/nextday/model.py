@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from ticknet.dataset import NUM_CLASSES, NUM_FEATURES
 from ticknet.model import DeepLOB
+from ticknet.nextday.config import DEFAULT_CONV_CHANNELS, DEFAULT_INCEPTION_CHANNELS
 
 
 class NextDayOutput(NamedTuple):
@@ -32,6 +33,8 @@ class ChunkedDeepLOB(nn.Module):
         chunks_per_sample: int = 10,
         chunk_size: int = 100,
         num_classes: int = NUM_CLASSES,
+        conv_channels: int = DEFAULT_CONV_CHANNELS,
+        inception_channels: int = DEFAULT_INCEPTION_CHANNELS,
         intraday_embedding_size: int = 64,
         day_hidden_size: int = 64,
         day_layers: int = 1,
@@ -49,6 +52,8 @@ class ChunkedDeepLOB(nn.Module):
         self.intraday_encoder = DeepLOB(
             num_classes=num_classes,
             window_size=chunk_size,
+            conv_channels=conv_channels,
+            inception_channels=inception_channels,
             lstm_units=intraday_embedding_size,
         )
         self.chunk_sequence = nn.GRU(
@@ -92,6 +97,8 @@ def build_nextday_model(
     chunks_per_sample: int = 10,
     chunk_size: int = 100,
     num_classes: int = NUM_CLASSES,
+    conv_channels: int = DEFAULT_CONV_CHANNELS,
+    inception_channels: int = DEFAULT_INCEPTION_CHANNELS,
     intraday_embedding_size: int = 64,
     day_hidden_size: int = 64,
     day_layers: int = 1,
@@ -101,6 +108,8 @@ def build_nextday_model(
         chunks_per_sample=chunks_per_sample,
         chunk_size=chunk_size,
         num_classes=num_classes,
+        conv_channels=conv_channels,
+        inception_channels=inception_channels,
         intraday_embedding_size=intraday_embedding_size,
         day_hidden_size=day_hidden_size,
         day_layers=day_layers,

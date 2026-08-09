@@ -32,6 +32,8 @@ class ResearchPolicy:
             "dropout",
             "classification_loss_weight",
             "regression_loss_weight",
+            "conv_channels",
+            "inception_channels",
             "intraday_embedding_size",
             "day_hidden_size",
             "day_layers",

@@ -85,6 +85,27 @@ def test_predictor_filters_invalid_rows_before_selecting_the_tail(tmp_path):
     assert actual.probabilities == pytest.approx(expected.probabilities)
 
 
+def test_predictor_restores_frontend_widths_from_checkpoint(tmp_path):
+    checkpoint, manifest = _artifacts(tmp_path)
+    content = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    model = build_nextday_model(
+        chunks_per_sample=1,
+        chunk_size=20,
+        conv_channels=8,
+        inception_channels=16,
+        intraday_embedding_size=8,
+        day_hidden_size=8,
+    )
+    content["model"] = model.state_dict()
+    content["experiment"]["conv_channels"] = 8
+    content["experiment"]["inception_channels"] = 16
+    torch.save(content, checkpoint)
+
+    predictor = NextDayPredictor(checkpoint, manifest)
+    assert predictor.model.intraday_encoder.conv1[0].out_channels == 8
+    assert predictor.model.intraday_encoder.inception.branch_3[0].out_channels == 16
+
+
 def test_prediction_cli_accepts_normalized_npy(tmp_path, capsys):
     checkpoint, manifest = _artifacts(tmp_path)
     events = tmp_path / "events.npy"

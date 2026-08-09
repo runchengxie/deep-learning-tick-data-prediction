@@ -20,7 +20,12 @@ import yaml
 from torch.utils.data import DataLoader
 
 from ticknet.dataset import NUM_CLASSES
-from ticknet.nextday.config import LOCKED_TEST_AGGREGATE_METRICS, NextDayConfig
+from ticknet.nextday.config import (
+    DEFAULT_CONV_CHANNELS,
+    DEFAULT_INCEPTION_CHANNELS,
+    LOCKED_TEST_AGGREGATE_METRICS,
+    NextDayConfig,
+)
 from ticknet.nextday.dataset import NextDayShardDataset
 from ticknet.nextday.metrics import evaluate_predictions
 from ticknet.nextday.model import build_nextday_model
@@ -161,6 +166,17 @@ def _experiment_signature(config: NextDayConfig, dataset_fingerprint: str) -> di
     return signature
 
 
+def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """兼容新增前端宽度字段前生成的默认结构 checkpoint。"""
+    experiment = checkpoint.get("experiment")
+    if not isinstance(experiment, dict):
+        return False
+    normalized = dict(experiment)
+    normalized.setdefault("conv_channels", DEFAULT_CONV_CHANNELS)
+    normalized.setdefault("inception_channels", DEFAULT_INCEPTION_CHANNELS)
+    return normalized == expected
+
+
 def _checkpoint_paths(config: NextDayConfig) -> tuple[str, Path, Path, Path, Path]:
     root = Path(config.checkpoint_dir)
     stem = f"{config.checkpoint_name}.seed{config.seed}"
@@ -226,7 +242,7 @@ def evaluate_best_checkpoints(
             seed_config,
             test_dataset.dataset_fingerprint,
         )
-        if checkpoint.get("experiment") != expected_signature:
+        if not _checkpoint_matches_experiment(checkpoint, expected_signature):
             raise ValueError(f"{best_path} 的实验配置与 locked test 配置不同")
         checkpoints.append((seed, best_path, checkpoint))
 
@@ -236,6 +252,8 @@ def evaluate_best_checkpoints(
         model = build_nextday_model(
             chunks_per_sample=test_dataset.chunks_per_sample,
             chunk_size=test_dataset.chunk_size,
+            conv_channels=config.conv_channels,
+            inception_channels=config.inception_channels,
             intraday_embedding_size=config.intraday_embedding_size,
             day_hidden_size=config.day_hidden_size,
             day_layers=config.day_layers,
@@ -296,6 +314,8 @@ def train(config: NextDayConfig) -> dict[str, Any]:
     model = build_nextday_model(
         chunks_per_sample=train_dataset.chunks_per_sample,
         chunk_size=train_dataset.chunk_size,
+        conv_channels=config.conv_channels,
+        inception_channels=config.inception_channels,
         intraday_embedding_size=config.intraday_embedding_size,
         day_hidden_size=config.day_hidden_size,
         day_layers=config.day_layers,
@@ -326,7 +346,7 @@ def train(config: NextDayConfig) -> dict[str, Any]:
     history: list[dict[str, Any]] = []
     if config.resume and last_path.exists():
         checkpoint = _load_checkpoint(last_path, device)
-        if checkpoint.get("experiment") != signature:
+        if not _checkpoint_matches_experiment(checkpoint, signature):
             raise ValueError(f"{last_path} 的实验配置与本次运行不同")
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])

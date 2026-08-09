@@ -20,10 +20,15 @@
 每个股票交易日只生成一个样本。代码不会把同一天的每个 tick 复制成共享一个标签的
 独立样本。
 
-当前客户交付主线直接训练原始 tick 模型。第一版把窗口限制在 200 个事件，以便五年、
-动态 400 股票的 float16 工作集控制在约 8 GB。分钟微观结构模型保留为内部对照，
-不再是端到端交付的前置条件。资源预算和扩展门槛见
+当前端到端主线直接训练原始 tick 模型。第一版把窗口限制在 200 个事件，以便五年、
+动态 400 股票的 float16 工作集控制在约 8 GB。分钟微观结构模型保留为低成本对照，
+不再是原始序列实验的前置条件。资源预算和扩展门槛见
 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md)。
+
+raw-200 默认结构为 16 个卷积通道、每个 Inception 分支 32 个通道、64 维日内 embedding
+和 64 维日级 GRU，共 86,775 个参数。`configs/nextday-raw-1m-pilot.yaml` 提供独立容量实验：
+对应宽度为 32、64、320 和 192，共 1,033,383 个参数。新配置使用不同 checkpoint 目录，
+不会覆盖默认基线；训练和推理 checkpoint 都记录完整结构签名。
 
 ## 与论文复现的边界
 
@@ -292,6 +297,14 @@ python scripts/run_nextday_baseline.py --config configs/nextday-pilot.yaml \
 `configs/nextday-pilot.yaml` 使用 2024H1 训练、2024Q3 验证和 2024Q4 测试。默认
 `evaluate_test: false`，因此基线和 DeepLOB 选模阶段都不会输出测试指标。日度横截面
 指标至少要求 80 只股票，低于动态股票池 80% 覆盖的日期不进入日度指标。
+百万参数开发实验可改用：
+
+```bash
+ticknet-nextday-train --config configs/nextday-raw-1m-pilot.yaml --seed 0
+```
+
+分别运行 seed 0、1、2，并只用验证期比较容量增量。2024Q4 已经用于既有 pilot 结果，不能
+重新作为未见测试集选择百万参数模型。
 规范月文件读取损坏时，转换器只会在目标交易日的逐日 snapshot 备份完整时回退，并在
 `data-audit.json` 记录回退月份和文件数。逐日备份不完整时会停止运行。
 
@@ -300,6 +313,6 @@ python scripts/run_nextday_baseline.py --config configs/nextday-pilot.yaml \
 当前版本已经实现真实月度 snapshot 适配、双头分块编码、AMP、梯度累积、断点恢复和
 Colab handoff。当前端到端模型只使用 snapshot 十档盘口，硬盘中的 order 和 trades
 尚未直接进入该模型。下一步先生成一个受控年份或完整五年 200-tick 工作集，在 Colab 测量
-100 个 batch 的吞吐后决定训练预算。客户 MVP 跑通后，再比较 500 tick / 100 股票。
+100 个 batch 的吞吐后决定训练预算。raw-200 基线跑通后，再比较 500 tick / 100 股票。
 只有验证期 Rank IC 有稳定增量才扩大窗口。多日版本可缓存每日 embedding 后再训练，
 无需反复编码原始 tick。
