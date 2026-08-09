@@ -21,60 +21,24 @@ import numpy as np
 
 from ticknet.nextday.dataset import file_sha256, manifest_fingerprint
 from ticknet.nextday.minute_baseline import (
+    MINUTE_FEATURE_SOURCES,
     MinuteBaselineConfig,
     MinuteExtractionReport,
     build_targets,
+    load_minute_baseline_config,
     read_l2_minute_rows,
     read_tushare_minute_rows,
 )
 from ticknet.nextday.splits import parse_date
 
-_KNOWN_SOURCES = {"l2_cache", "tushare"}
+_KNOWN_SOURCES = MINUTE_FEATURE_SOURCES
 
 
 def load_config(path: str | Path) -> MinuteBaselineConfig:
-    import yaml
-
-    values: dict[str, Any] = {}
-    if path:
-        with Path(path).open(encoding="utf-8") as file:
-            loaded = yaml.safe_load(file) or {}
-        if not isinstance(loaded, dict):
-            raise SystemExit("minute YAML 根节点应为对象")
-        values.update(loaded)
-    defaults = MinuteBaselineConfig(
-        basic_root=values.get("basic_root", ""),
-        benchmark_path=values.get("benchmark_path", ""),
-        start_date=values.get("start_date", ""),
-        end_date=values.get("end_date", ""),
-        top_n=int(values.get("top_n", 400)),
-        min_history_days=int(values.get("min_history_days", 120)),
-        liquidity_lookback_days=int(values.get("liquidity_lookback_days", 20)),
-        min_liquidity_observations=int(values.get("min_liquidity_observations", 15)),
-        lower_quantile=float(values.get("lower_quantile", 0.2)),
-        upper_quantile=float(values.get("upper_quantile", 0.8)),
-        min_cross_section=int(values.get("min_cross_section", 20)),
-        train_start=values.get("train_start", ""),
-        train_end=values.get("train_end", ""),
-        val_start=values.get("val_start", ""),
-        val_end=values.get("val_end", ""),
-        test_start=values.get("test_start", ""),
-        test_end=values.get("test_end", ""),
-        feature_source=str(values.get("feature_source", "l2_cache")),
-        l2_root=str(values.get("l2_root", "")),
-        tushare_root=str(values.get("tushare_root", "")),
-        window_minutes=int(values.get("window_minutes", 60)),
-        min_window_minutes=int(values.get("min_window_minutes", 30)),
-        min_symbols_per_day=int(values.get("min_symbols_per_day", 20)),
-        portfolio_quantile=float(values.get("portfolio_quantile", 0.1)),
-        seed=int(values.get("seed", 0)),
-    )
-    if defaults.feature_source not in _KNOWN_SOURCES:
-        raise SystemExit(f"feature_source 应为 {sorted(_KNOWN_SOURCES)} 之一")
-    for name in ("basic_root", "benchmark_path", "start_date", "end_date"):
-        if not getattr(defaults, name):
-            raise SystemExit(f"{name} 不能为空")
-    return defaults
+    try:
+        return load_minute_baseline_config(path)
+    except (OSError, TypeError, ValueError) as error:
+        raise SystemExit(str(error)) from error
 
 
 def _read_rows(
@@ -117,6 +81,8 @@ def main(argv: list[str] | None = None) -> None:
     config = load_config(args.config)
     if args.source is not None:
         config = replace(config, feature_source=args.source)
+    if config.formal:
+        raise SystemExit("分钟序列分片尚未支持正式 return_end_date 清洗，请使用诊断标签配置")
     if config.window_minutes < 1 or config.min_window_minutes < 1:
         raise SystemExit("window_minutes 与 min_window_minutes 应为正整数")
     if config.min_window_minutes > config.window_minutes:

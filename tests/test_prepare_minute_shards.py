@@ -7,11 +7,24 @@ from scripts.prepare_minute_shards import (
     _compute_median_fill,
     _fill_nan_with_medians,
     _pad_to_window,
+    main,
 )
 
 
 def _matrix(values):
     return np.asarray(values, dtype=np.float64)
+
+
+def test_sequence_shards_reject_formal_return_end_contract(tmp_path):
+    with pytest.raises(SystemExit, match="return_end_date"):
+        main(
+            [
+                "--config",
+                "configs/nextday-minute-formal-2025.yaml",
+                "--output",
+                str(tmp_path),
+            ]
+        )
 
 
 def test_compute_median_fill_ignores_nan_and_uses_train_only():
