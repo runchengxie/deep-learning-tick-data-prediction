@@ -77,6 +77,12 @@ target_horizon: 5
 阶段 B 不会用 H=3/5 重新训练。它加载现有一日 checkpoint 的 score，只替换验证目标来画
 IC 衰减曲线。阶段 C 才使用上面的训练配置。
 
+阶段 B 使用
+[`notebooks/nextday_multi_horizon_validation_colab.ipynb`](../notebooks/nextday_multi_horizon_validation_colab.ipynb)。
+保持默认 `SEEDS=(0, 1, 2)`、`HORIZONS=(1, 3, 5)` 后从头运行；notebook 会校验三个 best
+checkpoint 的原训练签名，只构造 2024 validation，并把汇总 JSON、validation score Parquet
+和逐日 IC Parquet 写入 Drive 的 `ticknet-runs/raw-200-capacity_1m/multi-horizon-validation-2024/`。
+
 ## 200GB 到 400GB 的容量门槛
 
 Drive 峰值按以下口径估算：
