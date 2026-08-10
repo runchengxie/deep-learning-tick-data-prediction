@@ -1,0 +1,31 @@
+# 2021--2025、动态 Top-100 的五年 raw-1000 pilot。
+# 与 raw-200 控制组仅改变事件窗口和股票池规模，不访问 locked test 标签做选择。
+
+snapshot_root: /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/snapshot
+basic_root: /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/basic
+benchmark_path: /mnt/data/hdd6t/quant-data-lake/reference/cn_market_reference/csi_all_a_000985.CSI.parquet
+output_dir: ./data/nextday-raw-1000-pilot-2021-2025-top100
+
+start_date: "2021-01-01"
+end_date: "2025-12-31"
+
+scan_start_time_ms: 18000000
+signal_time_ms: 19500000
+
+chunks_per_sample: 10
+chunk_size: 100
+min_valid_events: 1000
+top_n: 100
+min_history_days: 120
+liquidity_lookback_days: 20
+min_liquidity_observations: 15
+
+lower_quantile: 0.2
+upper_quantile: 0.8
+min_cross_section: 50
+
+samples_per_shard: 2048
+storage_dtype: float16
+price_scale_bps: 100.0
+volume_log_scale: 16.0
+normalized_clip: 32.0

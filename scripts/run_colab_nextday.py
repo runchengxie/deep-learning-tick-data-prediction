@@ -14,6 +14,9 @@ from typing import Any
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m.yaml"
 DEFAULT_H5_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m-h5.yaml"
+DEFAULT_100M_BENCHMARK_CONFIG = (
+    REPOSITORY_ROOT / "configs" / "nextday-raw-1000-top100-capacity-100m-benchmark.yaml"
+)
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -27,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workflow",
-        choices=("multi-horizon-validation", "h5-train"),
+        choices=("multi-horizon-validation", "h5-train", "capacity-benchmark"),
         default="multi-horizon-validation",
     )
     parser.add_argument("--session", default="ticknet-multi-horizon")
@@ -44,6 +47,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--horizons", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--inference-batch-size", type=int, default=128)
+    parser.add_argument("--benchmark-batches", type=int, default=100)
+    parser.add_argument("--warmup-batches", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=14_400.0)
     retention = parser.add_mutually_exclusive_group()
     retention.add_argument(
@@ -103,6 +108,16 @@ def _remote_wheel_path(wheel: Path) -> str:
 def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
     if arguments.keep_session and arguments.keep_on_failure:
         raise ValueError("--keep-session 与 --keep-on-failure 不能同时使用")
+    if arguments.benchmark_batches < 1 or arguments.warmup_batches < 0:
+        raise ValueError("--benchmark-batches 应为正整数，--warmup-batches 不能为负数")
+
+
+def _default_config(workflow: str) -> Path:
+    return {
+        "multi-horizon-validation": DEFAULT_CONFIG,
+        "h5-train": DEFAULT_H5_CONFIG,
+        "capacity-benchmark": DEFAULT_100M_BENCHMARK_CONFIG,
+    }[workflow]
 
 
 def _session_exists(colab: str, session: str) -> bool:
@@ -209,11 +224,23 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         checkpoint_name = "raw-200-dual-head-capacity_1m"
         output_remote = f"{drive_root}/ticknet-runs/{run_name}/multi-horizon-validation-2024"
         output_local = "/content/ticknet-results/multi-horizon-validation-2024"
+        feature_remote = f"{drive_root}/ticknet-data/nextday-raw-200"
+        feature_local = "/content/nextday-raw-200"
     elif workflow == "h5-train":
         run_name = "raw-200-capacity_1m-h5"
         checkpoint_name = "raw-200-dual-head-capacity_1m-h5"
         output_remote = f"{drive_root}/ticknet-runs/{run_name}"
         output_local = f"/content/drive/MyDrive/{output_remote}"
+        feature_remote = f"{drive_root}/ticknet-data/nextday-raw-200"
+        feature_local = "/content/nextday-raw-200"
+    elif workflow == "capacity-benchmark":
+        run_name = "raw-1000-top100-capacity_100m"
+        checkpoint_name = "raw-1000-top100-dual-head-capacity_100m"
+        gpu_label = arguments.gpu.lower()
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
+        output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+        feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-preflight-202101-top100"
+        feature_local = "/content/nextday-raw-1000-preflight-202101-top100"
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
@@ -221,11 +248,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "workflow": workflow,
         "rclone_remote": arguments.rclone_remote.rstrip(":"),
         "rclone_config": REMOTE_RCLONE_CONFIG,
-        "feature_remote": f"{drive_root}/ticknet-data/nextday-raw-200",
+        "feature_remote": feature_remote,
         "target_remote": f"{drive_root}/ticknet-data/nextday-raw-200-targets-v1",
         "checkpoint_remote": run_root,
         "output_remote": output_remote,
-        "feature_local": "/content/nextday-raw-200",
+        "feature_local": feature_local,
         "target_local": "/content/nextday-raw-200-targets-v1",
         "checkpoint_local": f"/content/drive/MyDrive/{run_root}",
         "output_local": output_local,
@@ -235,6 +262,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "seeds": list(arguments.seeds),
         "horizons": list(arguments.horizons),
         "inference_batch_size": arguments.inference_batch_size,
+        "benchmark_batches": arguments.benchmark_batches,
+        "warmup_batches": arguments.warmup_batches,
+        "expected_parameter_count": 100_817_575,
+        "projected_train_samples": 75_000,
+        "requested_gpu": arguments.gpu,
         "source_revision": source_revision,
     }
 
@@ -321,7 +353,7 @@ def run(arguments: argparse.Namespace) -> None:
     _validate_lifecycle_arguments(arguments)
     repository_root = REPOSITORY_ROOT.resolve()
     if arguments.config is None:
-        arguments.config = DEFAULT_H5_CONFIG if arguments.workflow == "h5-train" else DEFAULT_CONFIG
+        arguments.config = _default_config(arguments.workflow)
     arguments.config = arguments.config.expanduser().resolve()
     arguments.rclone_config = arguments.rclone_config.expanduser().resolve()
     arguments.local_output_dir = arguments.local_output_dir.expanduser().resolve()

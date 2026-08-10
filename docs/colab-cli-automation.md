@@ -9,8 +9,8 @@
 - Colab VM 只保存一次 session 所需的数据、wheel、临时凭据和运行输出。
 - Google Drive 保存训练数据、checkpoint 和跨设备实验产物。
 - rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
-- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation，以及只用
-  2021--2023 train / 2024 validation 的独立 H=5 训练。
+- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation、独立 H=5 训练，以及
+  raw-1000 Top-100 上的 100M 参数训练吞吐 benchmark。
 
 ## Linux 主机安装
 
@@ -75,6 +75,21 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续；每次训练结束或失败
 都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
 
+100M benchmark 先用相同 revision、相同 raw-1000 单月 preflight 分别测 T4 和 A100：
+
+    python scripts/run_colab_nextday.py \
+      --workflow capacity-benchmark \
+      --session ticknet-100m-raw1000-t4 \
+      --gpu T4 \
+      --benchmark-batches 100 \
+      --warmup-batches 5 \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-1000-top100-capacity_100m/benchmarks/t4
+
+把 `--gpu`、session 和输出末级目录改成 `A100` / `a100` 即可得到可比结果。默认配置是
+`configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为
+100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation/test；正式
+Top-100 train 样本数在数据完成前按 75,000 外推，完成后应使用实际样本数重算。
+
 runner 会执行：
 
 1. 要求当前 worktree 已提交且干净，并记录精确 commit。
@@ -82,9 +97,9 @@ runner 会执行：
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree；需要新 session
    时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载 raw-200 和 sidecar；多周期评估再下载三个 best checkpoint，H=5
-   训练则恢复已有同名 checkpoint（如有）。
-6. 执行多周期 validation，或按 workflow 训练独立 H=5 模型。
+5. Colab 从 Drive 下载 workflow 所需数据；多周期/H=5 使用 raw-200 和 sidecar，100M benchmark
+   只下载 raw-1000 preflight。
+6. 执行多周期 validation、独立 H=5 训练或 100M 容量 benchmark。
 7. 将 JSON/Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
 
@@ -149,5 +164,9 @@ Linux 的 --local-output-dir：
 
 H=5 训练目录还包含每个 seed 的 last/best checkpoint、history、result 和
 `colab-run-summary.json`。
+
+100M benchmark 的 GPU 独立目录包含 `capacity-benchmark.json`、`colab-run-summary.json` 和
+`execution.ipynb`。JSON 记录实际 GPU、精确参数量、数据指纹、吞吐、峰值显存以及 75,000 个
+训练样本的单 seed/三 seed 外推。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。

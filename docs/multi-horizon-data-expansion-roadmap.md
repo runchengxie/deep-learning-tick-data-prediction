@@ -10,8 +10,10 @@ Rank IC 分别为 0.02145、0.02054 和 0.01893，平均 0.02031，seed 间样�
 Google Drive 已升级为 200GB。当前容量足以保存 raw-200、多周期标签、raw-1000 和实验产物。
 Stage B 已完成：三个一日模型在 2024 validation 上的 H=5 平均 IC 为 0.07750，ensemble IC
 为 0.08264，Newey-West t 值为 3.11，正 IC 月份占 83.3%，五组非重叠抽样最低 IC 为
-0.07324，门槛通过。下一轮进入 Stage C，先训练独立 H=5 的 seed 0，再决定是否补 seed 1/2；
-此时不扩大 tick 窗口。模型参数保持 1M 档位，不把模型容量和数据窗口同时改变。
+0.07324，门槛通过。独立 H=5 seed 0 未显示相对原一日模型的稳定增量，因此主目标继续使用
+H=1，H=3/5 作为监控指标。客户要求的 100M 模型进入受控容量试验：先生成 raw-1000 Top-100
+单月 preflight，并用精确 100,817,575 参数配置分别跑 T4/A100 100-batch benchmark；这一步
+不训练完整模型，也不访问 2025 test。
 
 ## 不可变研究合同
 
@@ -42,6 +44,10 @@ manifest 的标签和收益，作为向后兼容控制组。H=3/5 从同一日�
 | D. raw-500 | 先做 Top-100，再做 Top-400 | 同标签、同模型下多 seed 验证 IC 稳定高于 raw-200 | 停止扩大 tick 窗口 |
 | E. raw-1000 | 生成约 35 至 40 GiB 的五年 Top-400 工作集 | 增量覆盖多数月份，且训练时间和成本可接受 | 回退 raw-200/500 |
 | F. 全天 Tick 试制 | 只生成一个月，测体积、吞吐和随机读取 | 预计五个月峰值不超过存储门槛；100 batch 基准可完成单 seed | 改用分段/embedding，不直接全量 |
+
+客户容量试验使用 2×2 归因矩阵：`1M/raw-200` 是现有控制组，`100M/raw-200` 只改变容量，
+`1M/raw-1000` 只改变窗口，`100M/raw-1000` 才是候选交付模型。本轮只完成 raw-1000 Top-100
+数据 pilot 和 100M 资源 benchmark，不把两项变化直接解释为预测增益。
 
 阶段 B 只访问 2024 验证集。horizon、收益处理、模型结构和 seed 列表冻结后，才允许一次性评估
 2025 测试集。5 日标签高度重叠，报告同时给出逐日结果、每 5 个交易日非重叠抽样、月度结果和
@@ -127,6 +133,27 @@ raw-1000 预计 35 至 40 GiB，加上当前 raw-200、标签和 checkpoint，20
 
 当前 1M raw-200 实测约 51 至 68 分钟每 seed，不需要 Pro+。raw-1000 先跑 100 batch 基准，
 只有外推单 seed 超过 8 小时才重新评估订阅。Pro+ 不作为获得 A100 的保证条件。
+
+## raw-1000 Top-100 与 100M benchmark
+
+先生成不覆盖任何旧数据的单月 preflight：
+
+```bash
+.venv/bin/ticknet-nextday-prepare-snapshot \
+  --config configs/nextday-raw-1000-preflight.yaml
+```
+
+审计 `manifest.json`、`data-audit.json`、分片大小和校验和后，将它同步到：
+
+```text
+gdrive:deep-learning-tick-data-prediction/ticknet-data/nextday-raw-1000-preflight-202101-top100
+```
+
+然后用 `scripts/run_colab_nextday.py --workflow capacity-benchmark` 分别申请 T4、A100。两次运行
+固定 5 个 warmup batch 和 100 个 measured batch，默认 ephemeral，完成后自动关闭 runtime。
+比较 `capacity-benchmark.json` 的真实 GPU 名称、samples/s、peak reserved GiB 和按 75,000 个
+训练样本外推的单 seed 小时数。若单 seed 小于 8 小时且显存留有至少 20% 余量，再生成五年
+`configs/nextday-raw-1000-top100.yaml`；否则先缩小有效 batch 或模型宽度。
 
 ## 交付清单
 
