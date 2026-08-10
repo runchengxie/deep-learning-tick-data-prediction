@@ -143,6 +143,10 @@ raw-1000 预计 35 至 40 GiB，加上当前 raw-200、标签和 checkpoint，20
   --config configs/nextday-raw-1000-preflight.yaml
 ```
 
+源 snapshot 约每 3 秒一条。raw-200 的 14:30 起点在 14:55 前通常只有 500 条，因此 raw-1000
+固定从 13:30 开始扫描，再严格保留信号时点前最后 1000 个有效事件；扫描起点不是模型特征边界，
+不会把更早的多余事件写入样本。
+
 审计 `manifest.json`、`data-audit.json`、分片大小和校验和后，将它同步到：
 
 ```text

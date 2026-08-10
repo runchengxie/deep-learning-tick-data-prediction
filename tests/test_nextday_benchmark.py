@@ -23,6 +23,7 @@ def test_raw1000_configs_preserve_event_and_universe_contract() -> None:
         assert config.chunk_size == 100
         assert config.min_valid_events == 1000
         assert config.top_n == 100
+        assert config.scan_start_time_ms == 14_400_000
         assert config.end_date == expected_end
 
 

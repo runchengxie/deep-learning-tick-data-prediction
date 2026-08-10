@@ -8,7 +8,8 @@ output_dir: ./data/nextday-raw-1000-preflight-202101-top100
 start_date: "2021-01-01"
 end_date: "2021-01-31"
 
-scan_start_time_ms: 18000000
+# snapshot 约每 3 秒一条；13:30 起扫，为最后 1000 个有效事件留出停牌/坏行余量。
+scan_start_time_ms: 14400000
 signal_time_ms: 19500000
 
 chunks_per_sample: 10
