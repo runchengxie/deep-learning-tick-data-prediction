@@ -135,6 +135,20 @@ ticknet-nextday-predict \
 输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易优先用同一天
 股票的分数排序。
 
+固定 best checkpoint 的 2024 validation 多周期评估已经提供正式 Python CLI，不需要打开
+notebook：
+
+    ticknet-nextday-evaluate-horizons \
+      --config configs/nextday-raw-200-capacity-1m.yaml \
+      --sidecar /content/nextday-raw-200-targets-v1/horizon-labels.json \
+      --output-dir /content/ticknet-results/multi-horizon-validation-2024 \
+      --seeds 0 1 2 \
+      --horizons 1 3 5
+
+Linux 开发机可以通过官方 Colab CLI 和仓库外的 rclone 配置无人值守创建 T4、同步 Drive
+数据、执行评估、拉回结果并停止 runtime。具体命令、安全边界和产物路径见
+[docs/colab-cli-automation.md](docs/colab-cli-automation.md)。
+
 数据格式、对照基线、Colab 端到端笔记本和当前限制见
 [docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)。
 固定三个既有 best checkpoint、只评估 2024 validation 的多周期入口见
