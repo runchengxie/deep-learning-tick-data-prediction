@@ -9,7 +9,8 @@
 - Colab VM 只保存一次 session 所需的数据、wheel、临时凭据和运行输出。
 - Google Drive 保存训练数据、checkpoint 和跨设备实验产物。
 - rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
-- 2025 test 仍由代码锁定。自动化入口只调用 2024 validation 多周期评估。
+- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation，以及只用
+  2021--2023 train / 2024 validation 的独立 H=5 训练。
 
 ## Linux 主机安装
 
@@ -60,6 +61,20 @@ rclone 把数据同步到这些路径，不修改 checkpoint 匹配规则。
       --gpu T4 \
       --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/$(date +%Y%m%d-%H%M%S)
 
+Stage C 的独立 H=5 seed 0 训练不需要 notebook：
+
+    python scripts/run_colab_nextday.py \
+      --workflow h5-train \
+      --seeds 0 \
+      --keep-on-failure \
+      --session ticknet-h5-seed0 \
+      --gpu T4 \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m-h5/seed0
+
+`h5-train` 默认读取 `configs/nextday-raw-200-capacity-1m-h5.yaml`。它会把已有同名
+checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续；每次训练结束或失败
+都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
+
 runner 会执行：
 
 1. 要求当前 worktree 已提交且干净，并记录精确 commit。
@@ -67,8 +82,9 @@ runner 会执行：
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree；需要新 session
    时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载 raw-200、sidecar 和三个 best checkpoint。
-6. 执行 ticknet-nextday-evaluate-horizons。
+5. Colab 从 Drive 下载 raw-200 和 sidecar；多周期评估再下载三个 best checkpoint，H=5
+   训练则恢复已有同名 checkpoint（如有）。
+6. 执行多周期 validation，或按 workflow 训练独立 H=5 模型。
 7. 将 JSON/Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
 
@@ -122,6 +138,7 @@ Drive：
 
     deep-learning-tick-data-prediction/
       ticknet-runs/raw-200-capacity_1m/multi-horizon-validation-2024/
+      ticknet-runs/raw-200-capacity_1m-h5/
 
 Linux 的 --local-output-dir：
 
@@ -129,5 +146,8 @@ Linux 的 --local-output-dir：
     daily_rank_ic_2024.parquet
     validation_scores_2024.parquet
     execution.ipynb
+
+H=5 训练目录还包含每个 seed 的 last/best checkpoint、history、result 和
+`colab-run-summary.json`。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。

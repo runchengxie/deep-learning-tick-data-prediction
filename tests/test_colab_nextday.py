@@ -23,10 +23,12 @@ from scripts.run_colab_nextday import (
     _validate_session_selection,
     build_job_spec,
 )
+from ticknet.nextday.train import load_config
 
 
 def _arguments(tmp_path: Path) -> Namespace:
     return Namespace(
+        workflow="multi-horizon-validation",
         drive_root="deep-learning-tick-data-prediction",
         rclone_remote="gdrive",
         seeds=[0, 1, 2],
@@ -55,6 +57,36 @@ def test_job_spec_preserves_checkpoint_signature_paths(tmp_path: Path) -> None:
     assert "token" not in json.dumps(spec, ensure_ascii=False).lower()
     assert spec["source_revision"] == "abc123"
     assert spec["seeds"] == [0, 1, 2]
+
+
+def test_h5_training_spec_uses_independent_run_directory(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "h5-train"
+    arguments.seeds = [0]
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["workflow"] == "h5-train"
+    assert spec["checkpoint_name"] == "raw-200-dual-head-capacity_1m-h5"
+    assert spec["checkpoint_remote"].endswith("raw-200-capacity_1m-h5")
+    assert spec["checkpoint_local"] == spec["output_local"]
+    assert spec["output_remote"].endswith("raw-200-capacity_1m-h5")
+    assert spec["seeds"] == [0]
+
+
+def test_h5_training_config_keeps_test_locked() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    config = load_config(
+        [
+            "--config",
+            str(repository_root / "configs" / "nextday-raw-200-capacity-1m-h5.yaml"),
+        ]
+    )
+
+    assert config.target_horizon == 5
+    assert config.target_sidecar_path == ("/content/nextday-raw-200-targets-v1/horizon-labels.json")
+    assert config.checkpoint_name == "raw-200-dual-head-capacity_1m-h5"
+    assert config.evaluate_test is False
 
 
 def test_colab_commands_pin_oauth_provider() -> None:
@@ -217,6 +249,29 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
 
     assert captured[0][:3] == ["rclone", "copy", "source"]
     assert "--metadata" not in captured[0]
+
+
+def test_h5_training_invokes_each_requested_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+
+    colab_job._train_h5(
+        {
+            "output_local": str(tmp_path / "output"),
+            "training_config": "/content/config.yaml",
+            "seeds": [0, 2],
+        }
+    )
+
+    assert [command[-1] for command in captured] == ["0", "2"]
+    assert all("ticknet.nextday.train" in command for command in captured)
 
 
 def test_wheel_build_uses_committed_archive(

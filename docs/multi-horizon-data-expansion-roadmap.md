@@ -8,8 +8,10 @@ Rank IC 分别为 0.02145、0.02054 和 0.01893，平均 0.02031，seed 间样�
 0.00127。2025 测试期继续锁定。
 
 Google Drive 已升级为 200GB。当前容量足以保存 raw-200、多周期标签、raw-1000 和实验产物。
-下一轮先判断一日模型的分数在 3 日和 5 日收益上是否仍有排序能力，再扩大 tick 窗口。模型参数
-暂时保持 1M 档位，不把模型容量和数据窗口同时改变。
+Stage B 已完成：三个一日模型在 2024 validation 上的 H=5 平均 IC 为 0.07750，ensemble IC
+为 0.08264，Newey-West t 值为 3.11，正 IC 月份占 83.3%，五组非重叠抽样最低 IC 为
+0.07324，门槛通过。下一轮进入 Stage C，先训练独立 H=5 的 seed 0，再决定是否补 seed 1/2；
+此时不扩大 tick 窗口。模型参数保持 1M 档位，不把模型容量和数据窗口同时改变。
 
 ## 不可变研究合同
 
@@ -77,11 +79,21 @@ target_horizon: 5
 阶段 B 不会用 H=3/5 重新训练。它加载现有一日 checkpoint 的 score，只替换验证目标来画
 IC 衰减曲线。阶段 C 才使用上面的训练配置。
 
-阶段 B 使用
-[`notebooks/nextday_multi_horizon_validation_colab.ipynb`](../notebooks/nextday_multi_horizon_validation_colab.ipynb)。
-保持默认 `SEEDS=(0, 1, 2)`、`HORIZONS=(1, 3, 5)` 后从头运行；notebook 会校验三个 best
-checkpoint 的原训练签名，只构造 2024 validation，并把汇总 JSON、validation score Parquet
-和逐日 IC Parquet 写入 Drive 的 `ticknet-runs/raw-200-capacity_1m/multi-horizon-validation-2024/`。
+阶段 B 已通过 CLI 完成；notebook 只作为历史快照保留。Stage C 的 seed 0 入口为：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow h5-train \
+  --seeds 0 \
+  --keep-on-failure \
+  --session ticknet-h5-seed0 \
+  --gpu T4 \
+  --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m-h5/seed0
+```
+
+使用 `configs/nextday-raw-200-capacity-1m-h5.yaml`，只改变 target horizon 和独立产物目录。
+seed 0 只有在 2024 validation 的 H=5 IC、月度稳定性和成本后 Top-K 相对一日模型有增量时，
+才补 seed 1/2；2025 test 保持锁定。
 
 ## 200GB 到 400GB 的容量门槛
 

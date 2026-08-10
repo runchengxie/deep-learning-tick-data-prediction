@@ -1,0 +1,41 @@
+# Stage C：保持 raw-200 与 1M 模型结构不变，只把训练目标切换为 H=5。
+# 2025 test 继续锁定；Colab runner 通过 rclone 把输入同步到这些固定路径。
+
+manifest_path: /content/nextday-raw-200/manifest.json
+target_sidecar_path: /content/nextday-raw-200-targets-v1/horizon-labels.json
+target_horizon: 5
+train_start: "2021-01-01"
+train_end: "2023-12-31"
+val_start: "2024-01-01"
+val_end: "2024-12-31"
+test_start: "2025-01-01"
+test_end: "2025-12-31"
+
+epochs: 30
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0001
+patience: 8
+seed: 0
+num_workers: 2
+device: cuda
+resume: true
+evaluate_test: false
+verify_data_checksums: true
+
+checkpoint_dir: /content/drive/MyDrive/deep-learning-tick-data-prediction/ticknet-runs/raw-200-capacity_1m-h5
+checkpoint_name: raw-200-dual-head-capacity_1m-h5
+conv_channels: 32
+inception_channels: 64
+intraday_embedding_size: 320
+day_hidden_size: 192
+day_layers: 1
+dropout: 0.1
+class_weighting: balanced
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 100
+portfolio_quantile: 0.1
+classification_loss_weight: 1.0
+regression_loss_weight: 0.5
+gradient_accumulation_steps: 1
+amp: true
