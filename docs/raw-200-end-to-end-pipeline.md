@@ -17,7 +17,8 @@
 ### 现状
 
 - `raw_snapshot.py` 数据准备链路、`train.py` 训练器和 raw-200 pilot 配置都已就位；默认
-  86k 模型已有真实 2024 pilot 多 seed 结果，百万参数版本仍待运行。
+  86k 模型和百万参数版本均已有真实 2024 pilot 多 seed 结果。百万参数版本没有提高跨 seed
+  平均验证 Rank IC，下一阶段转向五年 Top-400 数据扩充。
 - 数据加工在本地主机完成，Colab 只做训练，这正是参考
   `notebooks/nextday_end_to_end_colab.ipynb` 的分工。
 - 本地主机 CPU 实测约 8.5 股票日/秒，三年分块 DeepLOB 一个 epoch 约 9.8 小时，
@@ -31,7 +32,7 @@
 ### 入口与配置
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m ticknet.nextday.raw_snapshot \
+.venv/bin/ticknet-nextday-prepare-snapshot \
   --config configs/nextday-raw-pilot.yaml
 ```
 
@@ -132,9 +133,11 @@ Rank IC、Macro F1、训练耗时和跨 seed 波动比较容量增量，不重�
 
 ## 6. 下一步动作
 
-1. 在 Colab 对 1.03M 配置运行 100 batch 吞吐与显存 smoke。
-2. 用 seed 0、1、2 运行 86k 与 1.03M 同口径验证期比较。
-3. 若容量增量跨 seed 稳定，再补中间参数档位；否则保留 86k 基线。
+1. 使用 `configs/nextday-raw-200-preflight.yaml` 完成单月 Top-400 数据预检。
+2. 使用 `configs/nextday-raw.yaml` 生成 2021 至 2025 五年 Top-400 raw-200 工作集。
+3. 完成分片校验、日期覆盖和 train/val/test purge 审计后再上传 Drive。
+4. 在正式工作集上重新比较 86k 与 1.03M，容量增量跨 seed 稳定后才增加参数或窗口。
 
 参考：`notebooks/nextday_end_to_end_colab.ipynb`、`configs/nextday-raw-pilot.yaml`、
-`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`。
+`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、
+`docs/raw-data-expansion-roadmap.md`。
