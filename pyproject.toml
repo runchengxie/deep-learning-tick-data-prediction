@@ -32,6 +32,7 @@ dev = [
 ticknet-fi2010-train = "legacy.fi2010_train:main"
 ticknet-nextday-train = "ticknet.nextday.train:main"
 ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"
+ticknet-nextday-evaluate-horizons = "ticknet.nextday.horizon_cli:main"
 ticknet-minute-tcn-train = "ticknet.nextday.train_tcn:main"
 ticknet-minute-tcn-evaluate = "ticknet.nextday.train_tcn:evaluate_main"
 ticknet-research = "ticknet.research.cli:main"

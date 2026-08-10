@@ -1,5 +1,6 @@
 """多周期 Colab notebook 的结构和安全边界测试。"""
 
+import ast
 from pathlib import Path
 
 import nbformat
@@ -29,3 +30,23 @@ def test_multi_horizon_notebook_is_clean_and_validation_only() -> None:
 
     for index, cell in enumerate(code_cells):
         compile(cell.source, f"{NOTEBOOK_PATH.name}:cell-{index}", "exec")
+
+
+def test_multi_horizon_plot_draws_every_model_inside_loop() -> None:
+    notebook = nbformat.read(NOTEBOOK_PATH, as_version=4)
+    plot_cell = next(
+        cell
+        for cell in notebook.cells
+        if cell.cell_type == "code" and "multi-horizon IC" in cell.source
+    )
+    tree = ast.parse(plot_cell.source)
+    model_loop = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.For) and ast.unparse(node.target) == "model_name"
+    )
+    assert any(
+        isinstance(node, ast.Call) and ast.unparse(node.func) == "ax.plot"
+        for statement in model_loop.body
+        for node in ast.walk(statement)
+    )

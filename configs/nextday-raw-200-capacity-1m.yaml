@@ -1,0 +1,39 @@
+# 三个既有 capacity_1m checkpoint 的原始训练签名。
+# 路径与 Colab 训练时保持一致，自动化 runner 会把 Drive 文件同步到这些本地路径。
+
+manifest_path: /content/nextday-raw-200/manifest.json
+train_start: "2021-01-01"
+train_end: "2023-12-31"
+val_start: "2024-01-01"
+val_end: "2024-12-31"
+test_start: "2025-01-01"
+test_end: "2025-12-31"
+
+epochs: 30
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0001
+patience: 8
+seed: 0
+num_workers: 2
+device: cuda
+resume: true
+evaluate_test: false
+verify_data_checksums: true
+
+checkpoint_dir: /content/drive/MyDrive/deep-learning-tick-data-prediction/ticknet-runs/raw-200-capacity_1m
+checkpoint_name: raw-200-dual-head-capacity_1m
+conv_channels: 32
+inception_channels: 64
+intraday_embedding_size: 320
+day_hidden_size: 192
+day_layers: 1
+dropout: 0.1
+class_weighting: balanced
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 100
+portfolio_quantile: 0.1
+classification_loss_weight: 1.0
+regression_loss_weight: 0.5
+gradient_accumulation_steps: 1
+amp: true

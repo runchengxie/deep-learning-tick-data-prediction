@@ -301,10 +301,10 @@ for model_name in model_order:
         result["results"][str(horizon)]["models"][model_name]["daily_rank_ic_mean"]
         for horizon in HORIZONS
     ]
-ax.plot(HORIZONS, values, marker="o", label=model_name)
+    ax.plot(HORIZONS, values, marker="o", label=model_name)
 ax.axhline(0, color="black", linewidth=0.8)
 ax.set(
-    title="2024 validation IC decay",
+    title="2024 validation multi-horizon IC",
     xlabel="Holding horizon (trading days)",
     ylabel="Mean daily Rank IC",
 )
