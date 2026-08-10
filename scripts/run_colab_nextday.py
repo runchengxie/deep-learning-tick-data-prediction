@@ -39,7 +39,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--horizons", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--inference-batch-size", type=int, default=128)
     parser.add_argument("--timeout", type=float, default=14_400.0)
-    parser.add_argument("--keep-session", action="store_true")
+    retention = parser.add_mutually_exclusive_group()
+    retention.add_argument(
+        "--keep-session",
+        action="store_true",
+        help="无论成功失败都保留本次新建的 session",
+    )
+    retention.add_argument(
+        "--keep-on-failure",
+        action="store_true",
+        help="成功后关闭本次新建的 session，失败时保留现场",
+    )
+    parser.add_argument(
+        "--reuse-session",
+        action="store_true",
+        help="只复用同名现有 session，runner 不负责关闭它",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -73,6 +88,49 @@ def _run(
 
 def _colab_command(colab: str, *arguments: str) -> list[str]:
     return [colab, "--auth=oauth2", *arguments]
+
+
+def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
+    if arguments.keep_session and arguments.keep_on_failure:
+        raise ValueError("--keep-session 与 --keep-on-failure 不能同时使用")
+
+
+def _session_exists(colab: str, session: str) -> bool:
+    result = _run(
+        _colab_command(colab, "status", "-s", session),
+        check=False,
+        capture_output=True,
+    )
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    if f"Session '{session}' not found." in output:
+        return False
+    if f"[{session}] " in output:
+        return True
+    raise RuntimeError(f"无法识别 colab status 输出：{output.strip()}")
+
+
+def _validate_session_selection(
+    *,
+    session: str,
+    exists: bool,
+    reuse_session: bool,
+) -> None:
+    if exists and not reuse_session:
+        raise RuntimeError(
+            f"Colab session '{session}' 已存在；如需复用，请显式传入 --reuse-session"
+        )
+    if not exists and reuse_session:
+        raise RuntimeError(f"Colab session '{session}' 不存在，无法使用 --reuse-session")
+
+
+def _should_stop_owned_session(
+    arguments: argparse.Namespace,
+    *,
+    succeeded: bool,
+) -> bool:
+    if arguments.keep_session:
+        return False
+    return not (arguments.keep_on_failure and not succeeded)
 
 
 def _ensure_secret_outside_repository(secret: Path, repository_root: Path) -> None:
@@ -166,44 +224,62 @@ def _dry_run_plan(
     colab: str,
     revision: str,
 ) -> list[list[str]]:
-    return [
-        _colab_command(colab, "new", "-s", arguments.session, "--gpu", arguments.gpu),
-        _colab_command(colab, "upload", "-s", arguments.session, "<wheel>", REMOTE_WHEEL),
-        _colab_command(
-            colab,
-            "upload",
-            "-s",
-            arguments.session,
-            str(arguments.config),
-            REMOTE_CONFIG,
-        ),
-        _colab_command(
-            colab,
-            "upload",
-            "-s",
-            arguments.session,
-            str(arguments.rclone_config),
-            REMOTE_RCLONE_CONFIG,
-        ),
-        _colab_command(colab, "upload", "-s", arguments.session, "<job-spec>", REMOTE_SPEC),
-        _colab_command(
-            colab,
-            "exec",
-            "-s",
-            arguments.session,
-            "-f",
-            str(JOB_SCRIPT),
-            "--timeout",
-            str(arguments.timeout),
-        ),
-        ["rclone", "copy", f"{arguments.rclone_remote}:<drive-output>", "<local-output>"],
-        _colab_command(colab, "log", "-s", arguments.session, "-o", "<execution.ipynb>"),
-        _colab_command(colab, "stop", "-s", arguments.session),
-        ["revision", revision],
-    ]
+    commands = [_colab_command(colab, "status", "-s", arguments.session)]
+    if arguments.reuse_session:
+        commands.append(["lifecycle", "reuse-existing-session", arguments.session])
+    else:
+        commands.append(
+            _colab_command(colab, "new", "-s", arguments.session, "--gpu", arguments.gpu)
+        )
+    commands.extend(
+        [
+            _colab_command(colab, "upload", "-s", arguments.session, "<wheel>", REMOTE_WHEEL),
+            _colab_command(
+                colab,
+                "upload",
+                "-s",
+                arguments.session,
+                str(arguments.config),
+                REMOTE_CONFIG,
+            ),
+            _colab_command(
+                colab,
+                "upload",
+                "-s",
+                arguments.session,
+                str(arguments.rclone_config),
+                REMOTE_RCLONE_CONFIG,
+            ),
+            _colab_command(colab, "upload", "-s", arguments.session, "<job-spec>", REMOTE_SPEC),
+            _colab_command(
+                colab,
+                "exec",
+                "-s",
+                arguments.session,
+                "-f",
+                str(JOB_SCRIPT),
+                "--timeout",
+                str(arguments.timeout),
+            ),
+            ["rclone", "copy", f"{arguments.rclone_remote}:<drive-output>", "<local-output>"],
+            _colab_command(colab, "log", "-s", arguments.session, "-o", "<execution.ipynb>"),
+            _colab_command(colab, "rm", "-s", arguments.session, REMOTE_RCLONE_CONFIG),
+        ]
+    )
+    if arguments.reuse_session:
+        commands.append(["lifecycle", "keep-reused-session", arguments.session])
+    elif arguments.keep_session:
+        commands.append(["lifecycle", "keep-session", arguments.session])
+    elif arguments.keep_on_failure:
+        commands.append(["lifecycle", "stop-on-success", "keep-on-failure"])
+    else:
+        commands.append(_colab_command(colab, "stop", "-s", arguments.session))
+    commands.append(["revision", revision])
+    return commands
 
 
 def run(arguments: argparse.Namespace) -> None:
+    _validate_lifecycle_arguments(arguments)
     repository_root = REPOSITORY_ROOT.resolve()
     arguments.config = arguments.config.expanduser().resolve()
     arguments.rclone_config = arguments.rclone_config.expanduser().resolve()
@@ -224,6 +300,12 @@ def run(arguments: argparse.Namespace) -> None:
         return
 
     _require_clean_revision(repository_root)
+    session_exists = _session_exists(colab, arguments.session)
+    _validate_session_selection(
+        session=arguments.session,
+        exists=session_exists,
+        reuse_session=arguments.reuse_session,
+    )
     _run(
         [
             rclone,
@@ -235,24 +317,29 @@ def run(arguments: argparse.Namespace) -> None:
         capture_output=True,
     )
     arguments.local_output_dir.mkdir(parents=True, exist_ok=True)
-    session_created = False
+    session_active = session_exists
+    session_owned = False
+    secret_uploaded = False
+    succeeded = False
     with tempfile.TemporaryDirectory(prefix="ticknet-colab-") as temporary:
         staging = Path(temporary)
         spec_path = staging / "job.json"
         spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
         wheel = _build_committed_wheel(uv, repository_root, staging, revision)
         try:
-            _run(
-                _colab_command(
-                    colab,
-                    "new",
-                    "-s",
-                    arguments.session,
-                    "--gpu",
-                    arguments.gpu,
+            if not arguments.reuse_session:
+                _run(
+                    _colab_command(
+                        colab,
+                        "new",
+                        "-s",
+                        arguments.session,
+                        "--gpu",
+                        arguments.gpu,
+                    )
                 )
-            )
-            session_created = True
+                session_active = True
+                session_owned = True
             uploads = (
                 (wheel, REMOTE_WHEEL),
                 (arguments.config, REMOTE_CONFIG),
@@ -260,6 +347,8 @@ def run(arguments: argparse.Namespace) -> None:
                 (spec_path, REMOTE_SPEC),
             )
             for local_path, remote_path in uploads:
+                if remote_path == REMOTE_RCLONE_CONFIG:
+                    secret_uploaded = True
                 _run(
                     _colab_command(
                         colab,
@@ -293,8 +382,9 @@ def run(arguments: argparse.Namespace) -> None:
                     "--checksum",
                 ]
             )
+            succeeded = True
         finally:
-            if session_created:
+            if session_active:
                 _run(
                     _colab_command(
                         colab,
@@ -306,21 +396,30 @@ def run(arguments: argparse.Namespace) -> None:
                     ),
                     check=False,
                 )
-                _run(
-                    _colab_command(
-                        colab,
-                        "rm",
-                        "-s",
-                        arguments.session,
-                        REMOTE_RCLONE_CONFIG,
-                    ),
-                    check=False,
-                )
-                if not arguments.keep_session:
+                if secret_uploaded:
+                    _run(
+                        _colab_command(
+                            colab,
+                            "rm",
+                            "-s",
+                            arguments.session,
+                            REMOTE_RCLONE_CONFIG,
+                        ),
+                        check=False,
+                    )
+                if session_owned and _should_stop_owned_session(
+                    arguments,
+                    succeeded=succeeded,
+                ):
                     _run(
                         _colab_command(colab, "stop", "-s", arguments.session),
                         check=False,
                     )
+                elif session_owned:
+                    reason = "任务失败" if not succeeded else "--keep-session"
+                    print(f"保留 Colab session '{arguments.session}'：{reason}")
+                elif arguments.reuse_session:
+                    print(f"复用的 Colab session '{arguments.session}' 保持运行")
 
 
 def main(argv: list[str] | None = None) -> None:

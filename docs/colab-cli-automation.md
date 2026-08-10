@@ -63,16 +63,42 @@ rclone 把数据同步到这些路径，不修改 checkpoint 匹配规则。
 runner 会执行：
 
 1. 要求当前 worktree 已提交且干净，并记录精确 commit。
-2. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree；随后创建命名的
-   Colab GPU session。
-3. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-4. Colab 从 Drive 下载 raw-200、sidecar 和三个 best checkpoint。
-5. 执行 ticknet-nextday-evaluate-horizons。
-6. 将 JSON/Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
-7. 导出 CLI execution notebook，删除临时 rclone 配置并停止 session。
+2. 查询同名 session。默认要求它不存在；只有显式传入 `--reuse-session` 才允许复用。
+3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree；需要新 session
+   时才创建命名的 Colab GPU runtime。
+4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
+5. Colab 从 Drive 下载 raw-200、sidecar 和三个 best checkpoint。
+6. 执行 ticknet-nextday-evaluate-horizons。
+7. 将 JSON/Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
+8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
 
-任一步失败也会进入清理分支。加 --keep-session 会保留 VM 供诊断，但临时 rclone 配置仍会
-删除。保留的 VM 会继续消耗 compute units，诊断完成后应显式运行：
+## Session 生命周期
+
+- 默认是 ephemeral：新建 session，成功或失败后都关闭。
+- `--keep-on-failure`：成功后关闭，失败时保留现场。
+- `--keep-session`：成功或失败都保留本次新建的 session。
+- `--reuse-session`：要求同名 session 已存在并复用它，runner 永远不负责关闭该 session。
+
+`--keep-session` 与 `--keep-on-failure` 互斥。同名 session 已存在但没有传
+`--reuse-session` 时，runner 会在上传文件前拒绝执行；传了 `--reuse-session` 但 session
+不存在时也会拒绝执行。所有模式都会删除本次上传的临时 rclone 配置。
+
+失败时保留现场：
+
+    python scripts/run_colab_nextday.py \
+      --keep-on-failure \
+      --session ticknet-multi-horizon \
+      --gpu T4 \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/debug
+
+重复使用已经保留的 runtime：
+
+    python scripts/run_colab_nextday.py \
+      --reuse-session \
+      --session ticknet-multi-horizon \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/reuse
+
+保留的 VM 会继续消耗 compute units，确认不再使用后显式运行：
 
     colab --auth=oauth2 stop -s ticknet-multi-horizon
 

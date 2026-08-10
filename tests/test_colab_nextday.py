@@ -1,6 +1,7 @@
 """Colab CLI 与 rclone 无人值守调度测试。"""
 
 import json
+import subprocess
 from argparse import Namespace
 from pathlib import Path
 
@@ -13,8 +14,13 @@ from scripts.run_colab_nextday import (
     REMOTE_RCLONE_CONFIG,
     _build_committed_wheel,
     _colab_command,
+    _dry_run_plan,
     _ensure_secret_outside_repository,
     _require_executable,
+    _session_exists,
+    _should_stop_owned_session,
+    _validate_lifecycle_arguments,
+    _validate_session_selection,
     build_job_spec,
 )
 
@@ -30,7 +36,12 @@ def _arguments(tmp_path: Path) -> Namespace:
         gpu="T4",
         config=tmp_path / "config.yaml",
         rclone_config=tmp_path / "rclone.conf",
+        local_output_dir=tmp_path / "output",
         timeout=60.0,
+        keep_session=False,
+        keep_on_failure=False,
+        reuse_session=False,
+        dry_run=False,
     )
 
 
@@ -52,6 +63,133 @@ def test_colab_commands_pin_oauth_provider() -> None:
         "--auth=oauth2",
         "sessions",
     ]
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ("[ticknet-test] endpoint | Hardware: T4 | Variant: GPU", True),
+        ("[colab] Session 'ticknet-test' not found.", False),
+    ],
+)
+def test_session_exists_parses_colab_status(
+    output: str,
+    expected: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        colab_runner,
+        "_run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, output, ""),
+    )
+    assert _session_exists("colab", "ticknet-test") is expected
+
+
+def test_session_exists_rejects_unknown_status_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        colab_runner,
+        "_run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "unexpected", ""),
+    )
+    with pytest.raises(RuntimeError, match="无法识别"):
+        _session_exists("colab", "ticknet-test")
+
+
+@pytest.mark.parametrize(
+    ("exists", "reuse_session", "message"),
+    [
+        (True, False, "已存在"),
+        (False, True, "不存在"),
+    ],
+)
+def test_session_selection_requires_explicit_ownership(
+    exists: bool,
+    reuse_session: bool,
+    message: str,
+) -> None:
+    with pytest.raises(RuntimeError, match=message):
+        _validate_session_selection(
+            session="ticknet-test",
+            exists=exists,
+            reuse_session=reuse_session,
+        )
+
+
+@pytest.mark.parametrize(
+    ("exists", "reuse_session"),
+    [(False, False), (True, True)],
+)
+def test_session_selection_accepts_unambiguous_request(
+    exists: bool,
+    reuse_session: bool,
+) -> None:
+    _validate_session_selection(
+        session="ticknet-test",
+        exists=exists,
+        reuse_session=reuse_session,
+    )
+
+
+def test_keep_session_and_keep_on_failure_are_mutually_exclusive(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.keep_session = True
+    arguments.keep_on_failure = True
+    with pytest.raises(ValueError, match="不能同时使用"):
+        _validate_lifecycle_arguments(arguments)
+
+
+@pytest.mark.parametrize(
+    ("keep_session", "keep_on_failure", "succeeded", "expected"),
+    [
+        (False, False, True, True),
+        (False, False, False, True),
+        (False, True, True, True),
+        (False, True, False, False),
+        (True, False, True, False),
+        (True, False, False, False),
+    ],
+)
+def test_owned_session_stop_policy(
+    tmp_path: Path,
+    keep_session: bool,
+    keep_on_failure: bool,
+    succeeded: bool,
+    expected: bool,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.keep_session = keep_session
+    arguments.keep_on_failure = keep_on_failure
+    assert _should_stop_owned_session(arguments, succeeded=succeeded) is expected
+
+
+@pytest.mark.parametrize(
+    ("reuse_session", "keep_session", "keep_on_failure", "expected_lifecycle"),
+    [
+        (False, False, False, ["colab", "--auth=oauth2", "stop"]),
+        (False, True, False, ["lifecycle", "keep-session", "ticknet-test"]),
+        (False, False, True, ["lifecycle", "stop-on-success", "keep-on-failure"]),
+        (True, False, False, ["lifecycle", "keep-reused-session", "ticknet-test"]),
+    ],
+)
+def test_dry_run_plan_describes_session_lifecycle(
+    tmp_path: Path,
+    reuse_session: bool,
+    keep_session: bool,
+    keep_on_failure: bool,
+    expected_lifecycle: list[str],
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.reuse_session = reuse_session
+    arguments.keep_session = keep_session
+    arguments.keep_on_failure = keep_on_failure
+    plan = _dry_run_plan(arguments, colab="colab", revision="abc123")
+
+    assert plan[0][2:] == ["status", "-s", "ticknet-test"]
+    assert any(command[: len(expected_lifecycle)] == expected_lifecycle for command in plan)
+    assert any("rm" in command and REMOTE_RCLONE_CONFIG in command for command in plan)
+    assert any("new" in command for command in plan) is not reuse_session
 
 
 def test_executable_falls_back_to_user_local_bin(
@@ -147,3 +285,155 @@ def test_drive_path_accepts_safe_relative_paths(path: str, expected: str) -> Non
 def test_drive_path_rejects_unsafe_paths(path: str) -> None:
     with pytest.raises(ValueError, match="安全的相对路径"):
         _drive_path("gdrive", path)
+
+
+def _mock_orchestrator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    session_exists: bool,
+    fail_exec: bool = False,
+    fail_secret_upload: bool = False,
+) -> tuple[Namespace, list[list[str]]]:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    arguments = _arguments(tmp_path)
+    arguments.config.write_text("evaluate_test: false\n", encoding="utf-8")
+    arguments.rclone_config.write_text("[gdrive]\ntype = drive\n", encoding="utf-8")
+    commands: list[list[str]] = []
+
+    def fake_run(
+        command: list[str],
+        *,
+        cwd: Path | None = None,
+        check: bool = True,
+        capture_output: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if fail_secret_upload and "upload" in command and REMOTE_RCLONE_CONFIG in command:
+            raise subprocess.CalledProcessError(1, command)
+        if fail_exec and "exec" in command:
+            raise subprocess.CalledProcessError(1, command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def fake_build(
+        uv: str,
+        repository_root: Path,
+        staging: Path,
+        revision: str,
+    ) -> Path:
+        wheel = staging / "ticknet.whl"
+        wheel.touch()
+        return wheel
+
+    monkeypatch.setattr(colab_runner, "REPOSITORY_ROOT", repository)
+    monkeypatch.setattr(colab_runner, "_require_executable", lambda name: name)
+    monkeypatch.setattr(colab_runner, "_source_revision", lambda _root: "abc123")
+    monkeypatch.setattr(colab_runner, "_require_clean_revision", lambda _root: None)
+    monkeypatch.setattr(colab_runner, "_session_exists", lambda *_args: session_exists)
+    monkeypatch.setattr(colab_runner, "_build_committed_wheel", fake_build)
+    monkeypatch.setattr(colab_runner, "_run", fake_run)
+    return arguments, commands
+
+
+def test_reused_session_is_never_created_or_stopped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arguments, commands = _mock_orchestrator(
+        tmp_path,
+        monkeypatch,
+        session_exists=True,
+    )
+    arguments.reuse_session = True
+
+    colab_runner.run(arguments)
+
+    assert not any("new" in command for command in commands)
+    assert not any("stop" in command for command in commands)
+    assert any("exec" in command for command in commands)
+    assert any("rm" in command and REMOTE_RCLONE_CONFIG in command for command in commands)
+
+
+@pytest.mark.parametrize(
+    ("keep_session", "keep_on_failure", "expects_stop"),
+    [
+        (False, False, True),
+        (True, False, False),
+        (False, True, True),
+    ],
+)
+def test_owned_success_follows_lifecycle_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    keep_session: bool,
+    keep_on_failure: bool,
+    expects_stop: bool,
+) -> None:
+    arguments, commands = _mock_orchestrator(
+        tmp_path,
+        monkeypatch,
+        session_exists=False,
+    )
+    arguments.keep_session = keep_session
+    arguments.keep_on_failure = keep_on_failure
+
+    colab_runner.run(arguments)
+
+    assert any("new" in command for command in commands)
+    assert any("stop" in command for command in commands) is expects_stop
+    assert any("rm" in command and REMOTE_RCLONE_CONFIG in command for command in commands)
+
+
+def test_keep_on_failure_preserves_owned_session_and_removes_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arguments, commands = _mock_orchestrator(
+        tmp_path,
+        monkeypatch,
+        session_exists=False,
+        fail_exec=True,
+    )
+    arguments.keep_on_failure = True
+
+    with pytest.raises(subprocess.CalledProcessError):
+        colab_runner.run(arguments)
+
+    assert any("new" in command for command in commands)
+    assert not any("stop" in command for command in commands)
+    assert any("rm" in command and REMOTE_RCLONE_CONFIG in command for command in commands)
+
+
+def test_partial_secret_upload_still_triggers_cleanup_and_ephemeral_stop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arguments, commands = _mock_orchestrator(
+        tmp_path,
+        monkeypatch,
+        session_exists=False,
+        fail_secret_upload=True,
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        colab_runner.run(arguments)
+
+    assert any("rm" in command and REMOTE_RCLONE_CONFIG in command for command in commands)
+    assert any("stop" in command for command in commands)
+
+
+def test_existing_session_without_reuse_is_rejected_before_upload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    arguments, commands = _mock_orchestrator(
+        tmp_path,
+        monkeypatch,
+        session_exists=True,
+    )
+
+    with pytest.raises(RuntimeError, match="--reuse-session"):
+        colab_runner.run(arguments)
+
+    assert not commands
