@@ -119,8 +119,11 @@ def test_walk_forward_split_purges_boundary_label():
     assert split.assign(date(2024, 1, 2), date(2024, 1, 3)) == "train"
     assert split.assign(date(2024, 1, 3), date(2024, 1, 4)) is None
     assert split.assign(date(2024, 1, 4), date(2024, 1, 5)) == "val"
+    assert split.assign(date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)) is None
     with pytest.raises(ValueError, match="晚于"):
         split.assign(date(2024, 1, 3), date(2024, 1, 3))
+    with pytest.raises(ValueError, match="不能早于"):
+        split.assign(date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 2))
 
 
 def test_walk_forward_ranges_cannot_overlap():

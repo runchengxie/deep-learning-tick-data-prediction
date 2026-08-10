@@ -1,0 +1,315 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Raw-200 三 Seed 结果与多周期标签决策",
+    "description": "核对 capacity_1m 的三个完整训练结果，并确定 1/3/5 日 Rank IC 支持的最小代码改造路径。",
+    "generatedAt": "2026-08-10T13:39:44+08:00",
+    "cards": [
+      {
+        "id": "mean_ic",
+        "description": "三个 seed 各自经 2024 验证集选出的最佳逐日横截面 Rank IC 的平均值。",
+        "dataset": "summary",
+        "sourceId": "colab_exports",
+        "metrics": [
+          {
+            "label": "平均最佳验证 IC (%)",
+            "field": "mean_best_val_rank_ic_pct",
+            "format": "number"
+          },
+          {
+            "label": "最小值 (%)",
+            "field": "min_best_val_rank_ic_pct",
+            "format": "number"
+          },
+          {
+            "label": "最大值 (%)",
+            "field": "max_best_val_rank_ic_pct",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "seed_std",
+        "description": "三个 seed 最佳验证 Rank IC 的样本标准差；不包含跨日期统计不确定性。",
+        "dataset": "summary",
+        "sourceId": "colab_exports",
+        "metrics": [
+          {
+            "label": "Seed 间样本标准差 (%)",
+            "field": "sample_std_best_val_rank_ic_pct",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "model_scale",
+        "description": "三次训练使用相同的 capacity_1m 配置、训练样本和数据指纹。",
+        "dataset": "summary",
+        "sourceId": "colab_exports",
+        "metrics": [
+          {
+            "label": "模型参数",
+            "field": "parameter_count",
+            "format": "compact"
+          },
+          {
+            "label": "训练样本",
+            "field": "train_samples",
+            "format": "compact"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "seed_ic_chart",
+        "title": "最佳验证 Rank IC（按 Seed）",
+        "subtitle": "2024 验证集逐日横截面 Rank IC，单位为百分比；三个离散 seed，不表示时间趋势",
+        "showDescription": true,
+        "intent": "comparison",
+        "question": "三个随机种子的最佳验证 Rank IC 是否处于相近水平？",
+        "rationale": "三个离散类别和一个主要数值适合使用单系列柱图；数据集保留精确值和训练上下文。",
+        "type": "bar",
+        "dataset": "seed_results",
+        "sourceId": "colab_exports",
+        "encodings": {
+          "x": {
+            "field": "seed_label",
+            "type": "nominal",
+            "label": "Seed"
+          },
+          "y": {
+            "field": "best_val_rank_ic_pct",
+            "type": "quantitative",
+            "format": "number",
+            "label": "最佳验证 Rank IC",
+            "unit": "%"
+          },
+          "tooltip": [
+            {
+              "field": "best_epoch",
+              "type": "quantitative",
+              "label": "最佳 Epoch"
+            },
+            {
+              "field": "macro_f1_at_best_pct",
+              "type": "quantitative",
+              "label": "Macro F1",
+              "unit": "%"
+            },
+            {
+              "field": "duration_minutes",
+              "type": "quantitative",
+              "label": "训练时间",
+              "unit": "分钟"
+            }
+          ]
+        },
+        "valueFormat": "number",
+        "unit": "%",
+        "layout": "half",
+        "maxRows": 3,
+        "compatibleTypes": [
+          "bar",
+          "leaderboard"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "colab_exports",
+        "label": "Executed Colab HTML exports: capacity_1m seeds 0, 1 and 2",
+        "path": "seed-results.json",
+        "query": {
+          "engine": "DuckDB",
+          "sql": "SELECT * FROM read_json_auto('seed-results.json')",
+          "description": "读取经三个 Colab HTML 核对后保存的 seed 结果。",
+          "language": "SQL",
+          "tables_used": [
+            "seed-results.json"
+          ]
+        }
+      },
+      {
+        "id": "repository_main",
+        "label": "deep-learning-tick-data-prediction source at commit 4d2c4f3",
+        "path": "source-inspection.md"
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "layout": "full",
+        "body": "# Raw-200 三 Seed 结果与多周期标签决策"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "colab_exports",
+        "body": "## 三 Seed 已完整训练，当前结论足以进入多周期评估\n\n三个 `capacity_1m` seed 的最佳 2024 验证 Rank IC 分别为 **2.145%**、**2.054%** 和 **1.893%**，平均 **2.031%**，seed 间样本标准差 **0.127%**。三次训练使用同一数据指纹和 1,033,383 参数配置，2025 测试集均未解锁。结果支持把多周期能力纳入下一轮代码，但这些数值是同一验证集上按 epoch 选出的最佳值，不能当作无偏的样本外表现。"
+      },
+      {
+        "id": "summary_metrics",
+        "type": "metric-strip",
+        "layout": "full",
+        "cardIds": [
+          "mean_ic",
+          "seed_std",
+          "model_scale"
+        ]
+      },
+      {
+        "id": "findings_intro",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "colab_exports",
+        "body": "## Seed 结果接近，但 epoch 内波动仍要求更完整的期限诊断\n\n三个最佳值的跨度只有约 **0.252 个百分点**，说明 seed 敏感性较 pilot 阶段收敛；但每次训练的验证 IC 在不同 epoch 仍多次跨越零点。当前证据支持‘一日排序信号可重复’，尚不能回答信号能否持续三到五日，也不能证明扩大模型容量带来了可交易收益。图中比较三个 seed 的最佳验证 IC，完整训练上下文保存在来源数据中。"
+      },
+      {
+        "id": "seed_ic_visual",
+        "type": "chart",
+        "layout": "half",
+        "chartId": "seed_ic_chart",
+        "sourceId": "colab_exports"
+      },
+      {
+        "id": "scope_definitions",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "repository_main",
+        "body": "## 当前标签只回答下一交易日开盘到收盘\n\nRaw-200 输入是信号日 14:55 前最后 200 个十档 snapshot；现有监督目标是下一交易日 open-to-close 的个股收益减去同期基准收益，并在当日股票横截面生成三分类标签。`manifest` v1 只保存一个 `label_date`、一个 `label` 和一个 `target_return`，所以现有训练分片本身不能直接计算 3 日或 5 日 Rank IC。多周期版本应明确统一口径，例如从 `t+1` 开盘进入，到 `t+H` 收盘退出，并保存每个 horizon 的 `return_end_date`。"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "colab_exports",
+        "body": "## 核对方法以训练保存结果为准，而不是只读取最后摘要\n\n本次逐一核对三个 HTML 的配置、数据指纹、epoch 日志、早停信息、`best_selection_value` 和 `test: null`。三 seed 汇总由保存结果独立计算。Seed 2 的最后结果展示单元仍显示 seed 1 的 `0.0205389`，属于未重新执行的旧输出；同一 HTML 训练单元保存的 seed 2 正确值为 `0.0189315`，checkpoint 路径也明确为 `seed2.best.pt`。因此训练结果可用，但该 HTML 在归档前应重新导出或附上缓存说明。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 这些结果仍是验证集选模结果，不是最终收益证明\n\n主要限制有四项：第一，每个数值都是在同一 2024 验证集上跨 epoch 取最大值，存在选择乐观；第二，当前 HTML 没有提供 seed 1/2 最佳 checkpoint 的完整多空收益明细；第三，5 日收益会产生高度重叠标签，普通日频标准误会偏乐观；第四，2025 测试仍应保持锁定，不能用它选择 horizon、收益处理或模型结构。多周期评估需要同时报告分块 bootstrap 或 Newey–West 不确定性，并提供每隔五个交易日抽样的稳健性结果。"
+      },
+      {
+        "id": "recommendation",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "repository_main",
+        "body": "## 先加入多周期评估能力，再决定是否改变训练目标\n\n最小可行改造不是复制 7.2 GiB 特征，而是新增按 `(symbol, trading_date)` 对齐的 horizon 标签 sidecar，保存 1/3/5 日原始收益、超额收益、分类标签、进入日和退出日。数据加载器应保持兼容旧 `manifest`，并按 `return_end_date` 执行跨 split purge。随后用三个现有 best checkpoint 只在 2024 验证集计算 `IC@1D/3D/5D` 衰减曲线；只有 5 日结果稳定为正、分月不依赖少数时期且扣费后组合改善，才训练独立 5 日模型。第一轮不要直接上共享编码器多头模型，以免同时改变标签和模型结构后无法归因。"
+      },
+      {
+        "id": "implementation_plan",
+        "type": "markdown",
+        "layout": "full",
+        "sourceId": "repository_main",
+        "body": "## 实现顺序保持单变量、可回滚\n\n1. 新增 1/3/5 日标签 sidecar 和版本化标签合同。\n\n2. Dataset 按 horizon 选择标签，并按 `return_end_date` purge。\n\n3. 固定现有 checkpoint，在 2024 验证集输出 `IC@1D/3D/5D`、分月结果和稳健标准误。\n\n4. 只有 5 日评估通过门槛，才训练独立 5 日单目标模型。\n\n5. 独立模型证明有效后，再把共享编码器多头模型作为单独实验。"
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "layout": "full",
+        "body": "## 实施前需要固定的两个研究选择\n\n1. 5 日收益究竟采用 `t+1 open → t+5 close`，还是 `t+1 open → t+6 open`；应以客户实际交易时点为准并写入不可变实验签名。\n\n2. ‘稍微处理过’必须展开为明确步骤：复权、去极值、基准扣除、行业/市值中性化及其拟合范围。任何使用全样本统计量的处理都会造成未来信息泄漏。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-10T13:39:44+08:00",
+    "status": "ready",
+    "datasets": {
+      "summary": [
+        {
+          "mean_best_val_rank_ic_pct": 2.03064059339583,
+          "sample_std_best_val_rank_ic_pct": 0.12747072343582,
+          "min_best_val_rank_ic_pct": 1.89314510583557,
+          "max_best_val_rank_ic_pct": 2.14488590314026,
+          "parameter_count": 1033383,
+          "train_samples": 282366,
+          "validation_samples": 93514,
+          "test_samples": 93772,
+          "seed_count": 3
+        }
+      ],
+      "seed_results": [
+        {
+          "seed": 0,
+          "seed_label": "Seed 0",
+          "best_epoch": 4,
+          "epochs_ran": 12,
+          "best_val_rank_ic_pct": 2.14488590314026,
+          "macro_f1_at_best_pct": 33.39,
+          "duration_minutes": 53.05,
+          "artifact_status": "完整；测试锁定"
+        },
+        {
+          "seed": 1,
+          "seed_label": "Seed 1",
+          "best_epoch": 8,
+          "epochs_ran": 16,
+          "best_val_rank_ic_pct": 2.05389077121166,
+          "macro_f1_at_best_pct": 32.78,
+          "duration_minutes": 68.28,
+          "artifact_status": "完整；测试锁定"
+        },
+        {
+          "seed": 2,
+          "seed_label": "Seed 2",
+          "best_epoch": 4,
+          "epochs_ran": 12,
+          "best_val_rank_ic_pct": 1.89314510583557,
+          "macro_f1_at_best_pct": 33.79,
+          "duration_minutes": 51.04,
+          "artifact_status": "训练完整；末摘要为旧缓存"
+        }
+      ],
+      "implementation_plan": [
+        {
+          "stage": 1,
+          "change": "新增 1/3/5 日标签 sidecar 与版本化标签合同",
+          "purpose": "复用现有 snapshot 特征，不复制 7.2 GiB 分片",
+          "gate": "单元测试覆盖日期、基准和横截面标签"
+        },
+        {
+          "stage": 2,
+          "change": "Dataset 按 horizon 选择标签，并按 return_end_date purge",
+          "purpose": "阻止 3/5 日收益跨越训练、验证或测试边界",
+          "gate": "边界测试证明所有未来收益日期留在所属 split"
+        },
+        {
+          "stage": 3,
+          "change": "固定 checkpoint 输出 IC@1D/3D/5D 与稳健标准误",
+          "purpose": "无须重训即可观察一日模型的信号衰减",
+          "gate": "三个 seed 的 2024 月度结果和非重叠抽样结果一致"
+        },
+        {
+          "stage": 4,
+          "change": "训练独立 5 日单目标模型",
+          "purpose": "只改变 horizon，保持模型与输入不变以便归因",
+          "gate": "5 日 IC 稳定为正且扣费后组合优于一日控制组"
+        },
+        {
+          "stage": 5,
+          "change": "可选 1/3/5 日共享编码器多头模型",
+          "purpose": "检验多任务监督是否提高稳定性",
+          "gate": "独立 5 日模型先证明 horizon 值得投入"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "colab_exports",
+      "label": "Executed Colab HTML exports: capacity_1m seeds 0, 1 and 2"
+    },
+    {
+      "id": "repository_main",
+      "label": "deep-learning-tick-data-prediction source at commit 4d2c4f3"
+    }
+  ]
+}

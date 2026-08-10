@@ -1,0 +1,50 @@
+{
+  "as_of": "2026-08-10T13:33:29+08:00",
+  "run_mode": "full",
+  "model_profile": "capacity_1m",
+  "parameter_count": 1033383,
+  "dataset_fingerprint": "d264b88f45601472c9b093faa0b8b9eb7c9b6f63f3737aef436ba950e8691817",
+  "train_period": "2021-01-01..2023-12-31",
+  "validation_period": "2024-01-01..2024-12-31",
+  "test_period": "2025-01-01..2025-12-31",
+  "test_status": "locked",
+  "metric_definition": "best daily cross-sectional Rank IC on validation, selected per seed across epochs",
+  "seeds": [
+    {
+      "seed": 0,
+      "best_epoch": 4,
+      "epochs_ran": 12,
+      "best_validation_rank_ic": 0.021448859031402586,
+      "macro_f1_at_best": 0.3339,
+      "duration_seconds": 3182.9092171839998,
+      "html": "nextday_end_to_end_colab_v2.html",
+      "html_status": "complete"
+    },
+    {
+      "seed": 1,
+      "best_epoch": 8,
+      "epochs_ran": 16,
+      "best_validation_rank_ic": 0.020538907712116552,
+      "macro_f1_at_best": 0.3278,
+      "duration_seconds": 4096.719520663,
+      "html": "nextday_end_to_end_colab_seed_1.html",
+      "html_status": "complete"
+    },
+    {
+      "seed": 2,
+      "best_epoch": 4,
+      "epochs_ran": 12,
+      "best_validation_rank_ic": 0.01893145105835566,
+      "macro_f1_at_best": 0.3379,
+      "duration_seconds": 3062.4175383719994,
+      "html": "nextday_end_to_end_colab_seed_2.html",
+      "html_status": "training complete; final display cell contains stale seed-1 summary"
+    }
+  ],
+  "aggregate": {
+    "mean_best_validation_rank_ic": 0.0203064059339583,
+    "sample_std_best_validation_rank_ic": 0.0012747072343582,
+    "minimum_best_validation_rank_ic": 0.0189314510583557,
+    "maximum_best_validation_rank_ic": 0.0214488590314026
+  }
+}

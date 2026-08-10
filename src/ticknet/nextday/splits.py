@@ -70,15 +70,28 @@ class WalkForwardSplit:
             raise ValueError(f"split 应为 train、val 或 test，收到 {split}")
         return getattr(self, split)
 
-    def assign(self, trading_date: date, label_date: date) -> str | None:
-        """仅在输入日和标签日同属一个区间时分配样本。
+    def assign(
+        self,
+        trading_date: date,
+        label_date: date,
+        return_end_date: date | None = None,
+    ) -> str | None:
+        """仅在输入日、进入日和收益结束日同属一个区间时分配样本。
 
-        标签跨越切分边界的样本会被清除，这相当于为一天预测跨度执行 purge。
+        收益周期跨越切分边界的样本会被清除。旧的一日标签没有单独的
+        ``return_end_date``，此时收益结束日等于 ``label_date``。
         """
         if label_date <= trading_date:
             raise ValueError("label_date 必须晚于 trading_date")
+        end_date = label_date if return_end_date is None else return_end_date
+        if end_date < label_date:
+            raise ValueError("return_end_date 不能早于 label_date")
         for name in ("train", "val", "test"):
             interval = self.range_for(name)
-            if interval.contains(trading_date) and interval.contains(label_date):
+            if (
+                interval.contains(trading_date)
+                and interval.contains(label_date)
+                and interval.contains(end_date)
+            ):
                 return name
         return None

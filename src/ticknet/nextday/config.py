@@ -32,6 +32,8 @@ class NextDayConfig:
     """一次固定日期区间实验的配置。"""
 
     manifest_path: str | None = None
+    target_sidecar_path: str | None = None
+    target_horizon: int = 1
     train_start: str = "2021-01-01"
     train_end: str = "2023-12-31"
     val_start: str = "2024-01-01"
@@ -66,9 +68,16 @@ class NextDayConfig:
     gradient_accumulation_steps: int = 1
     amp: bool = True
 
+    def _validate_target(self) -> None:
+        if self.target_horizon < 1:
+            raise ValueError("target_horizon 应为正整数")
+        if self.target_horizon != 1 and not self.target_sidecar_path:
+            raise ValueError("target_horizon 大于 1 时必须提供 target_sidecar_path")
+
     def validate(self) -> None:
         if not self.manifest_path:
             raise ValueError("manifest_path 不能为空")
+        self._validate_target()
         if self.epochs < 1 or self.batch_size < 1 or self.patience < 1:
             raise ValueError("epochs、batch_size 和 patience 应为正整数")
         if self.lr <= 0 or self.weight_decay < 0:
