@@ -149,6 +149,16 @@ Linux 开发机可以通过官方 Colab CLI 和仓库外的 rclone 配置无人�
 数据、执行评估、拉回结果并停止 runtime。具体命令、安全边界和产物路径见
 [docs/colab-cli-automation.md](docs/colab-cli-automation.md)。
 
+Stage C 独立 H=5 训练同样不需要 notebook：
+
+    python scripts/run_colab_nextday.py \
+      --workflow h5-train \
+      --seeds 0 \
+      --keep-on-failure \
+      --session ticknet-h5-seed0 \
+      --gpu T4 \
+      --local-output-dir /path/to/artifacts/raw-200-capacity_1m-h5/seed0
+
 数据格式、对照基线、Colab 端到端笔记本和当前限制见
 [docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)。
 固定三个既有 best checkpoint、只评估 2024 validation 的多周期入口见

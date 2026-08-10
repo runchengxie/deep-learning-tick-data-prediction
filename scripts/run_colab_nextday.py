@@ -1,4 +1,4 @@
-"""从 Linux 开发机无人值守调度 Colab 多周期 validation。"""
+"""从 Linux 开发机无人值守调度 Colab 次日模型任务。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m.yaml"
+DEFAULT_H5_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m-h5.yaml"
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/ticknet-job.whl"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -22,11 +23,16 @@ REMOTE_SPEC = "/content/ticknet-colab-job.json"
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="用官方 colab CLI 和 rclone 运行无人值守多周期 validation",
+        description="用官方 colab CLI 和 rclone 运行无人值守次日模型任务",
+    )
+    parser.add_argument(
+        "--workflow",
+        choices=("multi-horizon-validation", "h5-train"),
+        default="multi-horizon-validation",
     )
     parser.add_argument("--session", default="ticknet-multi-horizon")
     parser.add_argument("--gpu", choices=("T4", "L4", "G4", "A100", "H100"), default="T4")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path)
     parser.add_argument(
         "--rclone-config",
         type=Path,
@@ -193,22 +199,33 @@ def _build_committed_wheel(
 
 def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[str, Any]:
     drive_root = arguments.drive_root.strip("/")
-    run_root = f"{drive_root}/ticknet-runs/raw-200-capacity_1m"
+    workflow = arguments.workflow
+    if workflow == "multi-horizon-validation":
+        run_name = "raw-200-capacity_1m"
+        checkpoint_name = "raw-200-dual-head-capacity_1m"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/multi-horizon-validation-2024"
+        output_local = "/content/ticknet-results/multi-horizon-validation-2024"
+    elif workflow == "h5-train":
+        run_name = "raw-200-capacity_1m-h5"
+        checkpoint_name = "raw-200-dual-head-capacity_1m-h5"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}"
+        output_local = f"/content/drive/MyDrive/{output_remote}"
+    else:
+        raise ValueError(f"未知 workflow：{workflow}")
+    run_root = f"{drive_root}/ticknet-runs/{run_name}"
     return {
+        "workflow": workflow,
         "rclone_remote": arguments.rclone_remote.rstrip(":"),
         "rclone_config": REMOTE_RCLONE_CONFIG,
         "feature_remote": f"{drive_root}/ticknet-data/nextday-raw-200",
         "target_remote": f"{drive_root}/ticknet-data/nextday-raw-200-targets-v1",
         "checkpoint_remote": run_root,
-        "output_remote": f"{run_root}/multi-horizon-validation-2024",
+        "output_remote": output_remote,
         "feature_local": "/content/nextday-raw-200",
         "target_local": "/content/nextday-raw-200-targets-v1",
-        "checkpoint_local": (
-            "/content/drive/MyDrive/deep-learning-tick-data-prediction/"
-            "ticknet-runs/raw-200-capacity_1m"
-        ),
-        "output_local": "/content/ticknet-results/multi-horizon-validation-2024",
-        "checkpoint_name": "raw-200-dual-head-capacity_1m",
+        "checkpoint_local": f"/content/drive/MyDrive/{run_root}",
+        "output_local": output_local,
+        "checkpoint_name": checkpoint_name,
         "training_config": REMOTE_CONFIG,
         "wheel": REMOTE_WHEEL,
         "seeds": list(arguments.seeds),
@@ -281,6 +298,8 @@ def _dry_run_plan(
 def run(arguments: argparse.Namespace) -> None:
     _validate_lifecycle_arguments(arguments)
     repository_root = REPOSITORY_ROOT.resolve()
+    if arguments.config is None:
+        arguments.config = DEFAULT_H5_CONFIG if arguments.workflow == "h5-train" else DEFAULT_CONFIG
     arguments.config = arguments.config.expanduser().resolve()
     arguments.rclone_config = arguments.rclone_config.expanduser().resolve()
     arguments.local_output_dir = arguments.local_output_dir.expanduser().resolve()

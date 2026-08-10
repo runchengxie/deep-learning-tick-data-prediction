@@ -1,4 +1,4 @@
-"""在已分配的 Colab VM 内执行无 Drive mount 的多周期评估。"""
+"""在已分配的 Colab VM 内执行无 Drive mount 的次日模型任务。"""
 
 from __future__ import annotations
 
@@ -53,6 +53,27 @@ def _rclone_copy(
     _run(command, env=env)
 
 
+def _remote_directory_exists(source: str, *, env: dict[str, str]) -> bool:
+    result = subprocess.run(
+        ["rclone", "lsf", source, "--max-depth", "1"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode == 0:
+        return True
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    if "directory not found" in output.lower():
+        return False
+    raise subprocess.CalledProcessError(
+        result.returncode,
+        result.args,
+        output=result.stdout,
+        stderr=result.stderr,
+    )
+
+
 def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
     remote = str(spec["rclone_remote"])
     _rclone_copy(
@@ -67,17 +88,25 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
     )
     checkpoint_root = Path(str(spec["checkpoint_local"]))
     checkpoint_root.mkdir(parents=True, exist_ok=True)
-    for seed in spec["seeds"]:
-        name = f"{spec['checkpoint_name']}.seed{int(seed)}.best.pt"
-        _run(
-            [
-                "rclone",
-                "copyto",
-                _drive_path(remote, f"{spec['checkpoint_remote']}/{name}"),
-                str(checkpoint_root / name),
-            ],
-            env=env,
-        )
+    workflow = str(spec["workflow"])
+    if workflow == "multi-horizon-validation":
+        for seed in spec["seeds"]:
+            name = f"{spec['checkpoint_name']}.seed{int(seed)}.best.pt"
+            _run(
+                [
+                    "rclone",
+                    "copyto",
+                    _drive_path(remote, f"{spec['checkpoint_remote']}/{name}"),
+                    str(checkpoint_root / name),
+                ],
+                env=env,
+            )
+    elif workflow == "h5-train":
+        checkpoint_remote = _drive_path(remote, str(spec["checkpoint_remote"]))
+        if _remote_directory_exists(checkpoint_remote, env=env):
+            _rclone_copy(checkpoint_remote, str(checkpoint_root), env=env)
+    else:
+        raise ValueError(f"未知 workflow：{workflow}")
 
 
 def _install_project(spec: dict[str, Any]) -> None:
@@ -133,6 +162,55 @@ def _evaluate(spec: dict[str, Any]) -> None:
     _run(command)
 
 
+def _train_h5(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for seed in spec["seeds"]:
+        _run(
+            [
+                sys.executable,
+                "-m",
+                "ticknet.nextday.train",
+                "--config",
+                str(spec["training_config"]),
+                "--seed",
+                str(int(seed)),
+            ]
+        )
+
+
+def _write_summary(
+    spec: dict[str, Any],
+    *,
+    status: str,
+    error: str | None = None,
+) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "status": status,
+        "workflow": spec["workflow"],
+        "source_revision": spec["source_revision"],
+        "seeds": spec["seeds"],
+        "output_remote": spec["output_remote"],
+        "test_status": "locked_not_accessed",
+    }
+    if error is not None:
+        summary["error"] = error
+    (output_dir / "colab-run-summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _upload_output(spec: dict[str, Any], env: dict[str, str]) -> None:
+    _rclone_copy(
+        str(spec["output_local"]),
+        _drive_path(str(spec["rclone_remote"]), str(spec["output_remote"])),
+        env=env,
+    )
+
+
 def main() -> None:
     spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
     rclone_config = Path(str(spec["rclone_config"]))
@@ -144,16 +222,28 @@ def main() -> None:
         _ensure_rclone()
         _install_project(spec)
         _stage_inputs(spec, env)
-        _evaluate(spec)
-        _rclone_copy(
-            str(spec["output_local"]),
-            _drive_path(str(spec["rclone_remote"]), str(spec["output_remote"])),
-            env=env,
-        )
+        try:
+            if spec["workflow"] == "multi-horizon-validation":
+                _evaluate(spec)
+            elif spec["workflow"] == "h5-train":
+                _train_h5(spec)
+            else:
+                raise ValueError(f"未知 workflow：{spec['workflow']}")
+        except Exception as error:
+            if spec["workflow"] == "h5-train":
+                _write_summary(spec, status="failed", error=str(error))
+                try:
+                    _upload_output(spec, env)
+                except Exception as upload_error:
+                    print(f"失败产物同步失败：{upload_error}", file=sys.stderr)
+            raise
+        _write_summary(spec, status="complete")
+        _upload_output(spec, env)
         print(
             json.dumps(
                 {
                     "status": "complete",
+                    "workflow": spec["workflow"],
                     "source_revision": spec["source_revision"],
                     "output_remote": spec["output_remote"],
                     "test_status": "locked_not_accessed",
