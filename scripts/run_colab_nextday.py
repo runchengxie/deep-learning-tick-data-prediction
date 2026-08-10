@@ -15,7 +15,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m.yaml"
 DEFAULT_H5_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m-h5.yaml"
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
-REMOTE_WHEEL = "/content/ticknet-job.whl"
+REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
 REMOTE_RCLONE_CONFIG = "/content/ticknet-rclone.conf"
 REMOTE_SPEC = "/content/ticknet-colab-job.json"
@@ -94,6 +94,10 @@ def _run(
 
 def _colab_command(colab: str, *arguments: str) -> list[str]:
     return [colab, "--auth=oauth2", *arguments]
+
+
+def _remote_wheel_path(wheel: Path) -> str:
+    return f"/content/{wheel.name}"
 
 
 def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
@@ -235,6 +239,24 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
     }
 
 
+def _validate_downloaded_summary(
+    output_dir: Path,
+    spec: dict[str, Any],
+) -> None:
+    summary_path = output_dir / "colab-run-summary.json"
+    if not summary_path.is_file():
+        raise RuntimeError("Colab job 缺少 colab-run-summary.json 完成标记")
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for field in ("workflow", "source_revision"):
+        if summary.get(field) != spec[field]:
+            raise RuntimeError(
+                f"Colab job {field} 不匹配：{summary.get(field)!r} != {spec[field]!r}"
+            )
+    if summary.get("status") != "complete":
+        error = summary.get("error", "未提供远端错误")
+        raise RuntimeError(f"Colab job 未完成：{error}")
+
+
 def _dry_run_plan(
     arguments: argparse.Namespace,
     *,
@@ -343,8 +365,9 @@ def run(arguments: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(prefix="ticknet-colab-") as temporary:
         staging = Path(temporary)
         spec_path = staging / "job.json"
-        spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
         wheel = _build_committed_wheel(uv, repository_root, staging, revision)
+        spec["wheel"] = _remote_wheel_path(wheel)
+        spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
             if not arguments.reuse_session:
                 _run(
@@ -360,7 +383,7 @@ def run(arguments: argparse.Namespace) -> None:
                 session_active = True
                 session_owned = True
             uploads = (
-                (wheel, REMOTE_WHEEL),
+                (wheel, spec["wheel"]),
                 (arguments.config, REMOTE_CONFIG),
                 (arguments.rclone_config, REMOTE_RCLONE_CONFIG),
                 (spec_path, REMOTE_SPEC),
@@ -401,6 +424,7 @@ def run(arguments: argparse.Namespace) -> None:
                     "--checksum",
                 ]
             )
+            _validate_downloaded_summary(arguments.local_output_dir, spec)
             succeeded = True
         finally:
             if session_active:

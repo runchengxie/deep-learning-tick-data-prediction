@@ -16,9 +16,11 @@ from scripts.run_colab_nextday import (
     _colab_command,
     _dry_run_plan,
     _ensure_secret_outside_repository,
+    _remote_wheel_path,
     _require_executable,
     _session_exists,
     _should_stop_owned_session,
+    _validate_downloaded_summary,
     _validate_lifecycle_arguments,
     _validate_session_selection,
     build_job_spec,
@@ -95,6 +97,40 @@ def test_colab_commands_pin_oauth_provider() -> None:
         "--auth=oauth2",
         "sessions",
     ]
+
+
+def test_remote_wheel_path_preserves_valid_distribution_filename() -> None:
+    wheel = Path("deep_learning_tick_data_prediction-0.2.0-py3-none-any.whl")
+    assert _remote_wheel_path(wheel) == (
+        "/content/deep_learning_tick_data_prediction-0.2.0-py3-none-any.whl"
+    )
+
+
+def test_downloaded_summary_must_confirm_revision_and_success(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "h5-train",
+        "source_revision": "abc123",
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps({**spec, "status": "complete"}),
+        encoding="utf-8",
+    )
+    _validate_downloaded_summary(tmp_path, spec)
+
+    summary_path.write_text(
+        json.dumps({**spec, "status": "failed", "error": "remote failure"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="remote failure"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+    summary_path.write_text(
+        json.dumps({**spec, "status": "complete", "source_revision": "wrong"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="source_revision 不匹配"):
+        _validate_downloaded_summary(tmp_path, spec)
 
 
 @pytest.mark.parametrize(
@@ -387,6 +423,7 @@ def _mock_orchestrator(
     monkeypatch.setattr(colab_runner, "_require_clean_revision", lambda _root: None)
     monkeypatch.setattr(colab_runner, "_session_exists", lambda *_args: session_exists)
     monkeypatch.setattr(colab_runner, "_build_committed_wheel", fake_build)
+    monkeypatch.setattr(colab_runner, "_validate_downloaded_summary", lambda *_args: None)
     monkeypatch.setattr(colab_runner, "_run", fake_run)
     return arguments, commands
 

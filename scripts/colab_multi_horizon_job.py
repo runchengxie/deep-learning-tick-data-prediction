@@ -127,7 +127,6 @@ def _install_project(spec: dict[str, Any]) -> None:
             "-m",
             "pip",
             "install",
-            "-q",
             "--no-deps",
             "--force-reinstall",
             str(spec["wheel"]),
@@ -211,6 +210,15 @@ def _upload_output(spec: dict[str, Any], env: dict[str, str]) -> None:
     )
 
 
+def _execute_workflow(spec: dict[str, Any]) -> None:
+    if spec["workflow"] == "multi-horizon-validation":
+        _evaluate(spec)
+    elif spec["workflow"] == "h5-train":
+        _train_h5(spec)
+    else:
+        raise ValueError(f"未知 workflow：{spec['workflow']}")
+
+
 def main() -> None:
     spec = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
     rclone_config = Path(str(spec["rclone_config"]))
@@ -219,16 +227,11 @@ def main() -> None:
     rclone_config.chmod(0o600)
     env = {**os.environ, "RCLONE_CONFIG": str(rclone_config)}
     try:
-        _ensure_rclone()
-        _install_project(spec)
-        _stage_inputs(spec, env)
         try:
-            if spec["workflow"] == "multi-horizon-validation":
-                _evaluate(spec)
-            elif spec["workflow"] == "h5-train":
-                _train_h5(spec)
-            else:
-                raise ValueError(f"未知 workflow：{spec['workflow']}")
+            _ensure_rclone()
+            _install_project(spec)
+            _stage_inputs(spec, env)
+            _execute_workflow(spec)
         except Exception as error:
             if spec["workflow"] == "h5-train":
                 _write_summary(spec, status="failed", error=str(error))
