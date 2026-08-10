@@ -137,6 +137,8 @@ ticknet-nextday-predict \
 
 数据格式、对照基线、Colab 端到端笔记本和当前限制见
 [docs/nextday-cross-sectional-prediction.md](docs/nextday-cross-sectional-prediction.md)。
+固定三个既有 best checkpoint、只评估 2024 validation 的多周期入口见
+[notebooks/nextday_multi_horizon_validation_colab.ipynb](notebooks/nextday_multi_horizon_validation_colab.ipynb)。
 
 ## 论文复现：临摹起点
 
