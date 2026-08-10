@@ -59,6 +59,11 @@ def test_nextday_config_requires_manifest():
         NextDayConfig().validate()
 
 
+def test_nextday_config_requires_sidecar_for_long_horizon():
+    with pytest.raises(ValueError, match="target_sidecar_path"):
+        NextDayConfig(manifest_path="manifest.json", target_horizon=5).validate()
+
+
 def test_nextday_config_rejects_overlapping_dates():
     config = NextDayConfig(
         manifest_path="manifest.json",
@@ -87,6 +92,8 @@ def test_checkpoint_signature_defaults_legacy_frontend_widths():
     legacy = dict(expected)
     legacy.pop("conv_channels")
     legacy.pop("inception_channels")
+    legacy.pop("target_sidecar_path")
+    legacy.pop("target_horizon")
     assert train_module._checkpoint_matches_experiment(
         {"experiment": legacy},
         expected,

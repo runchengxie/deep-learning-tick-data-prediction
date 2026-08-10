@@ -36,6 +36,7 @@ ticknet-minute-tcn-train = "ticknet.nextday.train_tcn:main"
 ticknet-minute-tcn-evaluate = "ticknet.nextday.train_tcn:evaluate_main"
 ticknet-research = "ticknet.research.cli:main"
 ticknet-nextday-prepare-snapshot = "ticknet.nextday.raw_snapshot:main"
+ticknet-nextday-prepare-horizon-labels = "ticknet.nextday.horizon_labels:main"
 ticknet-nextday-predict = "ticknet.nextday.inference:main"
 
 [tool.setuptools.packages.find]

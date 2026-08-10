@@ -46,6 +46,8 @@ def make_dataloaders(
             date_split=date_split,
             split=split,
             verify_checksums=config.verify_data_checksums and split == "train",
+            target_sidecar_path=config.target_sidecar_path,
+            target_horizon=config.target_horizon,
         )
         for split in ("train", "val", "test")
     )
@@ -151,7 +153,11 @@ def _environment(device: torch.device) -> dict[str, Any]:
     }
 
 
-def _experiment_signature(config: NextDayConfig, dataset_fingerprint: str) -> dict[str, Any]:
+def _experiment_signature(
+    config: NextDayConfig,
+    dataset_fingerprint: str,
+    target_fingerprint: str | None = None,
+) -> dict[str, Any]:
     signature = asdict(config)
     for name in (
         "epochs",
@@ -163,6 +169,8 @@ def _experiment_signature(config: NextDayConfig, dataset_fingerprint: str) -> di
     ):
         signature.pop(name)
     signature["dataset_fingerprint"] = dataset_fingerprint
+    if target_fingerprint is not None:
+        signature["target_fingerprint"] = target_fingerprint
     return signature
 
 
@@ -174,6 +182,8 @@ def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[st
     normalized = dict(experiment)
     normalized.setdefault("conv_channels", DEFAULT_CONV_CHANNELS)
     normalized.setdefault("inception_channels", DEFAULT_INCEPTION_CHANNELS)
+    normalized.setdefault("target_sidecar_path", None)
+    normalized.setdefault("target_horizon", 1)
     return normalized == expected
 
 
@@ -221,6 +231,8 @@ def evaluate_best_checkpoints(
         date_split=config.date_split(),
         split="test",
         verify_checksums=config.verify_data_checksums,
+        target_sidecar_path=config.target_sidecar_path,
+        target_horizon=config.target_horizon,
     )
     test_loader = DataLoader(
         test_dataset,
@@ -241,6 +253,7 @@ def evaluate_best_checkpoints(
         expected_signature = _experiment_signature(
             seed_config,
             test_dataset.dataset_fingerprint,
+            test_dataset.target_fingerprint if config.target_sidecar_path else None,
         )
         if not _checkpoint_matches_experiment(checkpoint, expected_signature):
             raise ValueError(f"{best_path} 的实验配置与 locked test 配置不同")
@@ -338,7 +351,11 @@ def train(config: NextDayConfig) -> dict[str, Any]:
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
     _stem, last_path, best_path, history_path, result_path = _checkpoint_paths(config)
-    signature = _experiment_signature(config, train_dataset.dataset_fingerprint)
+    signature = _experiment_signature(
+        config,
+        train_dataset.dataset_fingerprint,
+        train_dataset.target_fingerprint if config.target_sidecar_path else None,
+    )
 
     start_epoch = 0
     best_selection_value = -math.inf
@@ -476,6 +493,9 @@ def train(config: NextDayConfig) -> dict[str, Any]:
         "environment": _environment(device),
         "duration_seconds": time.perf_counter() - started_at,
         "dataset_fingerprint": train_dataset.dataset_fingerprint,
+        "target_fingerprint": train_dataset.target_fingerprint,
+        "target_return_contract": train_dataset.target_return_contract,
+        "target_horizon": train_dataset.target_horizon,
         "best_selection_value": best_selection_value,
         "test": test_metrics,
         "last_checkpoint": str(last_path),

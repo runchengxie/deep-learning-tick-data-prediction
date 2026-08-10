@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -58,6 +58,7 @@ class SampleRecord:
     symbol: str
     trading_date: date
     label_date: date
+    return_end_date: date
     shard: int
     row: int
     label: int
@@ -84,6 +85,7 @@ def _validate_record(raw: object, *, sample_index: int, total_events: int) -> Sa
         symbol = str(values["symbol"])
         trading_date = parse_date(str(values["trading_date"]))
         label_date = parse_date(str(values["label_date"]))
+        return_end_date = parse_date(str(values.get("return_end_date", values["label_date"])))
         shard = int(values["shard"])
         row = int(values["row"])
         label = int(values["label"])
@@ -103,6 +105,8 @@ def _validate_record(raw: object, *, sample_index: int, total_events: int) -> Sa
         raise ValueError(f"samples[{sample_index}] 的 symbol 不能为空")
     if label_date <= trading_date:
         raise ValueError(f"samples[{sample_index}] 的标签日必须晚于输入日")
+    if return_end_date < label_date:
+        raise ValueError(f"samples[{sample_index}] 的收益结束日不能早于标签日")
     if shard < 0 or row < 0:
         raise ValueError(f"samples[{sample_index}] 的 shard 和 row 不能为负数")
     if label not in range(NUM_CLASSES):
@@ -123,6 +127,7 @@ def _validate_record(raw: object, *, sample_index: int, total_events: int) -> Sa
         symbol=symbol,
         trading_date=trading_date,
         label_date=label_date,
+        return_end_date=return_end_date,
         shard=shard,
         row=row,
         label=label,
@@ -147,6 +152,8 @@ class NextDayShardDataset(Dataset):
         date_split: WalkForwardSplit,
         split: str,
         verify_checksums: bool = False,
+        target_sidecar_path: str | Path | None = None,
+        target_horizon: int = 1,
     ) -> None:
         self.manifest_path = Path(manifest_path).expanduser().resolve()
         with self.manifest_path.open(encoding="utf-8") as file:
@@ -163,6 +170,16 @@ class NextDayShardDataset(Dataset):
             if stored_fingerprint != computed_fingerprint:
                 raise ValueError("数据清单 dataset_fingerprint 与内容不一致")
         self.dataset_fingerprint = stored_fingerprint or computed_fingerprint
+        self.target_horizon = int(target_horizon)
+        if self.target_horizon < 1:
+            raise ValueError("target_horizon 应为正整数")
+        self.target_sidecar_path = (
+            None
+            if target_sidecar_path is None
+            else Path(target_sidecar_path).expanduser().resolve()
+        )
+        self.target_fingerprint = self.dataset_fingerprint
+        self.target_return_contract = "next_open_to_close_excess_benchmark"
 
         self.chunks_per_sample = self._positive_int(manifest, "chunks_per_sample")
         self.chunk_size = self._positive_int(manifest, "chunk_size")
@@ -226,16 +243,60 @@ class NextDayShardDataset(Dataset):
             verify_checksums=verify_checksums,
         )
 
+        self.missing_target_samples = 0
+        if self.target_sidecar_path is not None:
+            from ticknet.nextday.horizon_labels import load_horizon_sidecar
+
+            sidecar = load_horizon_sidecar(
+                self.target_sidecar_path,
+                horizon=self.target_horizon,
+                source_dataset_fingerprint=self.dataset_fingerprint,
+                verify_checksum=verify_checksums,
+            )
+            base_keys = {(record.symbol, record.trading_date) for record in all_records}
+            extra_keys = set(sidecar.records) - base_keys
+            if extra_keys:
+                raise ValueError("标签侧车包含当前特征 manifest 不存在的股票交易日")
+            relabelled: list[SampleRecord] = []
+            for record in all_records:
+                target = sidecar.records.get((record.symbol, record.trading_date))
+                if target is None:
+                    continue
+                relabelled.append(
+                    replace(
+                        record,
+                        label_date=target.entry_date,
+                        return_end_date=target.return_end_date,
+                        label=target.label,
+                        target_return=target.target_return,
+                    )
+                )
+            self.missing_target_samples = len(all_records) - len(relabelled)
+            all_records = relabelled
+            self.target_fingerprint = sidecar.sidecar_fingerprint
+            self.target_return_contract = sidecar.return_contract
+        elif self.target_horizon != 1:
+            raise ValueError("target_horizon 大于 1 时必须提供 target_sidecar_path")
+
         wanted = date_split.range_for(split)
         self.records = [
             record
             for record in all_records
-            if date_split.assign(record.trading_date, record.label_date) == split
+            if date_split.assign(
+                record.trading_date,
+                record.label_date,
+                record.return_end_date,
+            )
+            == split
         ]
         self.purged_samples = sum(
             1
             for record in all_records
-            if wanted.contains(record.trading_date) and not wanted.contains(record.label_date)
+            if wanted.contains(record.trading_date)
+            and (
+                not wanted.contains(record.label_date)
+                or not wanted.contains(record.return_end_date)
+            )
         )
         if not self.records:
             raise ValueError(f"{split} 日期区间没有可用样本")
@@ -333,6 +394,10 @@ class NextDayShardDataset(Dataset):
     @property
     def label_dates(self) -> list[date]:
         return [record.label_date for record in self.records]
+
+    @property
+    def return_end_dates(self) -> list[date]:
+        return [record.return_end_date for record in self.records]
 
     @property
     def symbols(self) -> list[str]:
