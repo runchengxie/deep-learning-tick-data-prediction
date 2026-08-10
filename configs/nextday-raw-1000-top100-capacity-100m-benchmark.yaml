@@ -1,0 +1,39 @@
+# raw-1000 Top-100 preflight 上的 100M 训练吞吐 benchmark。
+# 只构造 train dataset；2025 locked test 不在该 manifest 中，也不会被访问。
+
+manifest_path: /content/nextday-raw-1000-preflight-202101-top100/manifest.json
+train_start: "2021-01-01"
+train_end: "2021-01-31"
+val_start: "2021-02-01"
+val_end: "2021-02-28"
+test_start: "2021-03-01"
+test_end: "2021-03-31"
+
+epochs: 30
+batch_size: 2
+lr: 0.0001
+weight_decay: 0.0001
+patience: 8
+seed: 0
+num_workers: 2
+device: cuda
+resume: false
+evaluate_test: false
+verify_data_checksums: true
+
+checkpoint_dir: /content/drive/MyDrive/deep-learning-tick-data-prediction/ticknet-runs/raw-1000-top100-capacity_100m
+checkpoint_name: raw-1000-top100-dual-head-capacity_100m
+conv_channels: 128
+inception_channels: 256
+intraday_embedding_size: 2400
+day_hidden_size: 2400
+day_layers: 2
+dropout: 0.1
+class_weighting: balanced
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 50
+portfolio_quantile: 0.1
+classification_loss_weight: 1.0
+regression_loss_weight: 0.5
+gradient_accumulation_steps: 16
+amp: true

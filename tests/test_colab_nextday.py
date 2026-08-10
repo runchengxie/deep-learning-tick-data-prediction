@@ -36,6 +36,8 @@ def _arguments(tmp_path: Path) -> Namespace:
         seeds=[0, 1, 2],
         horizons=[1, 3, 5],
         inference_batch_size=128,
+        benchmark_batches=100,
+        warmup_batches=5,
         session="ticknet-test",
         gpu="T4",
         config=tmp_path / "config.yaml",
@@ -74,6 +76,24 @@ def test_h5_training_spec_uses_independent_run_directory(tmp_path: Path) -> None
     assert spec["checkpoint_local"] == spec["output_local"]
     assert spec["output_remote"].endswith("raw-200-capacity_1m-h5")
     assert spec["seeds"] == [0]
+
+
+def test_capacity_benchmark_spec_uses_raw1000_and_gpu_specific_output(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "capacity-benchmark"
+    arguments.gpu = "A100"
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["workflow"] == "capacity-benchmark"
+    assert spec["feature_remote"].endswith("nextday-raw-1000-preflight-202101-top100")
+    assert spec["feature_local"] == "/content/nextday-raw-1000-preflight-202101-top100"
+    assert spec["output_remote"].endswith("capacity_100m/benchmarks/a100")
+    assert spec["expected_parameter_count"] == 100_817_575
+    assert spec["projected_train_samples"] == 75_000
+    assert spec["requested_gpu"] == "A100"
 
 
 def test_h5_training_config_keeps_test_locked() -> None:
@@ -287,6 +307,29 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
     assert "--metadata" not in captured[0]
 
 
+def test_capacity_benchmark_stages_features_without_target_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **_kwargs: copies.append((source, destination)),
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "capacity-benchmark",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/raw1000",
+            "feature_local": "/content/raw1000",
+        },
+        {},
+    )
+
+    assert copies == [("gdrive:project/raw1000", "/content/raw1000")]
+
+
 def test_h5_training_invokes_each_requested_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -308,6 +351,37 @@ def test_h5_training_invokes_each_requested_seed(
 
     assert [command[-1] for command in captured] == ["0", "2"]
     assert all("ticknet.nextday.train" in command for command in captured)
+
+
+def test_capacity_benchmark_invokes_audited_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+
+    colab_job._benchmark_capacity(
+        {
+            "output_local": str(tmp_path / "output"),
+            "training_config": "/content/config.yaml",
+            "benchmark_batches": 100,
+            "warmup_batches": 5,
+            "expected_parameter_count": 100_817_575,
+            "projected_train_samples": 75_000,
+            "source_revision": "abc123",
+            "requested_gpu": "T4",
+        }
+    )
+
+    command = captured[0]
+    assert "ticknet.nextday.benchmark" in command
+    assert command[command.index("--expected-parameter-count") + 1] == "100817575"
+    assert command[command.index("--projected-train-samples") + 1] == "75000"
+    assert command[command.index("--requested-gpu") + 1] == "T4"
 
 
 def test_wheel_build_uses_committed_archive(
