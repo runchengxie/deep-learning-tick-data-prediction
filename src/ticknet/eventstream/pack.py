@@ -25,6 +25,8 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import subprocess
+import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -346,6 +348,26 @@ def trading_days(start: int, end: int, raw_root: Path = RAW_L2_ROOT) -> list[int
     return sorted(days)
 
 
+def _isolated_day_command(arguments: argparse.Namespace, day: int) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "ticknet.eventstream.pack",
+        "--days",
+        str(int(day)),
+        "--raw-root",
+        str(arguments.raw_root),
+        "--pack-root",
+        str(arguments.pack_root),
+        "--no-isolate-days",
+    ]
+    if arguments.universe:
+        command.extend(["--universe", str(arguments.universe)])
+    if arguments.overwrite:
+        command.append("--overwrite")
+    return command
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=int, default=0)
@@ -355,10 +377,22 @@ def main() -> None:
     parser.add_argument("--raw-root", type=Path, default=RAW_L2_ROOT)
     parser.add_argument("--pack-root", type=Path, default=PACK_ROOT)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--isolate-days",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="多日任务默认每个交易日使用独立子进程，避免内存跨日累积",
+    )
     args = parser.parse_args()
 
-    universe = _load_universe(Path(args.universe)) if args.universe else None
     days = args.days or trading_days(args.start, args.end, args.raw_root)
+    if args.isolate_days and len(days) > 1:
+        print(f"packing {len(days)} days with isolated workers", flush=True)
+        for day in days:
+            subprocess.run(_isolated_day_command(args, day), check=True)
+        return
+
+    universe = _load_universe(Path(args.universe)) if args.universe else None
     universe_description = (
         "ALL"
         if universe is None

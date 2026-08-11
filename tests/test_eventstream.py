@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from argparse import Namespace
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,12 @@ import pytest
 
 from ticknet.eventstream.config import ORDER_DTYPE, SNAP_DTYPE, TRADE_DTYPE, day_pack_paths
 from ticknet.eventstream.dataset import L2WindowDataset
-from ticknet.eventstream.pack import _load_universe, _universe_for_day, pack_day
+from ticknet.eventstream.pack import (
+    _isolated_day_command,
+    _load_universe,
+    _universe_for_day,
+    pack_day,
+)
 
 DAY = 20210104
 
@@ -213,6 +219,23 @@ class TestPack:
         assert isinstance(universe, dict)
         assert _universe_for_day(universe, DAY) == ["600000"]
         assert _universe_for_day(universe, 20210105) is None
+
+    def test_isolated_worker_preserves_pack_arguments(self, tmp_path):
+        arguments = Namespace(
+            raw_root=tmp_path / "raw",
+            pack_root=tmp_path / "pack",
+            universe=tmp_path / "universe.json",
+            overwrite=True,
+        )
+
+        command = _isolated_day_command(arguments, DAY)
+
+        assert command[1:4] == ["-m", "ticknet.eventstream.pack", "--days"]
+        assert command[command.index("--raw-root") + 1] == str(arguments.raw_root)
+        assert command[command.index("--pack-root") + 1] == str(arguments.pack_root)
+        assert command[command.index("--universe") + 1] == str(arguments.universe)
+        assert "--no-isolate-days" in command
+        assert "--overwrite" in command
 
 
 class TestDataset:
