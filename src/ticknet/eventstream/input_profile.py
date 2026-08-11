@@ -6,6 +6,7 @@ import argparse
 import gc
 import json
 import math
+import os
 import platform
 import time
 from pathlib import Path
@@ -312,6 +313,12 @@ def run_input_profile(
             "selected_num_workers": best["num_workers"],
             "selected_end_to_end_samples_per_second": best["end_to_end_samples_per_second"],
             "selected_projected_seed_hours": best["projected_seed_hours"],
+            "selected_input_to_gpu_ratio": (
+                float(best["data_only_samples_per_second"]) / float(gpu_only["samples_per_second"])
+            ),
+            "selected_end_to_end_to_gpu_ratio": (
+                float(best["end_to_end_samples_per_second"]) / float(gpu_only["samples_per_second"])
+            ),
             "bottleneck": bottleneck,
         },
         "trials": trials,
@@ -320,6 +327,7 @@ def run_input_profile(
             "numpy": np.__version__,
             "torch": torch.__version__,
             "cuda": torch.version.cuda,
+            "cpu_count": os.cpu_count(),
         },
         "config": config.to_dict(),
     }

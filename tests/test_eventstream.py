@@ -11,7 +11,12 @@ import pyarrow.parquet as pq
 import pytest
 
 from ticknet.eventstream.config import ORDER_DTYPE, SNAP_DTYPE, TRADE_DTYPE, day_pack_paths
-from ticknet.eventstream.dataset import L2WindowDataset
+from ticknet.eventstream.dataset import (
+    L2WindowDataset,
+    _merge_and_featurize,
+    _merge_window_and_featurize,
+    _merged_window_rows,
+)
 from ticknet.eventstream.pack import (
     _isolated_day_command,
     _load_prev_close,
@@ -260,6 +265,72 @@ class TestPack:
 
 
 class TestDataset:
+    def test_windowed_merge_preserves_stable_tie_order(self):
+        dtype = np.dtype([("time_ms", "<i8")])
+        order = np.array([(1,), (2,), (2,), (5,)], dtype=dtype)
+        trade = np.array([(2,), (4,)], dtype=dtype)
+        snap = np.array([(2,), (3,)], dtype=dtype)
+        all_times = np.concatenate([order["time_ms"], trade["time_ms"], snap["time_ms"]])
+        all_streams = np.array([2] * len(order) + [3] * len(trade) + [1] * len(snap))
+        all_rows = np.concatenate(
+            [np.arange(len(order)), np.arange(len(trade)), np.arange(len(snap))]
+        )
+        permutation = np.argsort(all_times, kind="stable")
+
+        for start in range(len(all_times)):
+            for stop in range(start + 1, len(all_times) + 1):
+                streams, rows, _positions = _merged_window_rows(
+                    order,
+                    trade,
+                    snap,
+                    start=start,
+                    stop=stop,
+                )
+                np.testing.assert_array_equal(streams, all_streams[permutation][start:stop])
+                np.testing.assert_array_equal(rows, all_rows[permutation][start:stop])
+
+    def test_windowed_merge_matches_full_day_features(self, tmp_path):
+        raw, pack_root = _make_lake(tmp_path)
+        pack_day(DAY, raw_root=raw, pack_root=pack_root)
+        paths = day_pack_paths(DAY, pack_root)
+        with np.load(paths["index"], allow_pickle=False) as index:
+            ticker = 0
+            order = np.memmap(paths["order"], dtype=ORDER_DTYPE, mode="r")[
+                index["o_off"][ticker] : index["o_off"][ticker] + index["o_len"][ticker]
+            ]
+            trade = np.memmap(paths["trade"], dtype=TRADE_DTYPE, mode="r")[
+                index["t_off"][ticker] : index["t_off"][ticker] + index["t_len"][ticker]
+            ]
+            snap = np.memmap(paths["snap"], dtype=SNAP_DTYPE, mode="r")[
+                index["s_off"][ticker] : index["s_off"][ticker] + index["s_len"][ticker]
+            ]
+            previous_close = float(index["prev_close"][ticker]) * 100.0
+
+        expected_features, expected_streams, expected_order_types = _merge_and_featurize(
+            order,
+            trade,
+            snap,
+            previous_close,
+        )
+        for start in range(len(expected_streams)):
+            stop = min(start + 9, len(expected_streams))
+            features, streams, order_types = _merge_window_and_featurize(
+                order,
+                trade,
+                snap,
+                previous_close,
+                start=start,
+                stop=stop,
+            )
+            np.testing.assert_allclose(
+                features,
+                expected_features[start:stop],
+                rtol=0,
+                atol=1e-7,
+            )
+            np.testing.assert_array_equal(streams, expected_streams[start:stop])
+            np.testing.assert_array_equal(order_types, expected_order_types[start:stop])
+
     def test_window_shapes_and_targets(self, tmp_path):
         raw, pack_root = _make_lake(tmp_path)
         pack_day(DAY, raw_root=raw, pack_root=pack_root)
