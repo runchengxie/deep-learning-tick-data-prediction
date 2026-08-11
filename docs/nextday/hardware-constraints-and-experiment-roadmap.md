@@ -250,18 +250,9 @@ results/data-audit/
 
 ### 原始盘口端到端模型
 
-原始盘口是当前端到端主模型，同时回答分钟聚合是否丢失了可用于次日预测的信息。
+原始盘口是当前端到端主模型，同时回答分钟聚合是否丢失了可用于次日预测的信息。数据加工、训练和门槛的操作步骤见 [raw-200-end-to-end-pipeline.md](raw-200-end-to-end-pipeline.md)，这里只保留研究口径。
 
-正式实验前先运行受控 pilot：
-
-```text
-2024 全年
-动态前 100 股票
-最后 200 个盘口事件
-2024H1 训练、2024Q3 验证、2024Q4 锁定测试
-```
-
-数据和训练配置分别位于 `configs/nextday-raw-pilot.yaml` 和 `configs/nextday-pilot.yaml`。百万参数容量实验使用 `configs/nextday-raw-1m-pilot.yaml`。pilot 先完成数据审计、Logistic 基线和 100 个 batch 的 Colab 吞吐测试，再确定端到端训练预算。日度指标要求至少 80 只股票。已查看过结果的 2024Q4 只作开发证据，新的模型选择不能重新把它当作未见测试集。
+正式实验前先运行受控 pilot，用 2024 全年、动态前 100 股票、最后 200 个盘口事件，2024H1 训练、2024Q3 验证、2024Q4 锁定测试。数据和训练配置分别位于 `configs/nextday-raw-pilot.yaml` 和 `configs/nextday-pilot.yaml`，百万参数容量实验使用 `configs/nextday-raw-1m-pilot.yaml`。pilot 先完成数据审计、Logistic 基线和 100 个 batch 的 Colab 吞吐测试，再确定端到端训练预算。日度指标要求至少 80 只股票。已查看过结果的 2024Q4 只作开发证据，新的模型选择不能重新把它当作未见测试集。
 
 第一轮配置为：
 

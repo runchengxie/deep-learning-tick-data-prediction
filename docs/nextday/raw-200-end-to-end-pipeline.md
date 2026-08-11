@@ -108,20 +108,16 @@ roadmap 要求先过 Logistic，证明分片里真有信息，同时校验管线
 3. 锁定测试由纯评估入口完成，不创建优化器，不读 last checkpoint。
 4. 只用 sha256 校验过的分片，指纹不一致就停止。
 
-## 5. 判断口径
+## 5. 停止信号
 
-出现以下任一信号，就应停止扩大模型。停止本身是有效的研究结论：
-
-- 只有训练集指标变好，验证集 Rank IC 没变。
-- 改一个月份或随机种子结论就反转。
-- 原始盘口没有稳定超过分钟模型。
-- 收益全部来自涨跌停、停牌恢复或极低流动性股。
-- 扣除合理成本后分组收益消失。
+出现任一停止信号就停止扩大模型，停止本身是有效的研究结论。完整的停止信号清单见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md) 的评估和停止规则一节。
 
 ## 6. 下一步动作
 
 1. 在五年 Top-400 工作集上完成分片校验、日期覆盖和 train、val、test purge 审计后上传 Drive。
 2. 冻结正式配置，评估 2025 锁定测试。
 3. 在正式工作集上重新比较 86k 与 1.03M，容量增量跨 seed 稳定后才增加参数或窗口。
+
+整体的工程实施顺序见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md) 的工程实施顺序一节。
 
 参考：`notebooks/nextday_end_to_end_colab.ipynb`、`configs/nextday-raw-pilot.yaml`、`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、[raw-data-expansion-roadmap.md](raw-data-expansion-roadmap.md)。

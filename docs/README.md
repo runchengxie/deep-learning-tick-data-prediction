@@ -46,6 +46,7 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 | [topk-agentx-m2d-registry-context.md](research/topk-agentx-m2d-registry-context.md) | 由 Registry 构造的可重放 ResearchContext |
 | [topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) | 正式 Top-K 成本诊断的进度与判定门槛 |
 | [resource-strategy-and-pilot-gates.md](research/resource-strategy-and-pilot-gates.md) | 有限算力下的资源策略与门槛式实验原则 |
+| [experiment-log.md](research/experiment-log.md) | 带日期的历史实验记录，含 TCN 对比、滚动验证、成本评估、审计归因与 Agent 闭环 |
 
 ### dev
 
@@ -61,8 +62,8 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 | 路径 | 内容 |
 |---|---|
 | [reproduction-audit.md](reproduction-audit.md) | DeepLOB 在 FI-2010 上的复现核对，对象已归档到 legacy |
-| [baselines/topk-agentx-v1.json](baselines/topk-agentx-v1.json) | M0 冻结的基线 artifact 清单，含 SHA-256 与指标 |
-| [reports/multi-horizon-decision-2026-08-10](reports/multi-horizon-decision-2026-08-10/source-inspection.md) | 多周期决策的源码核查与结果快照 |
+| [baselines/topk-agentx-v1.json](baselines/topk-agentx-v1.json) | M0 冻结的基线 artifact 清单，含 SHA-256 与指标，冻结后不再更新 |
+| [reports/multi-horizon-decision-2026-08-10](reports/multi-horizon-decision-2026-08-10/source-inspection.md) | 2026-08-10 多周期决策的历史快照，结论已被 multi-horizon 路线吸收 |
 
 ## 数据结论的存放约定
 
@@ -71,9 +72,9 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 - 实验结论只在三处保留完整记录，其他文档用一句话摘要并加链接
 - [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 的当前证据一节收录最新真实结论
 - [nextday/multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) 收录多周期与容量实验
-- [research/resource-strategy-and-pilot-gates.md](research/resource-strategy-and-pilot-gates.md) 收录带日期的历史实验记录
+- [research/experiment-log.md](research/experiment-log.md) 按日期收录带完整数字的历史实验记录
 
-涉及资源容量、磁盘占用、Drive 套餐这类随时间变化的数字，写明年份并放在带日期的章节里，例如 2026-08-09 的资源盘点。
+涉及资源容量、磁盘占用、Drive 套餐这类随时间变化的数字，写明年份并放在带日期的章节里，例如 2026-08-09 的资源盘点。历史产物（`reports/`、`baselines/`）是冻结快照，改动会破坏可核对性，不更新，只保留。
 
 ## 写作规范
 

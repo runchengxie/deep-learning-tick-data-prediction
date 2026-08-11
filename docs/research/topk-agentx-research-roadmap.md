@@ -259,7 +259,6 @@ stage
 - `export_predictions` 只物化 Registry 中 checksum 匹配的 prediction artifact。Runner 对导出文件重新执行日期协议与 Audit，不能借此读取 locked 数据。
 - `compare_experiments` 输出 seed 分布、相对基线均值差和同 seed 配对差，并提供按 `higher` 和 `lower` 方向归一、正值恒为改善的字段。
 - `walk_forward_robustness` 默认要求不同数据指纹的至少三个窗口，按指标方向报告跨窗口波动和最差窗口。
-- `train_ranker` 保持显式不支持，不用临时训练入口代替。固定实现推迟到 M4 排序库选择。
 - M2 仍为进行中，下一阶段完成 Registry 到 ResearchContext 的异常、失败和历史决策回流。
 
 ### 阶段记录：M2d（2026-08-09）
@@ -269,7 +268,7 @@ stage
 - 同一 Registry 状态生成稳定 SHA-256。Orchestrator 将完整快照写入 `research_context` review，Brainstorm 与 Critic 消费同一份上下文。
 - Brainstorm 和 Critic 双重阻止历史 novelty 重复。Critic 还检查允许动作、已实现 executor 和本轮算力预算。重复候选在 reserve 前失败，不污染 Registry。
 - ResearchContext 明确不具有 locked-test 权限，也不从 dataset fingerprint 推断日期。
-- M2 的确定性闭环验收完成。`train_ranker` 按既定边界留到 M4 固定排序库和命令。
+- M2 的确定性闭环验收完成。`train_ranker` 仍未实现，状态见 [topk-agentx-m2a-deterministic-loop.md](topk-agentx-m2a-deterministic-loop.md)。
 
 ## M3：无重训 Top-K 与成本诊断
 
@@ -279,15 +278,7 @@ stage
 
 ### 实验矩阵
 
-第一步用现有 Top 100 预测做冒烟，只验证代码和方向。正式结论使用动态 Top 400 预测。
-
-| 维度 | 候选值 |
-|---|---|
-| `top_k` | 25、50、75、100 |
-| buffer | 0、10、25、50 |
-| 单边成本 | 5、10、15、20 bp |
-| 调仓 | 每日评分，允许缓冲区抑制无效换手 |
-| 组合 | long-only 等权 |
+第一步用现有 Top 100 预测做冒烟，只验证代码和方向。正式结论使用动态 Top 400 预测。参数网格以 [m0 交易契约](topk-agentx-m0-research-contract.md) 为准，执行值见 [m3](topk-agentx-m3-topk-diagnostics.md) 的正式 spec。
 
 ### 当前进展
 
