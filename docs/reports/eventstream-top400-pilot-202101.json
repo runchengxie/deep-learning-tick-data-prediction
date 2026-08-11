@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "month": "2021-01",
+  "source_audit_sha256": "821bbc3dcc52c09e2c6942298961f498822baa414d629f3a950c5f92f1f13c90",
+  "source_dataset_fingerprint": "d264b88f45601472c9b093faa0b8b9eb7c9b6f63f3737aef436ba950e8691817",
+  "universe": {
+    "days": 20,
+    "symbols_per_day_min": 364,
+    "symbols_per_day_max": 392,
+    "union_symbols": 493
+  },
+  "raw_total_bytes": 42277042917,
+  "pack": {
+    "expected_days": 20,
+    "missing_days": [],
+    "partial_days": [],
+    "stream_bytes": {
+      "order": 11740315678,
+      "trade": 10640069088,
+      "snap": 8748911280,
+      "index": 197453
+    },
+    "event_counts": {
+      "order": 451550603,
+      "trade": 483639504,
+      "snap": 36453797
+    },
+    "total_bytes": 31129493499
+  },
+  "projections": {
+    "five_month_raw_bytes": 211385214585,
+    "five_month_packed_bytes": 155647467495,
+    "drive_soft_limit_bytes": 150000000000,
+    "five_month_pack_fits_drive_soft_limit": false
+  }
+}

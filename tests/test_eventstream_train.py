@@ -66,10 +66,18 @@ class TestConfig:
         with pytest.raises(ValueError, match="days"):
             EventstreamConfig().validate()
 
+    def test_monitor_label_and_name_are_paired(self):
+        with pytest.raises(ValueError, match="必须提供"):
+            EventstreamConfig(
+                days=(20210104,), monitor_label_path="h3.parquet", monitor_name=""
+            ).validate()
+
 
 class TestTrain:
     def test_smoke_train_writes_checkpoints(self, packed_day, tmp_path):
         cfg = _smoke_config(packed_day, tmp_path / "ckpt")
+        cfg.monitor_label_path = cfg.label_path
+        cfg.monitor_name = "h3"
         result = train(cfg)
         ckpt = tmp_path / "ckpt"
         assert (ckpt / "smoke.seed0.best.pt").exists()
@@ -79,6 +87,7 @@ class TestTrain:
         assert result["dataset_fingerprint"]
         assert "val" in result
         assert "test" in result
+        assert result["monitor"]["name"] == "h3"
 
     def test_resume_rejects_different_signature(self, packed_day, tmp_path):
         cfg = _smoke_config(packed_day, tmp_path / "ckpt")
@@ -134,6 +143,8 @@ class TestFingerprint:
         cfg = _smoke_config(packed_day, Path("/tmp/ckpt"))
         sig = _experiment_signature(cfg, "fp-123")
         assert sig["dataset_fingerprint"] == "fp-123"
+        assert "monitor_label_path" not in sig
+        assert "monitor_label_fingerprint" not in sig
         assert "epochs" not in sig
         assert "device" not in sig
 

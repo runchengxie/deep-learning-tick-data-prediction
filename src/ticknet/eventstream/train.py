@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader
 
 from ticknet.eventstream.config import PACK_ROOT, day_is_packed
 from ticknet.eventstream.dataset import L2WindowDataset
-from ticknet.eventstream.fingerprint import dataset_fingerprint
+from ticknet.eventstream.fingerprint import dataset_fingerprint, file_sha256
 from ticknet.eventstream.model import CONFIGS, build_eventstream_model, compute_loss
 from ticknet.train import resolve_device, set_seed
 
@@ -49,6 +49,8 @@ class EventstreamConfig:
         "min_events",
         "min_symbols_per_day",
         "model",
+        "monitor_label_path",
+        "monitor_name",
         "num_workers",
         "pack_root",
         "patience",
@@ -71,6 +73,8 @@ class EventstreamConfig:
         *,
         pack_root: str = str(PACK_ROOT),
         label_path: str = "",
+        monitor_label_path: str = "",
+        monitor_name: str = "",
         train_start: int = 0,
         train_end: int = 0,
         val_start: int = 0,
@@ -101,6 +105,8 @@ class EventstreamConfig:
     ):
         self.pack_root = pack_root
         self.label_path = label_path
+        self.monitor_label_path = monitor_label_path
+        self.monitor_name = monitor_name
         self.train_start = train_start
         self.train_end = train_end
         self.val_start = val_start
@@ -146,6 +152,12 @@ class EventstreamConfig:
             raise ValueError("device 应为 cpu 或 cuda")
         if self.min_symbols_per_day < 2:
             raise ValueError("min_symbols_per_day 至少为 2")
+        if self.monitor_label_path and not self.monitor_name:
+            raise ValueError("提供 monitor_label_path 时必须提供 monitor_name")
+        if self.monitor_name and (
+            not self.monitor_name.isascii() or not self.monitor_name.replace("_", "").isalnum()
+        ):
+            raise ValueError("monitor_name 只能包含 ASCII 字母、数字和下划线")
         if not self.days and not (0 < self.train_start < self.train_end):
             raise ValueError("需要显式 days 或有效的 train_start/train_end 区间")
 
@@ -241,6 +253,43 @@ def make_dataloaders(
             pin_memory=device.type == "cuda",
         )
     return train_loader, val_loader, test_loader
+
+
+def make_monitor_dataloaders(
+    config: EventstreamConfig,
+    *,
+    device: torch.device,
+) -> tuple[DataLoader | None, DataLoader | None]:
+    """用同一批确定性收盘窗口加载只监控标签，不参与 checkpoint 选择。"""
+    if not config.monitor_label_path:
+        return None, None
+    root = Path(config.pack_root)
+    label_path = Path(config.monitor_label_path)
+
+    def build(start: int, end: int, eval_tickers: int) -> DataLoader | None:
+        if not start:
+            return None
+        dataset = L2WindowDataset(
+            list_packed_days(start, end, root),
+            seq_len=config.seq_len,
+            min_events=config.min_events,
+            root=root,
+            label_path=label_path,
+            eval_mode=True,
+            eval_tickers=eval_tickers,
+        )
+        return DataLoader(
+            dataset,
+            batch_size=config.batch_size,
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=device.type == "cuda",
+        )
+
+    return (
+        build(config.val_start, config.val_end, config.eval_tickers),
+        build(config.test_start, config.test_end, 0),
+    )
 
 
 def _empty_metrics() -> dict[str, Any]:
@@ -383,11 +432,20 @@ def _environment(device: torch.device) -> dict[str, Any]:
     }
 
 
-def _experiment_signature(config: EventstreamConfig, fingerprint: str) -> dict[str, Any]:
+def _experiment_signature(
+    config: EventstreamConfig,
+    fingerprint: str,
+    monitor_label_fingerprint: str | None = None,
+) -> dict[str, Any]:
     signature = config.to_dict()
     for name in ("epochs", "resume", "device", "num_workers", "amp", "gradient_accumulation_steps"):
         signature.pop(name)
+    if not config.monitor_label_path:
+        signature.pop("monitor_label_path")
+        signature.pop("monitor_name")
     signature["dataset_fingerprint"] = fingerprint
+    if monitor_label_fingerprint is not None:
+        signature["monitor_label_fingerprint"] = monitor_label_fingerprint
     return signature
 
 
@@ -415,6 +473,7 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
     set_seed(config.seed)
     device = resolve_device(config.device)
     train_loader, val_loader, test_loader = make_dataloaders(config, device=device)
+    monitor_val_loader, monitor_test_loader = make_monitor_dataloaders(config, device=device)
 
     root = Path(config.pack_root)
     fingerprint = dataset_fingerprint(
@@ -422,7 +481,10 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
         root=root,
         label_path=Path(config.label_path) if config.label_path else None,
     )
-    signature = _experiment_signature(config, fingerprint)
+    monitor_label_fingerprint = (
+        file_sha256(config.monitor_label_path) if config.monitor_label_path else None
+    )
+    signature = _experiment_signature(config, fingerprint, monitor_label_fingerprint)
 
     model = build_eventstream_model(config.model).to(device)
     optimizer = torch.optim.AdamW(
@@ -487,6 +549,12 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
         validation = evaluate_rank_ic(
             model, val_loader, device, min_symbols_per_day=config.min_symbols_per_day
         )
+        monitor_validation = evaluate_rank_ic(
+            model,
+            monitor_val_loader,
+            device,
+            min_symbols_per_day=config.min_symbols_per_day,
+        )
         raw_selection = validation[config.selection_metric]
         selection_value = float(raw_selection) if raw_selection is not None else math.nan
         comparable = selection_value if math.isfinite(selection_value) else -math.inf
@@ -502,6 +570,13 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
             "epoch_seconds": time.perf_counter() - epoch_started_at,
             **{f"val_{key}": value for key, value in validation.items()},
         }
+        if monitor_val_loader is not None:
+            record.update(
+                {
+                    f"val_{config.monitor_name}_{key}": value
+                    for key, value in monitor_validation.items()
+                }
+            )
         history.append(record)
         state = {
             "model": model.state_dict(),
@@ -533,6 +608,18 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
     test_metrics = evaluate_rank_ic(
         model, test_loader, device, min_symbols_per_day=config.min_symbols_per_day
     )
+    monitor_val_metrics = evaluate_rank_ic(
+        model,
+        monitor_val_loader,
+        device,
+        min_symbols_per_day=config.min_symbols_per_day,
+    )
+    monitor_test_metrics = evaluate_rank_ic(
+        model,
+        monitor_test_loader,
+        device,
+        min_symbols_per_day=config.min_symbols_per_day,
+    )
     train_dataset = train_loader.dataset
     if not isinstance(train_dataset, L2WindowDataset):
         raise TypeError("训练数据集类型无效")
@@ -553,10 +640,21 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
         "environment": _environment(device),
         "duration_seconds": time.perf_counter() - started_at,
         "dataset_fingerprint": fingerprint,
+        "monitor_label_fingerprint": monitor_label_fingerprint,
         "best_epoch": int(best["epoch"]),
         "best_selection_value": float(best["best_selection_value"]),
         "val": val_metrics,
         "test": test_metrics,
+        "monitor": (
+            None
+            if monitor_val_loader is None
+            else {
+                "name": config.monitor_name,
+                "label_path": config.monitor_label_path,
+                "val": monitor_val_metrics,
+                "test": monitor_test_metrics,
+            }
+        ),
         "result_file": str(result_path),
     }
     safe_result = _json_safe(result)

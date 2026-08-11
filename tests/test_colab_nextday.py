@@ -98,6 +98,22 @@ def test_capacity_benchmark_spec_uses_raw1000_and_gpu_specific_output(
     assert spec["requested_gpu"] == "A100"
 
 
+def test_eventstream_capacity_spec_uses_month_pack_and_exact_model_size(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-capacity-benchmark"
+    arguments.gpu = "A100"
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-fold0-benchmark-202101")
+    assert spec["feature_local"] == "/content/ticknet-eventstream/top400-h5-fold0"
+    assert spec["output_remote"].endswith("capacity100m-fold0/benchmarks/a100")
+    assert spec["expected_parameter_count"] == 100_604_180
+    assert spec["projected_train_samples"] == 40_000
+
+
 def test_batch_size_sweep_spec_keeps_effective_batch_and_separate_output(
     tmp_path: Path,
 ) -> None:
@@ -327,7 +343,10 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
     assert "--metadata" not in captured[0]
 
 
-@pytest.mark.parametrize("workflow", ["capacity-benchmark", "batch-size-sweep"])
+@pytest.mark.parametrize(
+    "workflow",
+    ["capacity-benchmark", "batch-size-sweep", "eventstream-capacity-benchmark"],
+)
 def test_capacity_workflows_stage_features_without_target_sidecar(
     workflow: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -404,6 +423,35 @@ def test_capacity_benchmark_invokes_audited_module(
     assert command[command.index("--expected-parameter-count") + 1] == "100817575"
     assert command[command.index("--projected-train-samples") + 1] == "75000"
     assert command[command.index("--requested-gpu") + 1] == "T4"
+
+
+def test_eventstream_capacity_benchmark_invokes_eventstream_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+
+    colab_job._benchmark_eventstream(
+        {
+            "output_local": str(tmp_path / "output"),
+            "training_config": "/content/config.yaml",
+            "benchmark_batches": 100,
+            "warmup_batches": 5,
+            "expected_parameter_count": 100_604_180,
+            "source_revision": "abc123",
+            "requested_gpu": "A100",
+        }
+    )
+
+    command = captured[0]
+    assert "ticknet.eventstream.benchmark" in command
+    assert command[command.index("--expected-parameter-count") + 1] == "100604180"
+    assert "--projected-train-samples" not in command
 
 
 def test_batch_size_sweep_invokes_audited_module(
