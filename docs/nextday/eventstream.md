@@ -35,4 +35,7 @@
 
 ## 配置示例
 
-基础示例见 `configs/eventstream.yaml`。首个 3/1/1 H5 fold 使用 `configs/eventstream-h5-fold0-capacity100m.yaml`，其中 train 为 2021-01 至 2021-03，validation 为 2021-04，OOS 为 2021-05。
+基础示例见 `configs/eventstream.yaml`。2021 基础设施 fold 使用
+`configs/eventstream-h5-fold0-capacity100m.yaml`。正式 recent fold 使用
+`configs/eventstream-h5-recent-capacity100m.yaml`：train 为 2025-08 至 2025-10，validation 为
+2025-11，OOS 为 2025-12；2026 保持 locked，配置和标签均不读取它。

@@ -114,6 +114,20 @@ def test_eventstream_capacity_spec_uses_month_pack_and_exact_model_size(
     assert spec["projected_train_samples"] == 40_000
 
 
+def test_eventstream_recent_capacity_spec_uses_2025_pack(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-capacity-benchmark"
+    arguments.gpu = "A100"
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-benchmark-202508")
+    assert spec["feature_local"] == "/content/ticknet-eventstream/top400-h5-recent"
+    assert spec["output_remote"].endswith("capacity100m-recent/benchmarks/a100")
+    assert spec["expected_parameter_count"] == 100_604_180
+    assert spec["projected_train_samples"] == 42_000
+
+
 def test_batch_size_sweep_spec_keeps_effective_batch_and_separate_output(
     tmp_path: Path,
 ) -> None:
@@ -345,7 +359,12 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
 
 @pytest.mark.parametrize(
     "workflow",
-    ["capacity-benchmark", "batch-size-sweep", "eventstream-capacity-benchmark"],
+    [
+        "capacity-benchmark",
+        "batch-size-sweep",
+        "eventstream-capacity-benchmark",
+        "eventstream-recent-capacity-benchmark",
+    ],
 )
 def test_capacity_workflows_stage_features_without_target_sidecar(
     workflow: str,

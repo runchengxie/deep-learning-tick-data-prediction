@@ -29,7 +29,7 @@
 - 输入：每样本 `10 × 100 × 40`，共 1000 个 snapshot
 - physical batch 为 2，gradient accumulation 为 16，effective batch 为 32
 - AMP、分类损失、回归损失、反向传播和 AdamW 更新全部启用
-- 2025 locked test：未访问
+- 2025 可见开发区与 2026 locked 区：均未访问
 
 ## A100 batch-size sweep
 

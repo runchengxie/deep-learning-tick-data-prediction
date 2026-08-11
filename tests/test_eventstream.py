@@ -14,6 +14,7 @@ from ticknet.eventstream.config import ORDER_DTYPE, SNAP_DTYPE, TRADE_DTYPE, day
 from ticknet.eventstream.dataset import L2WindowDataset
 from ticknet.eventstream.pack import (
     _isolated_day_command,
+    _load_prev_close,
     _load_universe,
     _universe_for_day,
     pack_day,
@@ -167,6 +168,26 @@ def _make_lake(tmp_path: Path) -> tuple[Path, Path]:
 
 
 class TestPack:
+    def test_prev_close_uses_latest_valid_value_per_ticker(self, tmp_path):
+        basic = tmp_path / "basic"
+        basic.mkdir()
+        _write_table(
+            [
+                {"value": 20201230, "600000": 9.9, "000001": None},
+                {"value": 20201231, "600000": None, "000001": float("nan")},
+                {"value": 20210104, "600000": 10.1, "000001": 12.0},
+            ],
+            basic / "close_data.parquet",
+        )
+
+        closes = _load_prev_close(
+            DAY,
+            ["600000", "000001", "missing"],
+            tmp_path,
+        )
+
+        assert closes.tolist() == pytest.approx([9.9, 0.0, 0.0])
+
     def test_lossless_and_linkage(self, tmp_path):
         raw, pack_root = _make_lake(tmp_path)
         pack_day(DAY, raw_root=raw, pack_root=pack_root)

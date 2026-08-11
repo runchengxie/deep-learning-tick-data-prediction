@@ -93,6 +93,20 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 
 默认配置是 `configs/eventstream-h5-fold0-capacity100m-colab.yaml`。该 workflow 只构造2021-01 train dataset，不读取2021-04 validation 或2021-05 OOS。
 
+2021 结果只作基础设施吞吐基线。正式 recent fold 应上传 2025-08 pack，并补一次相同口径 benchmark：
+
+    python scripts/run_colab_nextday.py \
+      --workflow eventstream-recent-capacity-benchmark \
+      --session ticknet-eventstream-h5-recent-100m-a100 \
+      --gpu A100 \
+      --benchmark-batches 100 \
+      --warmup-batches 5 \
+      --keep-on-failure \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/benchmarks/a100
+
+recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问
+2025-08 train pack。2025-11 validation、2025-12 OOS 和 2026 locked 均不参与 benchmark。
+
 正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16、32。命令固定 effective
 batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch；单档 OOM 会留下记录并
 继续，最终按未 OOM 档位的 samples/s 选择最佳值：
@@ -114,7 +128,7 @@ runner 会执行：
 2. 查询同名 session。默认要求它不存在，只有显式传入 `--reuse-session` 才允许复用。
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree。需要新 session 时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签，两个100M benchmark 分别下载 raw-1000 preflight 或2021-01 eventstream pack。
+5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签；100M benchmark 下载 raw-1000 preflight、2021-01 eventstream pack 或 2025-08 recent pack。
 6. 执行多周期 validation、独立 H=5 训练或对应的100M容量 benchmark。
 7. 将 JSON 和 Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
