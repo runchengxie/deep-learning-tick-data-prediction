@@ -41,6 +41,7 @@ ticknet-nextday-prepare-snapshot = "ticknet.nextday.raw_snapshot:main"
 ticknet-nextday-prepare-horizon-labels = "ticknet.nextday.horizon_labels:main"
 ticknet-nextday-predict = "ticknet.nextday.inference:main"
 ticknet-eventstream-pack = "ticknet.eventstream.pack:main"
+ticknet-eventstream-train = "ticknet.eventstream.train:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
@@ -70,6 +71,8 @@ max-complexity = 15
 # 以下两处高复杂度是已知技术债，将在 PR-3 拆分上帝文件（dataset.py / train.py）时解决。
 "src/ticknet/nextday/dataset.py" = ["C901"]
 "src/ticknet/nextday/train.py" = ["C901"]
+# 事件流训练入口与 nextday/train.py 同类为已知复杂度技术债，后续拆分。
+"src/ticknet/eventstream/train.py" = ["C901"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]

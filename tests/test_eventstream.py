@@ -71,12 +71,36 @@ def _make_lake(tmp_path: Path) -> tuple[Path, Path]:
     # ---- orders：B1 买加 + S1 卖加 + C1 撤（撤 B1）----
     _write_table(
         [
-            {"ticker": "600000", "TradingDay": DAY, "time_ms": 1000, "OrderID": "B1",
-             "Price": 10.00, "Volume": 100, "OrderType": 0, "LastPrice": 10.00},
-            {"ticker": "600000", "TradingDay": DAY, "time_ms": 1200, "OrderID": "S1",
-             "Price": 10.01, "Volume": 200, "OrderType": 0, "LastPrice": 10.01},
-            {"ticker": "600000", "TradingDay": DAY, "time_ms": 2000, "OrderID": "B1",
-             "Price": 10.00, "Volume": 100, "OrderType": -1, "LastPrice": 10.00},
+            {
+                "ticker": "600000",
+                "TradingDay": DAY,
+                "time_ms": 1000,
+                "OrderID": "B1",
+                "Price": 10.00,
+                "Volume": 100,
+                "OrderType": 0,
+                "LastPrice": 10.00,
+            },
+            {
+                "ticker": "600000",
+                "TradingDay": DAY,
+                "time_ms": 1200,
+                "OrderID": "S1",
+                "Price": 10.01,
+                "Volume": 200,
+                "OrderType": 0,
+                "LastPrice": 10.01,
+            },
+            {
+                "ticker": "600000",
+                "TradingDay": DAY,
+                "time_ms": 2000,
+                "OrderID": "B1",
+                "Price": 10.00,
+                "Volume": 100,
+                "OrderType": -1,
+                "LastPrice": 10.00,
+            },
         ],
         order_dir / "order_2021-01-04.parquet",
     )
@@ -84,9 +108,18 @@ def _make_lake(tmp_path: Path) -> tuple[Path, Path]:
     # ---- trades：成交 D1 撮合 B1 x S1 ----
     _write_table(
         [
-            {"ticker": "600000", "TradingDay": DAY, "time_ms": 1500, "DealID": "D1",
-             "Price": 10.00, "Volume": 60, "Side": 0, "bsflag": 1,
-             "BuyID": "B1", "SellID": "S1"},
+            {
+                "ticker": "600000",
+                "TradingDay": DAY,
+                "time_ms": 1500,
+                "DealID": "D1",
+                "Price": 10.00,
+                "Volume": 60,
+                "Side": 0,
+                "bsflag": 1,
+                "BuyID": "B1",
+                "SellID": "S1",
+            },
         ],
         trades_dir / "trades_2021-01-04.parquet",
     )
@@ -94,10 +127,26 @@ def _make_lake(tmp_path: Path) -> tuple[Path, Path]:
     # ---- snapshot（月度文件，只含当日两行）----
     _write_table(
         [
-            _snap_row("600000", 1000, last=10.00, volume=100, turnover=1000, dealnum=2,
-                      bid1=9.99, ask1=10.01),
-            _snap_row("600000", 1500, last=10.00, volume=150, turnover=1500, dealnum=3,
-                      bid1=9.99, ask1=10.01),
+            _snap_row(
+                "600000",
+                1000,
+                last=10.00,
+                volume=100,
+                turnover=1000,
+                dealnum=2,
+                bid1=9.99,
+                ask1=10.01,
+            ),
+            _snap_row(
+                "600000",
+                1500,
+                last=10.00,
+                volume=150,
+                turnover=1500,
+                dealnum=3,
+                bid1=9.99,
+                ask1=10.01,
+            ),
         ],
         raw / "snapshot" / "snapshot_202101.parquet",
     )
@@ -159,8 +208,13 @@ class TestDataset:
         pack_day(DAY, raw_root=raw, pack_root=pack_root)
 
         ds = L2WindowDataset(
-            [DAY], seq_len=8, min_events=2, samples_per_day=4,
-            root=pack_root, label_path=None, seed=0,
+            [DAY],
+            seq_len=8,
+            min_events=2,
+            samples_per_day=4,
+            root=pack_root,
+            label_path=None,
+            seed=0,
         )
         assert len(ds) == 4
         sample = ds[0]
@@ -188,8 +242,12 @@ class TestDataset:
             tmp_path / "labels.parquet",
         )
         ds = L2WindowDataset(
-            [DAY], seq_len=8, min_events=2, root=pack_root,
-            label_path=tmp_path / "labels.parquet", eval_mode=True,
+            [DAY],
+            seq_len=8,
+            min_events=2,
+            root=pack_root,
+            label_path=tmp_path / "labels.parquet",
+            eval_mode=True,
         )
         assert len(ds) == 1
         _, _, _, _, _, _, tgt_day, day_valid, _, _ = ds[0]
