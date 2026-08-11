@@ -28,6 +28,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-capacity-benchmark",
         "eventstream-recent-capacity-benchmark",
         "eventstream-recent-batch-size-sweep",
+        "eventstream-recent-input-profile",
     }
 )
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
@@ -51,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-capacity-benchmark",
             "eventstream-recent-capacity-benchmark",
             "eventstream-recent-batch-size-sweep",
+            "eventstream-recent-input-profile",
         ),
         default="multi-horizon-validation",
     )
@@ -71,6 +73,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-batches", type=int, default=100)
     parser.add_argument("--warmup-batches", type=int, default=5)
     parser.add_argument("--batch-sizes", nargs="+", type=int, default=[2, 4, 8, 16, 32])
+    parser.add_argument("--num-workers", nargs="+", type=int, default=[2, 4, 8, 16])
     parser.add_argument("--effective-batch-size", type=int, default=32)
     parser.add_argument("--timeout", type=float, default=14_400.0)
     retention = parser.add_mutually_exclusive_group()
@@ -142,6 +145,10 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         for batch_size in arguments.batch_sizes
     ):
         raise ValueError("--batch-sizes 必须为能整除 effective batch 的正整数")
+    if not arguments.num_workers or len(set(arguments.num_workers)) != len(arguments.num_workers):
+        raise ValueError("--num-workers 不能为空且不能重复")
+    if any(workers < 0 for workers in arguments.num_workers):
+        raise ValueError("--num-workers 不能为负数")
 
 
 def _default_config(workflow: str) -> Path:
@@ -153,6 +160,7 @@ def _default_config(workflow: str) -> Path:
         "eventstream-capacity-benchmark": DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG,
         "eventstream-recent-capacity-benchmark": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
         "eventstream-recent-batch-size-sweep": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
+        "eventstream-recent-input-profile": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
     }[workflow]
 
 
@@ -300,6 +308,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         if workflow == "eventstream-recent-batch-size-sweep":
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/batch-size-sweep/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/batch-size-sweep/{gpu_label}"
+        elif workflow == "eventstream-recent-input-profile":
+            output_remote = f"{drive_root}/ticknet-runs/{run_name}/input-profile/{gpu_label}"
+            output_local = f"/content/ticknet-results/{run_name}/input-profile/{gpu_label}"
         else:
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
@@ -327,13 +338,15 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "benchmark_batches": arguments.benchmark_batches,
         "warmup_batches": arguments.warmup_batches,
         "batch_sizes": list(arguments.batch_sizes),
+        "num_workers": list(arguments.num_workers),
         "effective_batch_size": arguments.effective_batch_size,
         "expected_parameter_count": (
             100_604_180 if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS else 100_817_575
         ),
         "projected_train_samples": (
             120_000
-            if workflow == "eventstream-recent-batch-size-sweep"
+            if workflow
+            in {"eventstream-recent-batch-size-sweep", "eventstream-recent-input-profile"}
             else 42_000
             if workflow == "eventstream-recent-capacity-benchmark"
             else 40_000

@@ -167,8 +167,7 @@ class L2WindowDataset(Dataset):
         snap = mmaps["snap"][idx["s_off"][tk] : idx["s_off"][tk] + idx["s_len"][tk]]
         prev_close_cent = float(idx["prev_close"][tk]) * 100.0  # 元 -> 分
 
-        feats, stream_id, otype_id = _merge_and_featurize(order, trade, snap, prev_close_cent)
-        n = len(stream_id)
+        n = len(order) + len(trade) + len(snap)
         length = self.seq_len
         need = length + 1  # 需要下一个事件作目标
         if n < need:
@@ -178,6 +177,14 @@ class L2WindowDataset(Dataset):
         else:
             start = int(self.rng.integers(0, n - need + 1))
         end = min(start + need, n)
+        feats, window_stream, window_otype = _merge_window_and_featurize(
+            order,
+            trade,
+            snap,
+            prev_close_cent,
+            start=start,
+            stop=end,
+        )
 
         x = np.zeros((length, N_FEATURES), dtype=np.float32)
         sid = np.zeros(length + 1, dtype=np.int64)
@@ -185,15 +192,13 @@ class L2WindowDataset(Dataset):
         tgt_reg = np.zeros((length, 3), dtype=np.float32)  # next price_bps, dt_log, qty_log
         valid = np.zeros(length, dtype=np.float32)
 
-        span = min(length, end - start - 1)
-        window = slice(start, start + span)
-        x[:span] = feats[window]
-        sid[: span + 1] = stream_id[start : start + span + 1]
-        oid[: span + 1] = otype_id[start : start + span + 1]
-        nxt = slice(start + 1, start + span + 1)
-        tgt_reg[:span, 0] = feats[nxt, 1]
-        tgt_reg[:span, 1] = feats[nxt, 0]
-        tgt_reg[:span, 2] = feats[nxt, 2]
+        span = min(length, len(window_stream) - 1)
+        x[:span] = feats[:span]
+        sid[: span + 1] = window_stream[: span + 1]
+        oid[: span + 1] = window_otype[: span + 1]
+        tgt_reg[:span, 0] = feats[1 : span + 1, 1]
+        tgt_reg[:span, 1] = feats[1 : span + 1, 0]
+        tgt_reg[:span, 2] = feats[1 : span + 1, 2]
         valid[:span] = 1.0
 
         lab = float(idx["label"][tk])
@@ -212,6 +217,132 @@ class L2WindowDataset(Dataset):
             torch.from_numpy(valid),
             torch.tensor(day, dtype=torch.int64),
         )
+
+
+def _positions_at_rank(
+    times: tuple[np.ndarray, np.ndarray, np.ndarray],
+    rank: int,
+) -> tuple[int, int, int]:
+    """返回稳定三路归并在消费 ``rank`` 个事件后的各流位置。"""
+    lengths = tuple(len(values) for values in times)
+    total = sum(lengths)
+    if not 0 <= rank <= total:
+        raise ValueError(f"rank 应位于 [0, {total}]，实际为 {rank}")
+    if rank == 0:
+        return (0, 0, 0)
+    if rank == total:
+        return lengths[0], lengths[1], lengths[2]
+
+    nonempty = [values for values in times if len(values)]
+    low = min(int(values[0]) for values in nonempty)
+    high = max(int(values[-1]) for values in nonempty)
+    while low < high:
+        middle = (low + high) // 2
+        consumed = sum(int(np.searchsorted(values, middle, side="right")) for values in times)
+        if consumed <= rank:
+            low = middle + 1
+        else:
+            high = middle
+    timestamp = low
+    positions = [int(np.searchsorted(values, timestamp, side="left")) for values in times]
+    remaining = rank - sum(positions)
+    for stream, values in enumerate(times):
+        ties = int(np.searchsorted(values, timestamp, side="right")) - positions[stream]
+        consumed = min(remaining, ties)
+        positions[stream] += consumed
+        remaining -= consumed
+    if remaining:
+        raise RuntimeError("稳定归并 rank 定位失败")
+    return positions[0], positions[1], positions[2]
+
+
+def _merged_window_rows(
+    order,
+    trade,
+    snap,
+    *,
+    start: int,
+    stop: int,
+) -> tuple[np.ndarray, np.ndarray, tuple[int, int, int]]:
+    """只归并 ``[start, stop)``，同时间戳保持 order、trade、snapshot 顺序。"""
+    time_streams = (order["time_ms"], trade["time_ms"], snap["time_ms"])
+    total = sum(len(values) for values in time_streams)
+    if not 0 <= start < stop <= total:
+        raise ValueError(f"窗口应满足 0 <= start < stop <= {total}")
+    initial_positions = _positions_at_rank(time_streams, start)
+    positions = list(initial_positions)
+    stream_values = (STREAM_ORDER, STREAM_TRADE, STREAM_SNAP)
+    count = stop - start
+    streams = np.empty(count, dtype=np.int64)
+    row_indices = np.empty(count, dtype=np.int64)
+    for output_index in range(count):
+        selected = min(
+            (
+                (int(values[positions[stream]]), stream)
+                for stream, values in enumerate(time_streams)
+                if positions[stream] < len(values)
+            ),
+            key=lambda candidate: (candidate[0], candidate[1]),
+        )[1]
+        streams[output_index] = stream_values[selected]
+        row_indices[output_index] = positions[selected]
+        positions[selected] += 1
+    return streams, row_indices, initial_positions
+
+
+def _snapshot_mid(row) -> float:
+    bid = float(row["bid_px"][0])
+    ask = float(row["ask_px"][0])
+    if bid > 0 and ask > 0:
+        return (bid + ask) / 2.0
+    return max(bid, ask)
+
+
+def _reference_before_window(snap, consumed_snapshots: int, prev_close_cent: float) -> float:
+    for index in range(consumed_snapshots - 1, -1, -1):
+        middle = _snapshot_mid(snap[index])
+        if middle > 0 and np.isfinite(middle):
+            return middle
+    if prev_close_cent > 0 and np.isfinite(prev_close_cent):
+        return prev_close_cent
+    valid = [middle for row in snap if (middle := _snapshot_mid(row)) > 0 and np.isfinite(middle)]
+    return max(valid, default=1.0)
+
+
+def _merge_window_and_featurize(
+    order,
+    trade,
+    snap,
+    prev_close_cent: float,
+    *,
+    start: int,
+    stop: int,
+):
+    """定位并特征化目标窗口，避免为 513 个事件重算整日序列。"""
+    context_start = max(0, start - 1)
+    streams, row_indices, positions = _merged_window_rows(
+        order,
+        trade,
+        snap,
+        start=context_start,
+        stop=stop,
+    )
+    initial_ref = _reference_before_window(snap, positions[2], prev_close_cent)
+    selected_order = order[row_indices[streams == STREAM_ORDER]]
+    selected_trade = trade[row_indices[streams == STREAM_TRADE]]
+    selected_snap = snap[row_indices[streams == STREAM_SNAP]]
+    feats, stream_ids, order_type_ids = _merge_and_featurize(
+        selected_order,
+        selected_trade,
+        selected_snap,
+        initial_ref,
+    )
+    drop_context = start - context_start
+    return (
+        feats[drop_context:],
+        stream_ids[drop_context:],
+        order_type_ids[drop_context:],
+    )
 
 
 def _merge_and_featurize(order, trade, snap, prev_close_cent: float):

@@ -107,6 +107,27 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问
 2025-08 train pack。2025-11 validation、2025-12 OOS 和 2026 locked 均不参与 benchmark。
 
+如果 batch sweep 的吞吐没有随物理 batch 增长，使用相同 2025-08 pack 拆分 DataLoader 和
+GPU，并扫描 worker 数：
+
+    python scripts/run_colab_nextday.py \
+      --workflow eventstream-recent-input-profile \
+      --session ticknet-eventstream-h5-recent-input-a100 \
+      --gpu A100 \
+      --num-workers 2 4 8 16 \
+      --effective-batch-size 64 \
+      --benchmark-batches 50 \
+      --warmup-batches 5 \
+      --keep-on-failure \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/input-profile/a100
+
+输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 选择以端
+到端吞吐为准。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
+
+2026-08-12 的优化后实测选择 8 workers：DataLoader-only 140.48 samples/s，端到端 149.40
+samples/s，GPU-only 238.79 samples/s。完整 120,000 样本、20 epoch 外推为 4.46 小时每 seed。
+正式 recent 配置使用 `num_workers: 8`。
+
 eventstream recent sweep 复用同一份 2025-08 staging，在一个 A100 session 内测 batch
 8、16、32、64，并按完整三个月的 120,000 个训练样本外推：
 
@@ -209,5 +230,8 @@ H=5 训练目录还包含每个 seed 的 last 和 best checkpoint、history、re
 batch-size sweep 目录包含每档的 `batch-NN.json`、汇总
 `batch-size-sweep.json`、`colab-run-summary.json` 和 `execution.ipynb`。汇总文件记录每档梯度
 累积、吞吐、显存、相对最小成功 batch 的加速比和最终选择。
+
+eventstream input profile 目录包含 `gpu-only.json`、每个 worker 的 data-only 与 end-to-end
+JSON、汇总 `input-profile.json`、`colab-run-summary.json` 和 `execution.ipynb`。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。
