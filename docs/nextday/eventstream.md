@@ -39,3 +39,20 @@
 `configs/eventstream-h5-fold0-capacity100m.yaml`。正式 recent fold 使用
 `configs/eventstream-h5-recent-capacity100m.yaml`：train 为 2025-08 至 2025-10，validation 为
 2025-11，OOS 为 2025-12；2026 保持 locked，配置和标签均不读取它。
+
+recent A100 容量基准完成后，用同一个 2025-08 pack 扫描物理 batch 8、16、32、64。effective
+batch 固定为 64，正式训练样本数按 2025-08 至 2025-10 的 120,000 个外推：
+
+    python scripts/run_colab_nextday.py \
+      --workflow eventstream-recent-batch-size-sweep \
+      --session ticknet-eventstream-h5-recent-sweep-a100 \
+      --gpu A100 \
+      --batch-sizes 8 16 32 64 \
+      --effective-batch-size 64 \
+      --benchmark-batches 50 \
+      --warmup-batches 5 \
+      --keep-on-failure \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/batch-size-sweep/a100
+
+每档独立记录吞吐和显存；单档 OOM 不终止后续档位。validation、OOS 和 2026 locked 数据均不
+参与 sweep。

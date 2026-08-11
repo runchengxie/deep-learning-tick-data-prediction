@@ -24,7 +24,11 @@ DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "eventstream-h5-recent-capacity100m-colab.yaml"
 )
 EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
-    {"eventstream-capacity-benchmark", "eventstream-recent-capacity-benchmark"}
+    {
+        "eventstream-capacity-benchmark",
+        "eventstream-recent-capacity-benchmark",
+        "eventstream-recent-batch-size-sweep",
+    }
 )
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
@@ -46,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
             "batch-size-sweep",
             "eventstream-capacity-benchmark",
             "eventstream-recent-capacity-benchmark",
+            "eventstream-recent-batch-size-sweep",
         ),
         default="multi-horizon-validation",
     )
@@ -147,6 +152,7 @@ def _default_config(workflow: str) -> Path:
         "batch-size-sweep": DEFAULT_100M_BENCHMARK_CONFIG,
         "eventstream-capacity-benchmark": DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG,
         "eventstream-recent-capacity-benchmark": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
+        "eventstream-recent-batch-size-sweep": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
     }[workflow]
 
 
@@ -291,8 +297,12 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             )
             feature_local = "/content/ticknet-eventstream/top400-h5-recent"
         gpu_label = arguments.gpu.lower()
-        output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
-        output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+        if workflow == "eventstream-recent-batch-size-sweep":
+            output_remote = f"{drive_root}/ticknet-runs/{run_name}/batch-size-sweep/{gpu_label}"
+            output_local = f"/content/ticknet-results/{run_name}/batch-size-sweep/{gpu_label}"
+        else:
+            output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
+            output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
@@ -322,7 +332,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             100_604_180 if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS else 100_817_575
         ),
         "projected_train_samples": (
-            42_000
+            120_000
+            if workflow == "eventstream-recent-batch-size-sweep"
+            else 42_000
             if workflow == "eventstream-recent-capacity-benchmark"
             else 40_000
             if workflow == "eventstream-capacity-benchmark"
