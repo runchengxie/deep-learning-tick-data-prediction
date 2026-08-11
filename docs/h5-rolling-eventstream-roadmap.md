@@ -105,7 +105,8 @@ python -m ticknet.eventstream.pack \
 
 首日完成后重新运行 pilot 审计。D1 的报告先检查实际 pack bytes、ticker 数、三流事件数、处理时间
 和峰值 RSS，再决定是否启动完整月度 systemd job。完整月度任务必须支持断点续跑，不覆盖其他
-pack 版本。
+pack 版本。多日 pack 默认让每个交易日运行在独立子进程中，防止 Polars 与 Python allocator
+保留的常驻内存跨日累积；已完成日期由四文件完整性检查自动跳过。
 
 ## 完成定义
 
