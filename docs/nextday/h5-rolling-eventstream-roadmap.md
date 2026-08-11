@@ -76,9 +76,9 @@ Top-400 pack 很可能超过 200GB：本地先完整生成，Colab B0 只上传 
 | D0 | 完成 | 五个月 raw/preflight/universe 完整，源 manifest 指纹固定 |
 | F0 | 完成 | 前收盘价逐股票回退到最近有效正值；测试覆盖 null/NaN/缺列 |
 | D1 | 完成 | 2025-08-01 四文件齐全，随机读取和 H5 标签覆盖通过，无 OOM |
-| D2 | 待执行 | 打包 2025-08，审计实际体积、事件数、峰值 RSS 与耗时 |
-| B0 | 待执行 | 上传 2025-08 pack，在 T4/A100 跑 100 batch recent benchmark |
-| D3 | 待执行 | 本地断点续跑 2025-09 至 2025-12，确认无 partial day |
+| D2 | 完成 | 2025-08 共 21 日，pack 约 68.58GB，已完成审计并上传 |
+| B0 | 完成 | A100 batch 与 worker profiling 完成；窗口归并优化后 149.40 samples/s，20 epoch 外推 4.46 小时每 seed |
+| D3 | 执行中 | 本地断点续跑 2025-09 至 2025-12，完成后确认无 partial day |
 | T0 | 待执行 | recent fold 正式 seed 0；H5 选 checkpoint，H3 只监控 |
 | T1 | 待执行 | seed 1/2 与更多 rolling fold，报告最差 OOS 月和成本敏感性 |
 | L0 | 封存 | 2026 数据达到协议门槛且获批后一次性评估；不得据此回调本轮模型 |

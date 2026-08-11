@@ -138,3 +138,24 @@ src/ticknet/research/
 | 10 日 | 0.09 | -9.0% | -14.6% | -0.49 |
 
 结论：假设被否定。降低频率虽降换手，但毛利崩溃更快，2 至 3 日反而最差。信号是纯日频动量，alpha 集中在隔夜到次日单日窗口，与成本结构不兼容。系统自主收敛到成本是主要瓶颈的方向，与 LLM 独立分析一致，验证了闭环能产生可复现的研究结论并登记为结构化证据。
+
+## 2026-08-12：eventstream A100 输入流水线优化
+
+在 2025-08 Top-400 train pack 上，用 100,604,180 参数的 `capacity100m` 因果 Transformer 拆分 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。实验只读取 2025-08 训练数据，dataset fingerprint 为 `705445378f0fc5842ce80bcfa41a01cdd10236198c5683f108f0ba146f8c3b82`；validation、OOS 和 2026 locked 数据均未访问。
+
+旧 Dataset 的 GPU-only 为 235.28 samples/s。worker sweep 结果为 2、4、8、16 workers 对应端到端 4.62、9.53、13.23、18.19 samples/s，确认瓶颈在输入流水线。按 120,000 个样本和 20 epoch 外推，最佳 16 workers 仍需 36.65 小时每 seed。
+
+旧实现每取一个 512 事件窗口都会对该股票全天 order、trade、snapshot 重新拼接、稳定排序并构造全部 80 维特征。2025-08 有 8,097 个 `(day, ticker)` 和约 24.55 亿事件。`uint32` merge index 全月约 9.15GiB；按正式 shuffle 顺序模拟 20 epoch，16 workers 每个 512MiB、合计 8GiB 的 LRU 命中率只有 5.45%，合计 32GiB 也只有 22.15%，因此不落地 LRU。
+
+优化改为对三条已排序流做时间二分，定位目标合并排名后只稳定归并窗口附近 513 个事件，并从窗口前最后一个有效 snapshot 延续滚动中间价。合成数据穷举同时间戳顺序和全部窗口均与旧实现一致；真实 2025-08 三个交易日、9 个窗口逐元素一致，单样本数据构造加速 15.6 至 18.9 倍。
+
+优化后 A100 runtime 有 12 个 CPU core，GPU-only 为 238.79 samples/s。worker sweep 结果：
+
+| workers | DataLoader-only | 端到端 | 20 epoch 外推 |
+|---:|---:|---:|---:|
+| 2 | 62.53 | 65.24 | 10.22 小时/seed |
+| 4 | 124.11 | 123.71 | 5.39 小时/seed |
+| 8 | 140.48 | 149.40 | 4.46 小时/seed |
+| 16 | 171.07 | 140.73 | 4.74 小时/seed |
+
+选择 8 workers。相对旧 Dataset 的最佳端到端吞吐提升 8.21 倍，相对最初 batch 8、2 workers 的约 4.4 samples/s 累计提升约 34 倍。三个 seed 串行 20 epoch 上限约 13.39 小时；正式训练还包含 validation、checkpoint I/O 和早停，以真实墙钟为准。当前模型已经是带 RoPE、causal scaled-dot-product attention 和 FFN 的 Transformer，换用 Hugging Face `transformers` 封装不会解决本轮确认的输入瓶颈。

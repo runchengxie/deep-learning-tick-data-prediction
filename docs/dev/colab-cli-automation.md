@@ -124,6 +124,10 @@ GPU，并扫描 worker 数：
 输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 选择以端
 到端吞吐为准。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
 
+2026-08-12 的优化后实测选择 8 workers：DataLoader-only 140.48 samples/s，端到端 149.40
+samples/s，GPU-only 238.79 samples/s。完整 120,000 样本、20 epoch 外推为 4.46 小时每 seed。
+正式 recent 配置使用 `num_workers: 8`。
+
 eventstream recent sweep 复用同一份 2025-08 staging，在一个 A100 session 内测 batch
 8、16、32、64，并按完整三个月的 120,000 个训练样本外推：
 

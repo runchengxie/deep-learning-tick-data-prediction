@@ -23,7 +23,7 @@ lr: 0.0003
 weight_decay: 0.1
 patience: 4
 seed: 0
-num_workers: 2
+num_workers: 8
 device: cuda
 amp: true
 gradient_accumulation_steps: 1
