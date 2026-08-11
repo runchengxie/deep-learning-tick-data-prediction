@@ -27,7 +27,8 @@ A 股次日横截面预测主线，覆盖样本口径、数据加工、训练入
 | [eventstream.md](nextday/eventstream.md) | L2 逐笔事件流无损打包、因果 Transformer 与预测导出 |
 | [raw-data-expansion-roadmap.md](nextday/raw-data-expansion-roadmap.md) | 五年 raw-200 数据生成、审计、上传和扩展门槛 |
 | [multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) | 1/3/5 日标签、容量门槛、raw-1000 与全天 tick 路线 |
-| [nextday-100m-raw1000-benchmark.md](nextday/nextday-100m-raw1000-benchmark.md) | 100M 参数容量基准实测快照 |
+| [nextday-100m-raw1000-benchmark.md](nextday/nextday-100m-raw1000-benchmark.md) | 100M 参数容量基准与 A100 batch sweep 实测快照 |
+| [h5-rolling-eventstream-roadmap.md](nextday/h5-rolling-eventstream-roadmap.md) | H5 Rank IC 主目标、3/1/1 滚动协议与全天事件数据 pilot |
 | [hardware-constraints-and-experiment-roadmap.md](nextday/hardware-constraints-and-experiment-roadmap.md) | 硬件约束、统一研究口径和分阶段路线 |
 
 ### research

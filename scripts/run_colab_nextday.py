@@ -30,7 +30,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--workflow",
-        choices=("multi-horizon-validation", "h5-train", "capacity-benchmark"),
+        choices=(
+            "multi-horizon-validation",
+            "h5-train",
+            "capacity-benchmark",
+            "batch-size-sweep",
+        ),
         default="multi-horizon-validation",
     )
     parser.add_argument("--session", default="ticknet-multi-horizon")
@@ -49,6 +54,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--inference-batch-size", type=int, default=128)
     parser.add_argument("--benchmark-batches", type=int, default=100)
     parser.add_argument("--warmup-batches", type=int, default=5)
+    parser.add_argument("--batch-sizes", nargs="+", type=int, default=[2, 4, 8, 16, 32])
+    parser.add_argument("--effective-batch-size", type=int, default=32)
     parser.add_argument("--timeout", type=float, default=14_400.0)
     retention = parser.add_mutually_exclusive_group()
     retention.add_argument(
@@ -110,6 +117,15 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--keep-session 与 --keep-on-failure 不能同时使用")
     if arguments.benchmark_batches < 1 or arguments.warmup_batches < 0:
         raise ValueError("--benchmark-batches 应为正整数，--warmup-batches 不能为负数")
+    if arguments.effective_batch_size < 1:
+        raise ValueError("--effective-batch-size 应为正整数")
+    if not arguments.batch_sizes or len(set(arguments.batch_sizes)) != len(arguments.batch_sizes):
+        raise ValueError("--batch-sizes 不能为空且不能重复")
+    if any(
+        batch_size < 1 or arguments.effective_batch_size % batch_size
+        for batch_size in arguments.batch_sizes
+    ):
+        raise ValueError("--batch-sizes 必须为能整除 effective batch 的正整数")
 
 
 def _default_config(workflow: str) -> Path:
@@ -117,6 +133,7 @@ def _default_config(workflow: str) -> Path:
         "multi-horizon-validation": DEFAULT_CONFIG,
         "h5-train": DEFAULT_H5_CONFIG,
         "capacity-benchmark": DEFAULT_100M_BENCHMARK_CONFIG,
+        "batch-size-sweep": DEFAULT_100M_BENCHMARK_CONFIG,
     }[workflow]
 
 
@@ -233,12 +250,16 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         output_local = f"/content/drive/MyDrive/{output_remote}"
         feature_remote = f"{drive_root}/ticknet-data/nextday-raw-200"
         feature_local = "/content/nextday-raw-200"
-    elif workflow == "capacity-benchmark":
+    elif workflow in {"capacity-benchmark", "batch-size-sweep"}:
         run_name = "raw-1000-top100-capacity_100m"
         checkpoint_name = "raw-1000-top100-dual-head-capacity_100m"
         gpu_label = arguments.gpu.lower()
-        output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
-        output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+        if workflow == "capacity-benchmark":
+            output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
+            output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+        else:
+            output_remote = f"{drive_root}/ticknet-runs/{run_name}/batch-size-sweep/{gpu_label}"
+            output_local = f"/content/ticknet-results/{run_name}/batch-size-sweep/{gpu_label}"
         feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-preflight-202101-top100"
         feature_local = "/content/nextday-raw-1000-preflight-202101-top100"
     else:
@@ -264,6 +285,8 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "inference_batch_size": arguments.inference_batch_size,
         "benchmark_batches": arguments.benchmark_batches,
         "warmup_batches": arguments.warmup_batches,
+        "batch_sizes": list(arguments.batch_sizes),
+        "effective_batch_size": arguments.effective_batch_size,
         "expected_parameter_count": 100_817_575,
         "projected_train_samples": 75_000,
         "requested_gpu": arguments.gpu,

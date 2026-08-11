@@ -25,7 +25,10 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import subprocess
+import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -47,12 +50,46 @@ from ticknet.eventstream.config import (
 )
 
 CANCEL_TYPES = (-1, -11)
+UniverseSpec = list[str] | dict[int, list[str]]
 
 
-def _load_universe(path: Path | None) -> list[str] | None:
+def _validate_symbols(raw: object, *, context: str) -> list[str]:
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(f"{context} 应为非空股票字符串列表")
+    symbols: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError(f"{context} 应为非空股票字符串列表")
+        symbols.append(item)
+    if len(set(symbols)) != len(symbols):
+        raise ValueError(f"{context} 不能包含重复股票")
+    return symbols
+
+
+def _load_universe(path: Path | None) -> UniverseSpec | None:
     if path is None or not Path(path).exists():
         return None
-    return list(json.loads(Path(path).read_text()))
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(raw, list):
+        return _validate_symbols(raw, context="universe")
+    if isinstance(raw, Mapping) and "universes" in raw:
+        raw = raw["universes"]
+    if not isinstance(raw, Mapping) or not raw:
+        raise ValueError("universe 应为股票列表或按交易日映射")
+    universes: dict[int, list[str]] = {}
+    for day, symbols in raw.items():
+        try:
+            parsed_day = int(day)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"universe 交易日无效：{day!r}") from error
+        universes[parsed_day] = _validate_symbols(symbols, context=f"universe[{day}]")
+    return universes
+
+
+def _universe_for_day(universe: UniverseSpec | None, day: int) -> list[str] | None:
+    if universe is None or isinstance(universe, list):
+        return universe
+    return universe.get(int(day))
 
 
 def _load_prev_close(day: int, tickers: list[str], raw_root: Path) -> np.ndarray:
@@ -107,16 +144,19 @@ def pack_day(
             return
 
     time_ok = (pl.col("time_ms") >= SESSION_START_MS) & (pl.col("time_ms") < MARKET_END_MS)
-    uni_filter = pl.col("ticker").is_in(universe) if universe else pl.lit(True)
+    if universe is not None and not universe:
+        raise ValueError(f"{day} 的 universe 不能为空")
+    uni_filter = pl.col("ticker").is_in(universe) if universe is not None else pl.lit(True)
 
     # ---------------- orders ----------------
     orders = (
-        pl.read_parquet(paths["order"])
+        pl.scan_parquet(paths["order"])
         .filter(time_ok & uni_filter)
         .with_columns(
             pl.col("ticker").cast(pl.Categorical),
             pl.col("OrderType").cast(pl.Int16),
         )
+        .collect()
     )
     is_cancel = pl.col("OrderType").is_in(CANCEL_TYPES)
     adds = orders.filter(~is_cancel).select(
@@ -146,9 +186,10 @@ def pack_day(
 
     # ---------------- trades ----------------
     trades = (
-        pl.read_parquet(paths["trades"])
+        pl.scan_parquet(paths["trades"])
         .filter(time_ok & uni_filter)
         .with_columns(pl.col("ticker").cast(pl.Categorical))
+        .collect()
     )
     arrivals = adds.select("ticker", "OrderID", "orig_time")
     trades = (
@@ -179,7 +220,7 @@ def pack_day(
 
     # ---------------- snapshots（月度文件按 TradingDay 过滤） ----------------
     snaps = (
-        pl.read_parquet(paths["snap"])
+        pl.scan_parquet(paths["snap"])
         .filter((pl.col("TradingDay") == int(day)) & time_ok & uni_filter)
         .with_columns(pl.col("ticker").cast(pl.Categorical))
         .sort(["ticker", "time_ms"])
@@ -192,6 +233,7 @@ def pack_day(
             .alias("d_turnover"),
             pl.col("DealNum").diff().over("ticker").fill_null(pl.col("DealNum")).alias("d_dealnum"),
         )
+        .collect()
     )
 
     # ---------------- 转结构化数组 ----------------
@@ -306,6 +348,26 @@ def trading_days(start: int, end: int, raw_root: Path = RAW_L2_ROOT) -> list[int
     return sorted(days)
 
 
+def _isolated_day_command(arguments: argparse.Namespace, day: int) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "ticknet.eventstream.pack",
+        "--days",
+        str(int(day)),
+        "--raw-root",
+        str(arguments.raw_root),
+        "--pack-root",
+        str(arguments.pack_root),
+        "--no-isolate-days",
+    ]
+    if arguments.universe:
+        command.extend(["--universe", str(arguments.universe)])
+    if arguments.overwrite:
+        command.append("--overwrite")
+    return command
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=int, default=0)
@@ -315,17 +377,40 @@ def main() -> None:
     parser.add_argument("--raw-root", type=Path, default=RAW_L2_ROOT)
     parser.add_argument("--pack-root", type=Path, default=PACK_ROOT)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--isolate-days",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="多日任务默认每个交易日使用独立子进程，避免内存跨日累积",
+    )
     args = parser.parse_args()
 
-    universe = _load_universe(Path(args.universe)) if args.universe else None
     days = args.days or trading_days(args.start, args.end, args.raw_root)
-    print(f"packing {len(days)} days universe={'top' + str(len(universe)) if universe else 'ALL'}")
+    if args.isolate_days and len(days) > 1:
+        print(f"packing {len(days)} days with isolated workers", flush=True)
+        for day in days:
+            subprocess.run(_isolated_day_command(args, day), check=True)
+        return
+
+    universe = _load_universe(Path(args.universe)) if args.universe else None
+    universe_description = (
+        "ALL"
+        if universe is None
+        else f"static-{len(universe)}"
+        if isinstance(universe, list)
+        else f"daily-{len(universe)}"
+    )
+    print(f"packing {len(days)} days universe={universe_description}")
     for day in days:
+        day_universe = _universe_for_day(universe, day)
+        if universe is not None and day_universe is None:
+            print(f"[{day}] universe missing, skip day", flush=True)
+            continue
         pack_day(
             day,
             raw_root=args.raw_root,
             pack_root=args.pack_root,
-            universe=universe,
+            universe=day_universe,
             overwrite=args.overwrite,
         )
 

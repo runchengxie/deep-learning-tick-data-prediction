@@ -42,7 +42,9 @@ class TestModel:
         assert loss.ndim == 0
         assert set(metrics) == {"loss", "ce_stream", "ce_otype", "reg", "day"}
         loss.backward()
-        assert model.blocks[0].qkv.weight.grad is not None
+        qkv = model.blocks[0].qkv
+        assert isinstance(qkv, torch.nn.Linear)
+        assert qkv.weight.grad is not None
 
     def test_unknown_model_name(self):
         with pytest.raises(ValueError, match="未知模型配置"):

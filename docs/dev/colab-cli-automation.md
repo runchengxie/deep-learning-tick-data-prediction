@@ -80,6 +80,21 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 
 把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。正式 Top-100 train 样本数在数据完成前按 75,000 外推，完成后应使用实际样本数重算。
 
+正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16、32。命令固定 effective
+batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch；单档 OOM 会留下记录并
+继续，最终按未 OOM 档位的 samples/s 选择最佳值：
+
+    python scripts/run_colab_nextday.py \
+      --workflow batch-size-sweep \
+      --session ticknet-100m-batch-sweep-a100 \
+      --gpu A100 \
+      --batch-sizes 2 4 8 16 32 \
+      --effective-batch-size 32 \
+      --benchmark-batches 50 \
+      --warmup-batches 5 \
+      --keep-on-failure \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-1000-top100-capacity_100m/batch-size-sweep/a100
+
 runner 会执行：
 
 1. 要求当前 worktree 已提交且干净，并记录精确 commit。
@@ -149,5 +164,9 @@ Linux 的 `--local-output-dir`：
 H=5 训练目录还包含每个 seed 的 last 和 best checkpoint、history、result 和 `colab-run-summary.json`。
 
 100M benchmark 的 GPU 独立目录包含 `capacity-benchmark.json`、`colab-run-summary.json` 和 `execution.ipynb`。JSON 记录实际 GPU、精确参数量、数据指纹、吞吐、峰值显存以及 75,000 个训练样本的单 seed 和三 seed 外推。
+
+batch-size sweep 目录包含每档的 `batch-NN.json`、汇总
+`batch-size-sweep.json`、`colab-run-summary.json` 和 `execution.ipynb`。汇总文件记录每档梯度
+累积、吞吐、显存、相对 batch 2 加速比和最终选择。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。

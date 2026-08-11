@@ -2,9 +2,9 @@
 
 ## 结论
 
-截至 2026-08-11，精确 100,817,575 参数的 `ChunkedDeepLOB` 已在同一份 raw-1000 Top-100 preflight 上完成 T4 与 A100 训练 benchmark。模型在两张卡上都只占约 2.4 GiB reserved 显存，容量可行，主要约束是训练吞吐。
+截至 2026-08-11，精确 100,817,575 参数的 `ChunkedDeepLOB` 已在同一份 raw-1000 Top-100 preflight 上完成 T4 与 A100 训练 benchmark，并在单个 A100 session 内完成物理 batch 2、4、8、16、32 的 sweep。五档均未 OOM，最佳是 physical batch 32、gradient accumulation 1、effective batch 32，达到 370.10 samples/s，峰值 reserved 显存 6.49 GiB。
 
-A100 达到 80.23 samples/s，是 T4 的 3.80 倍。按五年 Top-100 的 2021 至 2023 train 暂估 75,000 个样本、30 epochs 外推，A100 约 7.79 小时每 seed，T4 约 29.58 小时每 seed。后续完整 100M 训练应优先使用 A100，并保留 checkpoint 和断点续训。T4 只适合冒烟或更小模型。基准摘要与后续路线见 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
+原始容量对比中 A100 达到 80.23 samples/s，是 T4 的 3.80 倍。按五年 Top-100 的 2021 至 2023 train 暂估 75,000 个样本、30 epochs 外推，原始 physical batch 2 的 A100 约 7.79 小时每 seed，T4 约 29.58 小时每 seed。sweep 中 batch 32 相对同轮 batch 2 提速 4.73 倍，把 75,000 样本外推降到 1.69 小时每 seed。按五年 pilot 已生成的实际 70,805 个 train 样本重算为 1.59 小时每 seed，三 seed 约 4.78 GPU 小时。后续完整 100M 训练应优先使用 A100 与 physical batch 32，并保留 checkpoint 和断点续训。T4 只适合冒烟或更小模型。基准摘要与后续路线见 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
 
 ## 可比结果
 
@@ -31,6 +31,20 @@ A100 达到 80.23 samples/s，是 T4 的 3.80 倍。按五年 Top-100 的 2021 �
 - AMP、分类损失、回归损失、反向传播和 AdamW 更新全部启用
 - 2025 locked test：未访问
 
+## A100 batch-size sweep
+
+sweep 固定 effective batch 为 32，每档执行 5 个 warmup batch 与 50 个 measured batch。实际 GPU 为 `NVIDIA A100-SXM4-40GB`，精确参数量与 preflight 数据指纹均与容量 benchmark 一致。
+
+| physical batch | accumulation | samples/s | 相对 batch 2 | peak allocated GiB | peak reserved GiB | 75k × 30 小时/seed | 70,805 × 30 小时/seed |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2 | 16 | 78.22 | 1.00x | 2.18 | 2.35 | 7.99 | 7.54 |
+| 4 | 8 | 138.83 | 1.77x | 2.39 | 2.53 | 4.50 | 4.25 |
+| 8 | 4 | 227.10 | 2.90x | 2.80 | 3.09 | 2.75 | 2.60 |
+| 16 | 2 | 303.54 | 3.88x | 3.87 | 4.46 | 2.06 | 1.94 |
+| 32 | 1 | 370.10 | 4.73x | 5.97 | 6.49 | 1.69 | 1.59 |
+
+sweep source revision 为 `2891c4d37461c7cc13de1338f0951cecc40dbccc`。端到端 runner 从创建 session 到拉回产物并关机约 177 秒，其中五档 measured loop 合计约 11.44 秒，其余为 wheel 构建、runtime 创建、依赖安装、数据同步和产物归档。Colab CLI 不返回账户 CU 扣减，因此产物只记录可验证的墙钟和 GPU 指标，不伪造精确 CU 数字。
+
 ## 数据 preflight
 
 源 snapshot 约每 3 秒一条。原 raw-200 的 14:30 至 14:55 扫描窗中位数为 500、最大为 503，不足以构造 raw-1000。扫描起点因此改为 13:30，写出时仍严格截取 14:55 前最后 1000 个有效事件。
@@ -46,6 +60,6 @@ A100 达到 80.23 samples/s，是 T4 的 3.80 倍。按五年 Top-100 的 2021 �
 
 ## 解释边界
 
-30 epochs 外推采用数据完成前的 75,000 train 样本假设，不包含每轮 validation、checkpoint 写入、Colab staging 或资源等待，也没有扣除 early stopping。五年 Top-100 pilot 完成后必须用实际 train 样本数重算。当前 benchmark 的 physical batch 为 2，显存余量很大。正式训练前应当再做 batch-size sweep，A100 很可能还能通过更大 micro-batch 提高利用率并缩短 7.79 小时外推。
+30 epochs 外推不包含每轮 validation、checkpoint 写入、Colab staging 或资源等待，也没有扣除 early stopping。原容量 benchmark 使用数据完成前的 75,000 train 样本假设，表中已同时按五年 pilot 的实际 70,805 个 train 样本重算。每档固定 50 个 physical batch，因此处理的样本数和 optimizer step 数随档位变化。吞吐已包含各档真实的 optimizer cadence，适合做容量筛选，但正式训练耗时仍应以首个完整 epoch 校准。
 
 原始 JSON、execution notebook 和完成标记保存在 Drive 与 Linux 实验产物目录，不提交逐样本数据或凭据。
