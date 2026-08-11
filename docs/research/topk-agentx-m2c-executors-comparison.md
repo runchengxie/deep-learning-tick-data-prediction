@@ -89,6 +89,6 @@ seeds: [0]
 
 ## 安全失败与当前剩余项
 
-未知实验、未完成实验、缺指标、重复 ID、错误指标方向、窗口不足、重复数据指纹、artifact 缺失或 checksum 改变都会确定性失败，并由 Runner 记录失败 run。`train_ranker` 仍显式不支持，不会回退为其他训练入口，其固定实现推迟到 M4 的 HGB 和 LambdaMART 选择完成后。
+未知实验、未完成实验、缺指标、重复 ID、错误指标方向、窗口不足、重复数据指纹、artifact 缺失或 checksum 改变都会确定性失败，并由 Runner 记录失败 run。`train_ranker` 仍显式不支持，不会回退为其他训练入口，状态见 [topk-agentx-m2a-deterministic-loop.md](topk-agentx-m2a-deterministic-loop.md)。
 
 M2 的 Registry 到 ResearchContext 回流已经由 M2d 完成，见 [topk-agentx-m2d-registry-context.md](topk-agentx-m2d-registry-context.md)。

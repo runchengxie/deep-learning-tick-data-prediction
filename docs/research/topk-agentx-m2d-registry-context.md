@@ -71,6 +71,6 @@ Policy、Runner 和 locked approval 仍保留最终权限。ResearchContext 或 
 - Registry 只保存 dataset fingerprint，不能据此推断真实起止日期，因此上下文不伪造已见日期。
 - Audit anomaly 当前没有独立的 resolved 生命周期。已见 novelty signature 会阻止完全相同的处理实验重复执行，异常本身仍保留为历史证据。
 - M8 的多候选生成、候选排序、相关历史检索和因果链评审尚未实现。
-- `train_ranker` 继续推迟到 M4 选定 HGB 和 LambdaMART 口径与固定训练命令。
+- `train_ranker` 仍未实现，状态见 [topk-agentx-m2a-deterministic-loop.md](topk-agentx-m2a-deterministic-loop.md)。
 
 至此 M2 的确定性闭环完成。下一阶段进入 M3，用已有 prediction artifact 运行 Top-K、buffer 和成本敏感性诊断。
