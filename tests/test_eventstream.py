@@ -11,7 +11,7 @@ import pytest
 
 from ticknet.eventstream.config import ORDER_DTYPE, SNAP_DTYPE, TRADE_DTYPE, day_pack_paths
 from ticknet.eventstream.dataset import L2WindowDataset
-from ticknet.eventstream.pack import pack_day
+from ticknet.eventstream.pack import _load_universe, _universe_for_day, pack_day
 
 DAY = 20210104
 
@@ -200,6 +200,19 @@ class TestPack:
         (raw / "order" / "202101" / "order_2021-01-04.parquet").unlink()
         pack_day(DAY, raw_root=raw, pack_root=pack_root)
         assert not (pack_root / f"orders_{DAY}.bin").exists()
+
+    def test_daily_universe_contract(self, tmp_path):
+        path = tmp_path / "universe.json"
+        path.write_text(
+            '{"schema_version": 1, "universes": {"20210104": ["600000"]}}',
+            encoding="utf-8",
+        )
+
+        universe = _load_universe(path)
+
+        assert isinstance(universe, dict)
+        assert _universe_for_day(universe, DAY) == ["600000"]
+        assert _universe_for_day(universe, 20210105) is None
 
 
 class TestDataset:
