@@ -1,5 +1,5 @@
 # raw-1000 Top-100 preflight 上的 100M 训练吞吐 benchmark。
-# 只构造 train dataset；2025 locked test 不在该 manifest 中，也不会被访问。
+# 只构造 2021 train dataset；2025 可见开发区与 2026 locked 区均不会被访问。
 
 manifest_path: /content/nextday-raw-1000-preflight-202101-top100/manifest.json
 train_start: "2021-01-01"

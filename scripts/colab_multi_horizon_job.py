@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 SPEC_PATH = Path("/content/ticknet-colab-job.json")
+EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
+    {"eventstream-capacity-benchmark", "eventstream-recent-capacity-benchmark"}
+)
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -88,11 +91,14 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
             str(spec["target_local"]),
             env=env,
         )
-    if workflow in {
-        "capacity-benchmark",
-        "batch-size-sweep",
-        "eventstream-capacity-benchmark",
-    }:
+    if (
+        workflow
+        in {
+            "capacity-benchmark",
+            "batch-size-sweep",
+        }
+        | EVENTSTREAM_BENCHMARK_WORKFLOWS
+    ):
         return
     checkpoint_root = Path(str(spec["checkpoint_local"]))
     checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -319,7 +325,7 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _benchmark_capacity(spec)
     elif spec["workflow"] == "batch-size-sweep":
         _sweep_batch_sizes(spec)
-    elif spec["workflow"] == "eventstream-capacity-benchmark":
+    elif spec["workflow"] in EVENTSTREAM_BENCHMARK_WORKFLOWS:
         _benchmark_eventstream(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
@@ -344,6 +350,7 @@ def main() -> None:
                 "capacity-benchmark",
                 "batch-size-sweep",
                 "eventstream-capacity-benchmark",
+                "eventstream-recent-capacity-benchmark",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:

@@ -102,10 +102,18 @@ def _load_prev_close(day: int, tickers: list[str], raw_root: Path) -> np.ndarray
     out = np.zeros(len(tickers), dtype=np.float64)
     if prior_rows.size == 0:
         return out
-    last_row = int(prior_rows[-1])
     for i, ticker in enumerate(tickers):
-        if ticker in table.column_names:
-            out[i] = float(table.column(ticker)[last_row].as_py())
+        if ticker not in table.column_names:
+            continue
+        column = table.column(ticker)
+        for row in reversed(prior_rows):
+            value = column[int(row)].as_py()
+            if value is None:
+                continue
+            close = float(value)
+            if np.isfinite(close) and close > 0.0:
+                out[i] = close
+                break
     return out
 
 

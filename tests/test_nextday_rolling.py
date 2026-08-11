@@ -1,5 +1,6 @@
 """H5 月度 3/1/1 rolling 计划测试。"""
 
+import json
 from datetime import date
 
 import pytest
@@ -22,11 +23,14 @@ def test_build_rolling_windows_generates_3_1_1_months() -> None:
     assert windows[-1].test.start == date(2021, 7, 1)
 
 
-def test_2021_to_2024_plan_keeps_2025_out_of_rolling_oos() -> None:
-    plan = build_rolling_plan("2021-01", "2024-12", target_horizon=5)
+def test_2021_to_2025_plan_keeps_2026_out_of_rolling_oos() -> None:
+    plan = build_rolling_plan("2021-01", "2025-12", target_horizon=5)
 
-    assert len(plan["folds"]) == 44
-    assert plan["folds"][-1]["oos_end"] == "2024-12-31"
+    assert len(plan["folds"]) == 56
+    assert plan["folds"][-1]["fold_id"] == "fold-55-oos-202512"
+    assert plan["folds"][-1]["train_start"] == "2025-08-01"
+    assert plan["folds"][-1]["oos_end"] == "2025-12-31"
+    assert all("2026" not in json.dumps(fold) for fold in plan["folds"])
     assert plan["purge_rule"] == "signal_entry_return_end_must_share_split"
     assert len(plan["plan_fingerprint"]) == 64
 
