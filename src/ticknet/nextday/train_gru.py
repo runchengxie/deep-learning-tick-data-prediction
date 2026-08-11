@@ -1,8 +1,8 @@
-"""分钟序列 TCN 的次日横截面方向训练入口。
+"""分钟序列 GRU 的次日横截面方向训练入口。
 
-与 ``train.py`` 复用同一套标签、日期切分、横截面指标和训练流程，但输入换成
-未聚合的 ``T x features`` 分钟序列（``MinuteShardDataset``），模型换成
-``MinuteTCN``。用于和聚合特征 HGB 基线做同口径受控对比。
+与 ``train_tcn.py`` 复用同一套标签、日期切分、横截面指标和训练流程，输入是未
+聚合的 ``T x features`` 分钟序列（``MinuteShardDataset``），模型换成
+``MinuteGRU``。用于和聚合特征 HGB 基线及 TCN 做三路同口径受控对比。
 """
 
 from __future__ import annotations
@@ -22,10 +22,8 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 
-from ticknet.dataset import NUM_CLASSES
-from ticknet.nextday.config import LOCKED_TEST_AGGREGATE_METRICS, NextDayConfig
-from ticknet.nextday.metrics import evaluate_predictions
-from ticknet.nextday.minute_tcn import MinuteShardDataset, build_minute_tcn
+from ticknet.nextday.config import NextDayConfig
+from ticknet.nextday.minute_gru import MinuteShardDataset, build_minute_gru
 from ticknet.nextday.train import (
     _atomic_json,
     _atomic_torch_save,
@@ -35,102 +33,31 @@ from ticknet.nextday.train import (
     _json_safe,
     _load_checkpoint,
 )
+from ticknet.nextday.train_tcn import (
+    _aggregate_locked_test_metrics,
+    _build_parser,
+    _class_weights,
+    evaluate,
+    make_tcn_dataloaders,
+)
 from ticknet.train import resolve_device, set_seed
 
 
 @dataclass
-class MinuteTCNConfig(NextDayConfig):
-    """分钟 TCN 实验配置，继承通用字段并追加 TCN 结构超参。"""
+class MinuteGRUConfig(NextDayConfig):
+    """分钟 GRU 实验配置，继承通用字段并追加 GRU 结构超参。"""
 
-    hidden_channels: int = 64
-    tcn_layers: int = 4
-    kernel_size: int = 3
+    gru_hidden_size: int = 64
+    gru_layers: int = 2
 
     def validate(self) -> None:
         super().validate()
-        if self.hidden_channels < 1 or self.tcn_layers < 1 or self.kernel_size < 1:
-            raise ValueError("TCN 隐藏维度、层数和核大小应为正整数")
+        if self.gru_hidden_size < 1 or self.gru_layers < 1:
+            raise ValueError("GRU 隐藏维度和层数应为正整数")
 
 
-def make_tcn_dataloaders(
-    config: NextDayConfig,
-    *,
-    device: torch.device,
-) -> tuple[DataLoader, DataLoader, DataLoader]:
-    if config.manifest_path is None:
-        raise ValueError("manifest_path 不能为空")
-    date_split = config.date_split()
-    datasets = tuple(
-        MinuteShardDataset(
-            config.manifest_path,
-            date_split=date_split,
-            split=split,
-            verify_checksums=config.verify_data_checksums and split == "train",
-        )
-        for split in ("train", "val", "test")
-    )
-    loaders = []
-    for index, dataset in enumerate(datasets):
-        loaders.append(
-            DataLoader(
-                dataset,
-                batch_size=config.batch_size,
-                shuffle=index == 0,
-                num_workers=config.num_workers,
-                pin_memory=device.type == "cuda",
-                persistent_workers=config.num_workers > 0,
-            )
-        )
-    return loaders[0], loaders[1], loaders[2]
-
-
-def _class_weights(dataset: MinuteShardDataset, mode: str, device: torch.device) -> torch.Tensor:
-    if mode == "none":
-        return torch.ones(NUM_CLASSES, dtype=torch.float32, device=device)
-    counts = np.bincount([record.label for record in dataset.records], minlength=NUM_CLASSES)
-    if np.any(counts == 0):
-        raise ValueError(f"训练集缺少类别：类别计数为 {counts.tolist()}")
-    weights = len(dataset) / (NUM_CLASSES * counts.astype(np.float64))
-    return torch.as_tensor(weights, dtype=torch.float32, device=device)
-
-
-def evaluate(
-    model: nn.Module,
-    dataloader: DataLoader,
-    device: torch.device,
-    *,
-    min_symbols_per_day: int,
-    portfolio_quantile: float,
-) -> dict[str, Any]:
-    dataset = dataloader.dataset
-    if not isinstance(dataset, MinuteShardDataset):
-        raise TypeError("分钟评估需要 MinuteShardDataset")
-    probability_batches: list[np.ndarray] = []
-    score_batches: list[np.ndarray] = []
-    label_batches: list[np.ndarray] = []
-    model.eval()
-    with torch.no_grad():
-        for features, labels, _target_returns in dataloader:
-            features = features.to(device, non_blocking=True)
-            output = model(features)
-            probability_batches.append(torch.softmax(output.logits, dim=1).cpu().numpy())
-            score_batches.append(output.score.cpu().numpy())
-            label_batches.append(labels.numpy())
-    if not probability_batches:
-        raise ValueError("评估数据集为空")
-    return evaluate_predictions(
-        np.concatenate(label_batches),
-        np.concatenate(probability_batches),
-        dataset.target_returns,
-        dataset.label_dates,
-        scores=np.concatenate(score_batches),
-        min_symbols_per_day=min_symbols_per_day,
-        portfolio_quantile=portfolio_quantile,
-    )
-
-
-def train(config: MinuteTCNConfig) -> dict[str, Any]:
-    """训练分钟 TCN 并在完整测试日期区间上评估。"""
+def train(config: MinuteGRUConfig) -> dict[str, Any]:
+    """训练分钟 GRU 并在完整测试日期区间上评估。"""
     started_at = time.perf_counter()
     config.validate()
     set_seed(config.seed)
@@ -140,11 +67,10 @@ def train(config: MinuteTCNConfig) -> dict[str, Any]:
     if not isinstance(train_dataset, MinuteShardDataset):
         raise TypeError("训练数据集类型无效")
 
-    model = build_minute_tcn(
+    model = build_minute_gru(
         num_features=train_dataset.num_features,
-        hidden_channels=config.hidden_channels,
-        num_layers=config.tcn_layers,
-        kernel_size=config.kernel_size,
+        hidden_size=config.gru_hidden_size,
+        num_layers=config.gru_layers,
         dropout=config.dropout,
     ).to(device)
     classification_criterion = nn.CrossEntropyLoss(
@@ -315,32 +241,15 @@ def train(config: MinuteTCNConfig) -> dict[str, Any]:
     return safe_result
 
 
-def _build_parser(defaults: dict[str, Any]) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="训练分钟序列 TCN 到次日横截面方向模型")
-    parser.add_argument("--config")
-    for name, value in defaults.items():
-        option = "--" + name.replace("_", "-")
-        if isinstance(value, bool):
-            parser.add_argument(option, action=argparse.BooleanOptionalAction)
-        elif isinstance(value, int):
-            parser.add_argument(option, type=int)
-        elif isinstance(value, float):
-            parser.add_argument(option, type=float)
-        else:
-            parser.add_argument(option)
-    parser.set_defaults(**defaults)
-    return parser
-
-
-def load_config(argv: list[str] | None = None) -> MinuteTCNConfig:
+def load_config(argv: list[str] | None = None) -> MinuteGRUConfig:
     probe = argparse.ArgumentParser(add_help=False)
     probe.add_argument("--config")
     probe_args, _ = probe.parse_known_args(argv)
-    values = asdict(MinuteTCNConfig())
+    values = asdict(MinuteGRUConfig())
     if probe_args.config:
         with open(probe_args.config, encoding="utf-8") as file:
             file_values = yaml.safe_load(file) or {}
-        valid_names = {item.name for item in fields(MinuteTCNConfig)}
+        valid_names = {item.name for item in fields(MinuteGRUConfig)}
         unknown = set(file_values) - valid_names
         if unknown:
             raise SystemExit(f"YAML 含未知字段：{sorted(unknown)}")
@@ -348,24 +257,13 @@ def load_config(argv: list[str] | None = None) -> MinuteTCNConfig:
     parser = _build_parser(values)
     arguments = vars(parser.parse_args(argv))
     arguments.pop("config", None)
-    config = MinuteTCNConfig(**arguments)
+    config = MinuteGRUConfig(**arguments)
     config.validate()
     return config
 
 
-def _aggregate_locked_test_metrics(per_seed: list[dict[str, Any]]) -> dict[str, Any]:
-    aggregate: dict[str, Any] = {}
-    for metric in LOCKED_TEST_AGGREGATE_METRICS:
-        values = np.asarray([row["test"][metric] for row in per_seed], dtype=np.float64)
-        aggregate[metric] = {
-            "mean": float(np.mean(values)),
-            "std": float(np.std(values, ddof=1)) if values.size > 1 else 0.0,
-        }
-    return aggregate
-
-
 def evaluate_best_checkpoints(
-    config: MinuteTCNConfig,
+    config: MinuteGRUConfig,
     seeds: Sequence[int],
 ) -> dict[str, Any]:
     """只读取固定的最佳 checkpoint，并一次性评估 locked test。"""
@@ -413,11 +311,10 @@ def evaluate_best_checkpoints(
     per_seed: list[dict[str, Any]] = []
     for seed, best_path, checkpoint in checkpoints:
         set_seed(seed)
-        model = build_minute_tcn(
+        model = build_minute_gru(
             num_features=test_dataset.num_features,
-            hidden_channels=config.hidden_channels,
-            num_layers=config.tcn_layers,
-            kernel_size=config.kernel_size,
+            hidden_size=config.gru_hidden_size,
+            num_layers=config.gru_layers,
             dropout=config.dropout,
         ).to(device)
         model.load_state_dict(checkpoint["model"])
@@ -467,7 +364,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def evaluate_main(argv: list[str] | None = None) -> None:
     probe = argparse.ArgumentParser(
-        description="用固定 best checkpoint 一次性评估分钟 TCN locked test",
+        description="用固定 best checkpoint 一次性评估分钟 GRU locked test",
     )
     probe.add_argument("--seeds", nargs="+", type=int, required=True)
     arguments, remaining = probe.parse_known_args(argv)

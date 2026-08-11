@@ -35,7 +35,9 @@ ticknet-nextday-train = "ticknet.nextday.train:main"
 ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"
 ticknet-nextday-evaluate-horizons = "ticknet.nextday.horizon_cli:main"
 ticknet-minute-tcn-train = "ticknet.nextday.train_tcn:main"
+ticknet-minute-gru-train = "ticknet.nextday.train_gru:main"
 ticknet-minute-tcn-evaluate = "ticknet.nextday.train_tcn:evaluate_main"
+ticknet-minute-gru-evaluate = "ticknet.nextday.train_gru:evaluate_main"
 ticknet-research = "ticknet.research.cli:main"
 ticknet-nextday-prepare-snapshot = "ticknet.nextday.raw_snapshot:main"
 ticknet-nextday-prepare-horizon-labels = "ticknet.nextday.horizon_labels:main"
@@ -68,6 +70,7 @@ max-complexity = 15
 "scripts/prepare_minute_shards.py" = ["C901"]
 "src/ticknet/nextday/minute_tcn.py" = ["C901"]
 "src/ticknet/nextday/train_tcn.py" = ["C901"]
+"src/ticknet/nextday/train_gru.py" = ["C901"]
 "legacy/scripts/fi2010_smoke_test.py" = ["E402"]
 # 以下两处高复杂度是已知技术债，将在 PR-3 拆分上帝文件（dataset.py / train.py）时解决。
 "src/ticknet/nextday/dataset.py" = ["C901"]
