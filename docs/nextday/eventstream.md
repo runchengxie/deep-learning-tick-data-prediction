@@ -25,7 +25,9 @@
 
 ## 模型与训练
 
-`ticknet.eventstream.model` 提供带旋转位置编码的因果 Transformer，尺寸配置包括 smoke、probe25m、probe50m 和 probe150m，训练入口为 `ticknet-eventstream-train`。每 epoch 在训练窗口上做多任务下一事件预测，验证集按日算日头的 Rank IC，按 `selection_metric` 早停，保存 best 和 last 检查点并写历史 JSON。恢复训练时会校验实验签名和数据集指纹。
+`ticknet.eventstream.model` 提供带旋转位置编码的因果 Transformer，尺寸配置包括 smoke、probe25m、probe50m、capacity100m 和 probe150m。`capacity100m` 有 100,604,180 个参数，用于客户容量门槛和首个 H5 fold。训练入口为 `ticknet-eventstream-train`。每 epoch 在训练窗口上做多任务下一事件预测，验证集按日算日头的 Rank IC，按 `selection_metric` 早停，保存 best 和 last 检查点并写历史 JSON。恢复训练时会校验实验签名和数据集指纹。
+
+`ticknet-eventstream-prepare-horizon-labels` 把 nextday 多周期长表转换成事件流数据集读取的 H3/H5 宽表。转换时强制 `trading_date`、`entry_date` 和 `return_end_date` 同属 train、validation 或 OOS，跨边界标签不会进入训练或评估。`ticknet-eventstream-benchmark` 在真实 pack 上执行前向、反向和 AdamW 更新，输出吞吐、显存和单 seed 耗时，不读取 validation 和 OOS。
 
 ## 预测导出
 
@@ -33,4 +35,4 @@
 
 ## 配置示例
 
-见 `configs/eventstream.yaml`，其中 `pack_root` 指向打包产物目录，模型大小、序列长度、每天采样数和训练超参都可以从该配置调整。
+基础示例见 `configs/eventstream.yaml`。首个 3/1/1 H5 fold 使用 `configs/eventstream-h5-fold0-capacity100m.yaml`，其中 train 为 2021-01 至 2021-03，validation 为 2021-04，OOS 为 2021-05。

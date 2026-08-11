@@ -1,0 +1,33 @@
+# A100 B0 只使用已冻结的 2021-01 pack，不读取 validation 或 OOS。
+
+pack_root: /content/ticknet-eventstream/top400-h5-fold0/pack
+label_path: /content/ticknet-eventstream/top400-h5-fold0/fold-labels/h5.parquet
+train_start: 20210101
+train_end: 20210131
+val_start: 20210401
+val_end: 20210430
+test_start: 20210501
+test_end: 20210531
+
+model: capacity100m
+seq_len: 512
+min_events: 256
+samples_per_day: 2000
+eval_tickers: 0
+
+epochs: 20
+batch_size: 8
+lr: 0.0003
+weight_decay: 0.1
+patience: 4
+seed: 0
+num_workers: 2
+device: cuda
+amp: true
+gradient_accumulation_steps: 1
+resume: false
+
+checkpoint_dir: /content/ticknet-results/checkpoints
+checkpoint_name: eventstream-top400-h5-capacity100m-fold0
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 100

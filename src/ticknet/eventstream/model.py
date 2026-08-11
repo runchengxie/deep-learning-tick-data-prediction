@@ -8,6 +8,7 @@
 
 尺寸：
     probe25m : d=512,  12 层  -> ~25M 主干参数
+    capacity100m: d=960, 9 层 -> 100.6M 全部参数
     probe150m: d=1024, 12 层  -> ~150M 主干参数
 """
 
@@ -38,6 +39,7 @@ CONFIGS: dict[str, ModelConfig] = {
     "smoke": ModelConfig(d_model=64, n_layers=2, n_heads=4, d_ff=256, max_seq=64),
     "probe25m": ModelConfig(d_model=512, n_layers=12, n_heads=8, d_ff=2048),
     "probe50m": ModelConfig(d_model=768, n_layers=10, n_heads=12, d_ff=3072),
+    "capacity100m": ModelConfig(d_model=960, n_layers=9, n_heads=15, d_ff=3840),
     "probe150m": ModelConfig(d_model=1024, n_layers=12, n_heads=16, d_ff=4096),
 }
 

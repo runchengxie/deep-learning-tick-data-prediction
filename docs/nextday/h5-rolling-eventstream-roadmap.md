@@ -115,3 +115,33 @@ pack 版本。多日 pack 默认让每个交易日运行在独立子进程中，
 - IC@5D 同时报告逐日、月度、Newey-West 和非重叠五日结果。
 - 云端不保存原始三流，200GB 容量判断使用实测 pack，不使用 raw 体积猜测。
 - 真实数据、股票列表、逐日 pack、checkpoint 和预测不提交 Git；仓库只提交代码、配置和聚合审计。
+
+## 2026-08-11 执行进度
+
+R0、D0、D1 和 D2 已完成。2021-01 共 20 个交易日，逐日 Top-400 实际范围为 364 至 392 只股票，pack 为 31,129,493,499 bytes，包含约 9.72 亿条事件。没有缺失或 partial day。五个月 packed 投影为 155,647,467,495 bytes，超过 150GB 软门槛，因此原始 Parquet 继续留在 Linux，完整 fold pack 优先使用本地或 GCS。聚合审计见 `docs/reports/eventstream-top400-pilot-202101.json`。
+
+首个 fold 的 H5 长表已由来源 manifest 指纹绑定生成。B0 前使用下面的命令生成带边界 purge 的 H3/H5 宽表：
+
+```bash
+ticknet-eventstream-prepare-horizon-labels \
+  --sidecar /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/horizon-sidecar/horizon-labels.json \
+  --feature-manifest data/nextday-raw-200/manifest.json \
+  --output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/fold-labels \
+  --horizons 3 5 \
+  --train-start 2021-01-01 --train-end 2021-03-31 \
+  --val-start 2021-04-01 --val-end 2021-04-30 \
+  --test-start 2021-05-01 --test-end 2021-05-31
+```
+
+真实标签转换已通过。H5 在 train、validation 和 OOS 分别保留 20,462、6,213 和 5,013 条，边界 purge 分别清除 1,947、1,939 和 1,941 条。H3 分别保留 21,239、6,996 和 5,787 条。训练按 H5 Rank IC 选择 checkpoint，H3 只写入每轮监控与最终结果，不参与选择。
+
+2月至5月 pack 与标签审计通过后，先运行100个 batch：
+
+```bash
+ticknet-eventstream-benchmark \
+  --config configs/eventstream-h5-fold0-capacity100m.yaml \
+  --output /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/benchmarks/a100.json \
+  --batches 100 --warmup-batches 5 \
+  --requested-gpu A100 \
+  --expected-parameter-count 100604180
+```

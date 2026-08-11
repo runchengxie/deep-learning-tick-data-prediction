@@ -88,7 +88,11 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
             str(spec["target_local"]),
             env=env,
         )
-    if workflow in {"capacity-benchmark", "batch-size-sweep"}:
+    if workflow in {
+        "capacity-benchmark",
+        "batch-size-sweep",
+        "eventstream-capacity-benchmark",
+    }:
         return
     checkpoint_root = Path(str(spec["checkpoint_local"]))
     checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -122,6 +126,7 @@ def _install_project(spec: dict[str, Any]) -> None:
             "-q",
             "pyarrow>=15",
             "pyyaml>=6",
+            "polars>=1.0",
         ]
     )
     _run(
@@ -211,6 +216,34 @@ def _benchmark_capacity(spec: dict[str, Any]) -> None:
     )
 
 
+def _benchmark_eventstream(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.benchmark",
+            "--config",
+            str(spec["training_config"]),
+            "--output",
+            str(output_dir / "capacity-benchmark.json"),
+            "--batches",
+            str(int(spec["benchmark_batches"])),
+            "--warmup-batches",
+            str(int(spec["warmup_batches"])),
+            "--expected-parameter-count",
+            str(int(spec["expected_parameter_count"])),
+            "--source-revision",
+            str(spec["source_revision"]),
+            "--requested-gpu",
+            str(spec["requested_gpu"]),
+        ]
+    )
+
+
 def _sweep_batch_sizes(spec: dict[str, Any]) -> None:
     output_dir = Path(str(spec["output_local"]))
     if output_dir.exists():
@@ -286,6 +319,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _benchmark_capacity(spec)
     elif spec["workflow"] == "batch-size-sweep":
         _sweep_batch_sizes(spec)
+    elif spec["workflow"] == "eventstream-capacity-benchmark":
+        _benchmark_eventstream(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
 
@@ -308,6 +343,7 @@ def main() -> None:
                 "h5-train",
                 "capacity-benchmark",
                 "batch-size-sweep",
+                "eventstream-capacity-benchmark",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:

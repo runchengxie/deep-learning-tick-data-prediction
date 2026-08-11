@@ -17,6 +17,9 @@ DEFAULT_H5_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m-h
 DEFAULT_100M_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "nextday-raw-1000-top100-capacity-100m-benchmark.yaml"
 )
+DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG = (
+    REPOSITORY_ROOT / "configs" / "eventstream-h5-fold0-capacity100m-colab.yaml"
+)
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -35,6 +38,7 @@ def _parser() -> argparse.ArgumentParser:
             "h5-train",
             "capacity-benchmark",
             "batch-size-sweep",
+            "eventstream-capacity-benchmark",
         ),
         default="multi-horizon-validation",
     )
@@ -134,6 +138,7 @@ def _default_config(workflow: str) -> Path:
         "h5-train": DEFAULT_H5_CONFIG,
         "capacity-benchmark": DEFAULT_100M_BENCHMARK_CONFIG,
         "batch-size-sweep": DEFAULT_100M_BENCHMARK_CONFIG,
+        "eventstream-capacity-benchmark": DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG,
     }[workflow]
 
 
@@ -262,6 +267,14 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             output_local = f"/content/ticknet-results/{run_name}/batch-size-sweep/{gpu_label}"
         feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-preflight-202101-top100"
         feature_local = "/content/nextday-raw-1000-preflight-202101-top100"
+    elif workflow == "eventstream-capacity-benchmark":
+        run_name = "eventstream-top400-h5-capacity100m-fold0"
+        checkpoint_name = "eventstream-top400-h5-capacity100m-fold0"
+        gpu_label = arguments.gpu.lower()
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
+        output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+        feature_remote = f"{drive_root}/ticknet-data/eventstream-top400-h5-fold0-benchmark-202101"
+        feature_local = "/content/ticknet-eventstream/top400-h5-fold0"
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
@@ -287,8 +300,12 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "warmup_batches": arguments.warmup_batches,
         "batch_sizes": list(arguments.batch_sizes),
         "effective_batch_size": arguments.effective_batch_size,
-        "expected_parameter_count": 100_817_575,
-        "projected_train_samples": 75_000,
+        "expected_parameter_count": (
+            100_604_180 if workflow == "eventstream-capacity-benchmark" else 100_817_575
+        ),
+        "projected_train_samples": (
+            40_000 if workflow == "eventstream-capacity-benchmark" else 75_000
+        ),
         "requested_gpu": arguments.gpu,
         "source_revision": source_revision,
     }
