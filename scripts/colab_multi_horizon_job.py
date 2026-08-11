@@ -88,7 +88,7 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
             str(spec["target_local"]),
             env=env,
         )
-    if workflow == "capacity-benchmark":
+    if workflow in {"capacity-benchmark", "batch-size-sweep"}:
         return
     checkpoint_root = Path(str(spec["checkpoint_local"]))
     checkpoint_root.mkdir(parents=True, exist_ok=True)
@@ -211,6 +211,40 @@ def _benchmark_capacity(spec: dict[str, Any]) -> None:
     )
 
 
+def _sweep_batch_sizes(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.nextday.benchmark_sweep",
+            "--config",
+            str(spec["training_config"]),
+            "--output-dir",
+            str(output_dir),
+            "--batch-sizes",
+            *(str(int(batch_size)) for batch_size in spec["batch_sizes"]),
+            "--effective-batch-size",
+            str(int(spec["effective_batch_size"])),
+            "--batches",
+            str(int(spec["benchmark_batches"])),
+            "--warmup-batches",
+            str(int(spec["warmup_batches"])),
+            "--expected-parameter-count",
+            str(int(spec["expected_parameter_count"])),
+            "--projected-train-samples",
+            str(int(spec["projected_train_samples"])),
+            "--source-revision",
+            str(spec["source_revision"]),
+            "--requested-gpu",
+            str(spec["requested_gpu"]),
+        ]
+    )
+
+
 def _write_summary(
     spec: dict[str, Any],
     *,
@@ -250,6 +284,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _train_h5(spec)
     elif spec["workflow"] == "capacity-benchmark":
         _benchmark_capacity(spec)
+    elif spec["workflow"] == "batch-size-sweep":
+        _sweep_batch_sizes(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
 
@@ -268,7 +304,11 @@ def main() -> None:
             _stage_inputs(spec, env)
             _execute_workflow(spec)
         except Exception as error:
-            if spec["workflow"] in {"h5-train", "capacity-benchmark"}:
+            if spec["workflow"] in {
+                "h5-train",
+                "capacity-benchmark",
+                "batch-size-sweep",
+            }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
                     _upload_output(spec, env)

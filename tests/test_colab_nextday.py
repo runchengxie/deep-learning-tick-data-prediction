@@ -38,6 +38,8 @@ def _arguments(tmp_path: Path) -> Namespace:
         inference_batch_size=128,
         benchmark_batches=100,
         warmup_batches=5,
+        batch_sizes=[2, 4, 8, 16, 32],
+        effective_batch_size=32,
         session="ticknet-test",
         gpu="T4",
         config=tmp_path / "config.yaml",
@@ -94,6 +96,24 @@ def test_capacity_benchmark_spec_uses_raw1000_and_gpu_specific_output(
     assert spec["expected_parameter_count"] == 100_817_575
     assert spec["projected_train_samples"] == 75_000
     assert spec["requested_gpu"] == "A100"
+
+
+def test_batch_size_sweep_spec_keeps_effective_batch_and_separate_output(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "batch-size-sweep"
+    arguments.gpu = "A100"
+    arguments.benchmark_batches = 50
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["workflow"] == "batch-size-sweep"
+    assert spec["feature_remote"].endswith("nextday-raw-1000-preflight-202101-top100")
+    assert spec["output_remote"].endswith("capacity_100m/batch-size-sweep/a100")
+    assert spec["batch_sizes"] == [2, 4, 8, 16, 32]
+    assert spec["effective_batch_size"] == 32
+    assert spec["benchmark_batches"] == 50
 
 
 def test_h5_training_config_keeps_test_locked() -> None:
@@ -307,7 +327,9 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
     assert "--metadata" not in captured[0]
 
 
-def test_capacity_benchmark_stages_features_without_target_sidecar(
+@pytest.mark.parametrize("workflow", ["capacity-benchmark", "batch-size-sweep"])
+def test_capacity_workflows_stage_features_without_target_sidecar(
+    workflow: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     copies: list[tuple[str, str]] = []
@@ -319,7 +341,7 @@ def test_capacity_benchmark_stages_features_without_target_sidecar(
 
     colab_job._stage_inputs(
         {
-            "workflow": "capacity-benchmark",
+            "workflow": workflow,
             "rclone_remote": "gdrive",
             "feature_remote": "project/raw1000",
             "feature_local": "/content/raw1000",
@@ -382,6 +404,40 @@ def test_capacity_benchmark_invokes_audited_module(
     assert command[command.index("--expected-parameter-count") + 1] == "100817575"
     assert command[command.index("--projected-train-samples") + 1] == "75000"
     assert command[command.index("--requested-gpu") + 1] == "T4"
+
+
+def test_batch_size_sweep_invokes_audited_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+
+    colab_job._sweep_batch_sizes(
+        {
+            "output_local": str(tmp_path / "output"),
+            "training_config": "/content/config.yaml",
+            "batch_sizes": [2, 4, 8, 16, 32],
+            "effective_batch_size": 32,
+            "benchmark_batches": 50,
+            "warmup_batches": 5,
+            "expected_parameter_count": 100_817_575,
+            "projected_train_samples": 75_000,
+            "source_revision": "abc123",
+            "requested_gpu": "A100",
+        }
+    )
+
+    command = captured[0]
+    assert "ticknet.nextday.benchmark_sweep" in command
+    batch_index = command.index("--batch-sizes")
+    assert command[batch_index + 1 : batch_index + 6] == ["2", "4", "8", "16", "32"]
+    assert command[command.index("--effective-batch-size") + 1] == "32"
+    assert command[command.index("--batches") + 1] == "50"
 
 
 def test_wheel_build_uses_committed_archive(
