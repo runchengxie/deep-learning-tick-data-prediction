@@ -39,6 +39,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         benchmark_batches=100,
         warmup_batches=5,
         batch_sizes=[2, 4, 8, 16, 32],
+        num_workers=[2, 4, 8, 16],
         effective_batch_size=32,
         session="ticknet-test",
         gpu="T4",
@@ -142,6 +143,23 @@ def test_eventstream_recent_sweep_spec_projects_full_training_window(
     assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-benchmark-202508")
     assert spec["output_remote"].endswith("capacity100m-recent/batch-size-sweep/a100")
     assert spec["batch_sizes"] == [8, 16, 32, 64]
+    assert spec["effective_batch_size"] == 64
+    assert spec["expected_parameter_count"] == 100_604_180
+    assert spec["projected_train_samples"] == 120_000
+
+
+def test_eventstream_recent_input_profile_spec_scans_workers(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-input-profile"
+    arguments.gpu = "A100"
+    arguments.num_workers = [2, 4, 8, 16]
+    arguments.effective_batch_size = 64
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-benchmark-202508")
+    assert spec["output_remote"].endswith("capacity100m-recent/input-profile/a100")
+    assert spec["num_workers"] == [2, 4, 8, 16]
     assert spec["effective_batch_size"] == 64
     assert spec["expected_parameter_count"] == 100_604_180
     assert spec["projected_train_samples"] == 120_000
@@ -384,6 +402,7 @@ def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
         "eventstream-capacity-benchmark",
         "eventstream-recent-capacity-benchmark",
         "eventstream-recent-batch-size-sweep",
+        "eventstream-recent-input-profile",
     ],
 )
 def test_capacity_workflows_stage_features_without_target_sidecar(
@@ -523,6 +542,40 @@ def test_eventstream_batch_sweep_invokes_eventstream_module(
     assert "ticknet.eventstream.benchmark_sweep" in command
     batch_index = command.index("--batch-sizes")
     assert command[batch_index + 1 : batch_index + 5] == ["8", "16", "32", "64"]
+    assert command[command.index("--effective-batch-size") + 1] == "64"
+    assert command[command.index("--projected-train-samples") + 1] == "120000"
+
+
+def test_eventstream_input_profile_invokes_audited_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+
+    colab_job._profile_eventstream_input(
+        {
+            "output_local": str(tmp_path / "output"),
+            "training_config": "/content/config.yaml",
+            "num_workers": [2, 4, 8, 16],
+            "effective_batch_size": 64,
+            "benchmark_batches": 50,
+            "warmup_batches": 5,
+            "expected_parameter_count": 100_604_180,
+            "projected_train_samples": 120_000,
+            "source_revision": "abc123",
+            "requested_gpu": "A100",
+        }
+    )
+
+    command = captured[0]
+    assert "ticknet.eventstream.input_profile" in command
+    worker_index = command.index("--num-workers")
+    assert command[worker_index + 1 : worker_index + 5] == ["2", "4", "8", "16"]
     assert command[command.index("--effective-batch-size") + 1] == "64"
     assert command[command.index("--projected-train-samples") + 1] == "120000"
 

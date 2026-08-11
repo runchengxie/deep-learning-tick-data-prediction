@@ -16,6 +16,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-capacity-benchmark",
         "eventstream-recent-capacity-benchmark",
         "eventstream-recent-batch-size-sweep",
+        "eventstream-recent-input-profile",
     }
 )
 
@@ -322,6 +323,40 @@ def _sweep_eventstream_batch_sizes(spec: dict[str, Any]) -> None:
     )
 
 
+def _profile_eventstream_input(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.input_profile",
+            "--config",
+            str(spec["training_config"]),
+            "--output-dir",
+            str(output_dir),
+            "--num-workers",
+            *(str(int(workers)) for workers in spec["num_workers"]),
+            "--effective-batch-size",
+            str(int(spec["effective_batch_size"])),
+            "--batches",
+            str(int(spec["benchmark_batches"])),
+            "--warmup-batches",
+            str(int(spec["warmup_batches"])),
+            "--expected-parameter-count",
+            str(int(spec["expected_parameter_count"])),
+            "--projected-train-samples",
+            str(int(spec["projected_train_samples"])),
+            "--source-revision",
+            str(spec["source_revision"]),
+            "--requested-gpu",
+            str(spec["requested_gpu"]),
+        ]
+    )
+
+
 def _write_summary(
     spec: dict[str, Any],
     *,
@@ -365,6 +400,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _sweep_batch_sizes(spec)
     elif spec["workflow"] == "eventstream-recent-batch-size-sweep":
         _sweep_eventstream_batch_sizes(spec)
+    elif spec["workflow"] == "eventstream-recent-input-profile":
+        _profile_eventstream_input(spec)
     elif spec["workflow"] in EVENTSTREAM_BENCHMARK_WORKFLOWS:
         _benchmark_eventstream(spec)
     else:
@@ -392,6 +429,7 @@ def main() -> None:
                 "eventstream-capacity-benchmark",
                 "eventstream-recent-capacity-benchmark",
                 "eventstream-recent-batch-size-sweep",
+                "eventstream-recent-input-profile",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:

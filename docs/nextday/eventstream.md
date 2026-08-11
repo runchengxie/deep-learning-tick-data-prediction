@@ -56,3 +56,21 @@ batch 固定为 64，正式训练样本数按 2025-08 至 2025-10 的 120,000 �
 
 每档独立记录吞吐和显存；单档 OOM 不终止后续档位。validation、OOS 和 2026 locked 数据均不
 参与 sweep。
+
+batch sweep 若没有提高吞吐，继续拆分输入流水线和 GPU 计算，并扫描 DataLoader worker：
+
+    python scripts/run_colab_nextday.py \
+      --workflow eventstream-recent-input-profile \
+      --session ticknet-eventstream-h5-recent-input-a100 \
+      --gpu A100 \
+      --num-workers 2 4 8 16 \
+      --effective-batch-size 64 \
+      --benchmark-batches 50 \
+      --warmup-batches 5 \
+      --keep-on-failure \
+      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/input-profile/a100
+
+该 workflow 只访问 2025-08 train pack。`data_only_samples_per_second` 只测 Dataset、collate
+和 pin-memory，`gpu_only_samples_per_second` 使用预加载 CUDA batch，端到端吞吐同时包含两
+部分。worker 数按端到端吞吐选择，结果用于决定是否优化 Dataset；validation、OOS 和 2026
+locked 数据均不参与 profiling。
