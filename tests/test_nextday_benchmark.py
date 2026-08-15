@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 import torch
 
 from ticknet.nextday.benchmark import count_parameters
@@ -27,18 +28,30 @@ def test_raw1000_configs_preserve_event_and_universe_contract() -> None:
         assert config.end_date == expected_end
 
 
-def test_100m_benchmark_config_is_exact_and_keeps_test_locked() -> None:
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "nextday-raw-1000-top100-capacity-100m-benchmark.yaml",
+        "nextday-raw-1000-top100-capacity-100m.yaml",
+    ],
+)
+def test_100m_configs_are_exact_and_keep_test_locked(filename: str) -> None:
     root = Path(__file__).resolve().parents[1]
     config = load_config(
         [
             "--config",
-            str(root / "configs" / "nextday-raw-1000-top100-capacity-100m-benchmark.yaml"),
+            str(root / "configs" / filename),
         ]
     )
 
     assert config.evaluate_test is False
-    assert config.batch_size == 2
-    assert config.gradient_accumulation_steps == 16
+    if filename.endswith("-benchmark.yaml"):
+        assert config.batch_size == 2
+        assert config.gradient_accumulation_steps == 16
+    else:
+        assert config.batch_size == 32
+        assert config.gradient_accumulation_steps == 1
+        assert config.resume is True
     with torch.device("meta"):
         model = build_nextday_model(
             chunks_per_sample=10,

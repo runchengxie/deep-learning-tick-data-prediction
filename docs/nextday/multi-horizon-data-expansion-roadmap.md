@@ -6,7 +6,7 @@
 
 Google Drive 已升级为 200GB，当前容量足以保存 raw-200、多周期标签、raw-1000 和实验产物。Stage B 已完成。三个一日模型在 2024 validation 上的 H=5 平均 IC 为 0.07750，ensemble IC 为 0.08264，Newey-West t 值为 3.11，正 IC 月份占 83.3%，五组非重叠抽样最低 IC 为 0.07324，门槛通过。独立 H=5 seed 0 没有显示相对原一日模型的稳定增量，因此主目标继续使用 H=1，H=3 和 5 作为监控指标。客户要求的 100M 模型进入受控容量试验，先生成 raw-1000 Top-100 单月 preflight，再用精确 100,817,575 参数配置分别跑 T4 和 A100 的 100-batch benchmark。这一步不训练完整模型，也不访问 2025 test。
 
-2026-08-11 benchmark 已完成。T4 为 21.13 samples/s，A100 为 80.23 samples/s，A100 加速 3.80 倍，峰值 reserved 显存分别为 2.40 和 2.35 GiB。按 75,000 train 样本、30 epochs 暂估，T4 为 29.58 小时每 seed，A100 为 7.79 小时每 seed。容量门槛通过，正式 100M 训练选择 A100，五年 raw-1000 Top-100 pilot 已进入生成阶段。
+2026-08-11 benchmark 已完成。T4 为 21.13 samples/s，A100 为 80.23 samples/s，A100 加速 3.80 倍，峰值 reserved 显存分别为 2.40 和 2.35 GiB。按 75,000 train 样本、30 epochs 暂估，T4 为 29.58 小时每 seed，A100 为 7.79 小时每 seed。容量门槛通过，正式 100M 训练选择 A100。五年 raw-1000 Top-100 pilot 已完成并上传，共 118,078 个样本，其中 2021 至 2023 train 为 70,805 个。A100 batch sweep 选择 physical batch 32，按完整 train 重算约 1.59 小时每 seed。正式 seed 0 进入执行阶段，2025 test 保持锁定。
 
 ## 不可变研究合同
 
