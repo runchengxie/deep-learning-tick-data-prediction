@@ -52,7 +52,7 @@ batch 固定为 64，正式训练样本数按 2025-08 至 2025-10 的 120,000 �
       --benchmark-batches 50 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/batch-size-sweep/a100
+      --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
 
 每档独立记录吞吐和显存；单档 OOM 不终止后续档位。validation、OOS 和 2026 locked 数据均不
 参与 sweep。
@@ -68,7 +68,7 @@ batch sweep 若没有提高吞吐，继续拆分输入流水线和 GPU 计算，
       --benchmark-batches 50 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/input-profile/a100
+      --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
 
 该 workflow 只访问 2025-08 train pack。`data_only_samples_per_second` 只测 Dataset、collate
 和 pin-memory，`gpu_only_samples_per_second` 使用预加载 CUDA batch，端到端吞吐同时包含两

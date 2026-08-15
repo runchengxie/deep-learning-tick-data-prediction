@@ -1,8 +1,8 @@
 # 首个 3/1/1 eventstream H5 fold。H5 用于训练与 checkpoint 选择，H3 单独监控。
 
 pack_root: /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1
-label_path: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/fold-labels/h5.parquet
-monitor_label_path: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/fold-labels/h3.parquet
+label_path: artifacts/eventstream-h5-fold0/fold-labels/h5.parquet
+monitor_label_path: artifacts/eventstream-h5-fold0/fold-labels/h3.parquet
 monitor_name: h3
 train_start: 20210101
 train_end: 20210331
@@ -29,7 +29,7 @@ amp: true
 gradient_accumulation_steps: 1
 resume: true
 
-checkpoint_dir: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/checkpoints
+checkpoint_dir: artifacts/eventstream-h5-fold0/checkpoints
 checkpoint_name: eventstream-top400-h5-capacity100m-fold0
 selection_metric: daily_rank_ic_mean
 min_symbols_per_day: 100

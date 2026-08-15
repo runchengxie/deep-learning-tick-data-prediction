@@ -1,8 +1,8 @@
 # 最新完整且已见的 3/1/1 eventstream fold；2026 locked 数据不得读取。
 
 pack_root: /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1
-label_path: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/fold-labels/h5.parquet
-monitor_label_path: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/fold-labels/h3.parquet
+label_path: artifacts/eventstream-h5-recent-fold/fold-labels/h5.parquet
+monitor_label_path: artifacts/eventstream-h5-recent-fold/fold-labels/h3.parquet
 monitor_name: h3
 train_start: 20250801
 train_end: 20251031
@@ -29,7 +29,7 @@ amp: true
 gradient_accumulation_steps: 1
 resume: true
 
-checkpoint_dir: /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/checkpoints
+checkpoint_dir: artifacts/eventstream-h5-recent-fold/checkpoints
 checkpoint_name: eventstream-top400-h5-capacity100m-recent
 selection_metric: daily_rank_ic_mean
 min_symbols_per_day: 100
