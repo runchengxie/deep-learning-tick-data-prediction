@@ -119,7 +119,7 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
                 ],
                 env=env,
             )
-    elif workflow == "h5-train":
+    elif workflow in {"h5-train", "raw1000-train"}:
         checkpoint_remote = _drive_path(remote, str(spec["checkpoint_remote"]))
         if _remote_directory_exists(checkpoint_remote, env=env):
             _rclone_copy(checkpoint_remote, str(checkpoint_root), env=env)
@@ -180,7 +180,7 @@ def _evaluate(spec: dict[str, Any]) -> None:
     _run(command)
 
 
-def _train_h5(spec: dict[str, Any]) -> None:
+def _train_nextday(spec: dict[str, Any]) -> None:
     output_dir = Path(str(spec["output_local"]))
     output_dir.mkdir(parents=True, exist_ok=True)
     for seed in spec["seeds"]:
@@ -392,8 +392,8 @@ def _upload_output(spec: dict[str, Any], env: dict[str, str]) -> None:
 def _execute_workflow(spec: dict[str, Any]) -> None:
     if spec["workflow"] == "multi-horizon-validation":
         _evaluate(spec)
-    elif spec["workflow"] == "h5-train":
-        _train_h5(spec)
+    elif spec["workflow"] in {"h5-train", "raw1000-train"}:
+        _train_nextday(spec)
     elif spec["workflow"] == "capacity-benchmark":
         _benchmark_capacity(spec)
     elif spec["workflow"] == "batch-size-sweep":
@@ -424,6 +424,7 @@ def main() -> None:
         except Exception as error:
             if spec["workflow"] in {
                 "h5-train",
+                "raw1000-train",
                 "capacity-benchmark",
                 "batch-size-sweep",
                 "eventstream-capacity-benchmark",

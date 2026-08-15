@@ -8,7 +8,7 @@ Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临�
 - Colab VM 只保存一次 session 所需的数据、wheel、临时凭据和运行输出。
 - Google Drive 保存训练数据、checkpoint 和跨设备实验产物。
 - rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
-- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation、独立 H=5 训练，以及 raw-1000 Top-100 上的 100M 参数训练吞吐 benchmark。
+- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation、独立 H=5 训练，以及 raw-1000 Top-100 上的 100M 参数 benchmark 和正式训练。
 
 ## Linux 主机安装
 
@@ -67,6 +67,22 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
 
 `h5-train` 默认读取 `configs/nextday-raw-200-capacity-1m-h5.yaml`。它会把已有同名 checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续。每次训练结束或失败都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
+
+五年 raw-1000 Top-100 的正式 100M seed 0 使用 A100 与 batch 32。训练只用 2021 至
+2023，checkpoint 只由 2024 validation 选择，2025 test 不评估：
+
+    python scripts/run_colab_nextday.py \
+      --workflow raw1000-train \
+      --seeds 0 \
+      --keep-on-failure \
+      --session ticknet-100m-raw1000-seed0 \
+      --gpu A100 \
+      --local-output-dir artifacts/raw-1000-top100-capacity_100m/training
+
+`raw1000-train` 默认读取
+`configs/nextday-raw-1000-top100-capacity-100m.yaml`，从 Drive 下载完整 8.84GiB 工作集，
+并在启动前恢复同一训练目录已有的 checkpoint。后续 seed 1 和 2 使用相同命令修改
+`--seeds`，不得根据 2025 test 结果筛选 seed。
 
 100M benchmark 先用相同 revision、相同 raw-1000 单月 preflight 分别测 T4 和 A100：
 
@@ -164,7 +180,7 @@ runner 会执行：
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree。需要新 session 时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
 5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签；100M benchmark 下载 raw-1000 preflight、2021-01 eventstream pack 或 2025-08 recent pack。
-6. 执行多周期 validation、独立 H=5 训练或对应的100M容量 benchmark。
+6. 执行多周期 validation、独立 H=5 训练、raw-1000 正式训练或对应的100M容量 benchmark。
 7. 将 JSON 和 Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
 

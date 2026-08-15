@@ -99,6 +99,27 @@ def test_capacity_benchmark_spec_uses_raw1000_and_gpu_specific_output(
     assert spec["requested_gpu"] == "A100"
 
 
+def test_raw1000_training_spec_uses_full_dataset_and_resumable_directory(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "raw1000-train"
+    arguments.gpu = "A100"
+    arguments.seeds = [0]
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["workflow"] == "raw1000-train"
+    assert spec["feature_remote"].endswith("nextday-raw-1000-pilot-2021-2025-top100")
+    assert spec["feature_local"] == "/content/nextday-raw-1000-pilot-2021-2025-top100"
+    assert spec["checkpoint_name"] == "raw-1000-top100-dual-head-capacity_100m"
+    assert spec["checkpoint_remote"].endswith("capacity_100m/training")
+    assert spec["checkpoint_local"] == spec["output_local"]
+    assert spec["output_remote"].endswith("capacity_100m/training")
+    assert spec["projected_train_samples"] == 70_805
+    assert spec["seeds"] == [0]
+
+
 def test_eventstream_capacity_spec_uses_month_pack_and_exact_model_size(
     tmp_path: Path,
 ) -> None:
@@ -195,6 +216,27 @@ def test_h5_training_config_keeps_test_locked() -> None:
     assert config.target_horizon == 5
     assert config.target_sidecar_path == ("/content/nextday-raw-200-targets-v1/horizon-labels.json")
     assert config.checkpoint_name == "raw-200-dual-head-capacity_1m-h5"
+    assert config.evaluate_test is False
+
+
+def test_raw1000_training_config_keeps_test_locked_and_uses_sweep_batch() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    config = load_config(
+        [
+            "--config",
+            str(repository_root / "configs" / "nextday-raw-1000-top100-capacity-100m.yaml"),
+        ]
+    )
+
+    assert config.manifest_path == (
+        "/content/nextday-raw-1000-pilot-2021-2025-top100/manifest.json"
+    )
+    assert config.train_end == "2023-12-31"
+    assert config.val_end == "2024-12-31"
+    assert config.test_start == "2025-01-01"
+    assert config.batch_size == 32
+    assert config.gradient_accumulation_steps == 1
+    assert config.resume is True
     assert config.evaluate_test is False
 
 
@@ -429,6 +471,43 @@ def test_capacity_workflows_stage_features_without_target_sidecar(
     assert copies == [("gdrive:project/raw1000", "/content/raw1000")]
 
 
+def test_raw1000_training_stages_features_and_resumable_checkpoints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **_kwargs: copies.append((source, destination)),
+    )
+    monkeypatch.setattr(
+        colab_job,
+        "_remote_directory_exists",
+        lambda _source, **_kwargs: True,
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "raw1000-train",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/raw1000",
+            "feature_local": "/content/raw1000",
+            "checkpoint_remote": "project/runs/raw1000/training",
+            "checkpoint_local": str(tmp_path / "checkpoints"),
+        },
+        {},
+    )
+
+    assert copies == [
+        ("gdrive:project/data/raw1000", "/content/raw1000"),
+        (
+            "gdrive:project/runs/raw1000/training",
+            str(tmp_path / "checkpoints"),
+        ),
+    ]
+
+
 def test_h5_training_invokes_each_requested_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -440,7 +519,7 @@ def test_h5_training_invokes_each_requested_seed(
         lambda command, **_kwargs: captured.append(command),
     )
 
-    colab_job._train_h5(
+    colab_job._train_nextday(
         {
             "output_local": str(tmp_path / "output"),
             "training_config": "/content/config.yaml",

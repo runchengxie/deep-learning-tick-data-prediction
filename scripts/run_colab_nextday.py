@@ -17,6 +17,9 @@ DEFAULT_H5_CONFIG = REPOSITORY_ROOT / "configs" / "nextday-raw-200-capacity-1m-h
 DEFAULT_100M_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "nextday-raw-1000-top100-capacity-100m-benchmark.yaml"
 )
+DEFAULT_100M_TRAIN_CONFIG = (
+    REPOSITORY_ROOT / "configs" / "nextday-raw-1000-top100-capacity-100m.yaml"
+)
 DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "eventstream-h5-fold0-capacity100m-colab.yaml"
 )
@@ -47,6 +50,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=(
             "multi-horizon-validation",
             "h5-train",
+            "raw1000-train",
             "capacity-benchmark",
             "batch-size-sweep",
             "eventstream-capacity-benchmark",
@@ -155,6 +159,7 @@ def _default_config(workflow: str) -> Path:
     return {
         "multi-horizon-validation": DEFAULT_CONFIG,
         "h5-train": DEFAULT_H5_CONFIG,
+        "raw1000-train": DEFAULT_100M_TRAIN_CONFIG,
         "capacity-benchmark": DEFAULT_100M_BENCHMARK_CONFIG,
         "batch-size-sweep": DEFAULT_100M_BENCHMARK_CONFIG,
         "eventstream-capacity-benchmark": DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG,
@@ -277,6 +282,13 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         output_local = f"/content/drive/MyDrive/{output_remote}"
         feature_remote = f"{drive_root}/ticknet-data/nextday-raw-200"
         feature_local = "/content/nextday-raw-200"
+    elif workflow == "raw1000-train":
+        run_name = "raw-1000-top100-capacity_100m"
+        checkpoint_name = "raw-1000-top100-dual-head-capacity_100m"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        output_local = f"/content/drive/MyDrive/{output_remote}"
+        feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-pilot-2021-2025-top100"
+        feature_local = "/content/nextday-raw-1000-pilot-2021-2025-top100"
     elif workflow in {"capacity-benchmark", "batch-size-sweep"}:
         run_name = "raw-1000-top100-capacity_100m"
         checkpoint_name = "raw-1000-top100-dual-head-capacity_100m"
@@ -317,17 +329,21 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
+    checkpoint_remote = output_remote if workflow == "raw1000-train" else run_root
+    checkpoint_local = (
+        output_local if workflow == "raw1000-train" else f"/content/drive/MyDrive/{run_root}"
+    )
     return {
         "workflow": workflow,
         "rclone_remote": arguments.rclone_remote.rstrip(":"),
         "rclone_config": REMOTE_RCLONE_CONFIG,
         "feature_remote": feature_remote,
         "target_remote": f"{drive_root}/ticknet-data/nextday-raw-200-targets-v1",
-        "checkpoint_remote": run_root,
+        "checkpoint_remote": checkpoint_remote,
         "output_remote": output_remote,
         "feature_local": feature_local,
         "target_local": "/content/nextday-raw-200-targets-v1",
-        "checkpoint_local": f"/content/drive/MyDrive/{run_root}",
+        "checkpoint_local": checkpoint_local,
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
         "training_config": REMOTE_CONFIG,
@@ -351,6 +367,8 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             if workflow == "eventstream-recent-capacity-benchmark"
             else 40_000
             if workflow == "eventstream-capacity-benchmark"
+            else 70_805
+            if workflow == "raw1000-train"
             else 75_000
         ),
         "requested_gpu": arguments.gpu,
