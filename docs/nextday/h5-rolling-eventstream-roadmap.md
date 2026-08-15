@@ -59,7 +59,7 @@ Linux，不上传 Drive。
 | 合计 | 103 | 477,066,752,110 |
 
 preflight、逐日 universe、rolling plan 和标签位于
-`/home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/`。
+`artifacts/eventstream-h5-recent-fold/`。
 H3 共保留 train/validation/OOS 22,058/6,578/7,732 条，H5 共保留
 21,266/5,807/6,966 条；其余跨 split 的收益标签已 purge。
 
@@ -92,16 +92,16 @@ python -m ticknet.nextday.rolling \
   --start-month 2021-01 \
   --end-month 2025-12 \
   --target-horizon 5 \
-  --output /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/rolling-plan.json
+  --output artifacts/eventstream-h5-recent-fold/rolling-plan.json
 ```
 
 生成 recent fold 的 H3/H5 标签：
 
 ```bash
 ticknet-eventstream-prepare-horizon-labels \
-  --sidecar /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/horizon-sidecar/horizon-labels.json \
+  --sidecar artifacts/eventstream-h5-fold0/horizon-sidecar/horizon-labels.json \
   --feature-manifest data/nextday-raw-200/manifest.json \
-  --output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/fold-labels \
+  --output-dir artifacts/eventstream-h5-recent-fold/fold-labels \
   --horizons 3 5 \
   --train-start 2025-08-01 --train-end 2025-10-31 \
   --val-start 2025-11-01 --val-end 2025-11-30 \
@@ -113,7 +113,7 @@ D1 只打包首日；成功后才启动整月：
 ```bash
 python -m ticknet.eventstream.pack \
   --days 20250801 \
-  --universe /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/202508/universe.json \
+  --universe artifacts/eventstream-h5-recent-fold/202508/universe.json \
   --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1
 ```
 
@@ -130,7 +130,7 @@ python scripts/run_colab_nextday.py \
   --gpu A100 \
   --benchmark-batches 100 --warmup-batches 5 \
   --keep-on-failure \
-  --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/benchmarks/a100
+  --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
 ```
 
 ## 完成定义

@@ -79,7 +79,7 @@ python scripts/run_colab_nextday.py \
   --keep-on-failure \
   --session ticknet-h5-seed0 \
   --gpu T4 \
-  --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m-h5/seed0
+  --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
 ```
 
 使用 `configs/nextday-raw-200-capacity-1m-h5.yaml`，只改变 target horizon 和独立产物目录。seed 0 只有在 2024 validation 的 H=5 IC、月度稳定性和成本后 Top-K 相对一日模型有增量时，才补 seed 1 和 2。2025 test 保持锁定。

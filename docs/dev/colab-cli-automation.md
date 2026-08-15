@@ -47,14 +47,14 @@ runner 也会在非登录 SSH 环境中查找 `/home/richard/.local/bin`，不�
       --dry-run \
       --session ticknet-multi-horizon \
       --gpu T4 \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/latest
+      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/latest
 
 确认命令后正式运行：
 
     python scripts/run_colab_nextday.py \
       --session ticknet-multi-horizon \
       --gpu T4 \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/$(date +%Y%m%d-%H%M%S)
+      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/$(date +%Y%m%d-%H%M%S)
 
 Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 
@@ -64,7 +64,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --keep-on-failure \
       --session ticknet-h5-seed0 \
       --gpu T4 \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m-h5/seed0
+      --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
 
 `h5-train` 默认读取 `configs/nextday-raw-200-capacity-1m-h5.yaml`。它会把已有同名 checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续。每次训练结束或失败都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
 
@@ -76,7 +76,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --gpu T4 \
       --benchmark-batches 100 \
       --warmup-batches 5 \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-1000-top100-capacity_100m/benchmarks/t4
+      --local-output-dir artifacts/raw-1000-top100-capacity_100m/benchmarks/t4
 
 把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。正式 Top-100 train 样本数在数据完成前按 75,000 外推，完成后应使用实际样本数重算。
 
@@ -89,7 +89,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --benchmark-batches 100 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-fold0/benchmarks/a100
+      --local-output-dir artifacts/eventstream-h5-fold0/benchmarks/a100
 
 默认配置是 `configs/eventstream-h5-fold0-capacity100m-colab.yaml`。该 workflow 只构造2021-01 train dataset，不读取2021-04 validation 或2021-05 OOS。
 
@@ -102,7 +102,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --benchmark-batches 100 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/benchmarks/a100
+      --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
 
 recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问
 2025-08 train pack。2025-11 validation、2025-12 OOS 和 2026 locked 均不参与 benchmark。
@@ -119,7 +119,7 @@ GPU，并扫描 worker 数：
       --benchmark-batches 50 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/input-profile/a100
+      --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
 
 输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 选择以端
 到端吞吐为准。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
@@ -140,7 +140,7 @@ eventstream recent sweep 复用同一份 2025-08 staging，在一个 A100 sessio
       --benchmark-batches 50 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/eventstream-h5-recent-fold/batch-size-sweep/a100
+      --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
 
 正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16、32。命令固定 effective
 batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch；单档 OOM 会留下记录并
@@ -155,7 +155,7 @@ batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch；单�
       --benchmark-batches 50 \
       --warmup-batches 5 \
       --keep-on-failure \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-1000-top100-capacity_100m/batch-size-sweep/a100
+      --local-output-dir artifacts/raw-1000-top100-capacity_100m/batch-size-sweep/a100
 
 runner 会执行：
 
@@ -183,14 +183,14 @@ runner 会执行：
       --keep-on-failure \
       --session ticknet-multi-horizon \
       --gpu T4 \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/debug
+      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/debug
 
 重复使用已经保留的 runtime：
 
     python scripts/run_colab_nextday.py \
       --reuse-session \
       --session ticknet-multi-horizon \
-      --local-output-dir /home/richard/code/.artifacts/deep-learning-tick-data-prediction/raw-200-capacity_1m/cli-runs/reuse
+      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/reuse
 
 保留的 VM 会继续消耗 compute units，确认不再使用后显式运行：
 
