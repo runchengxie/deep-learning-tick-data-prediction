@@ -1,5 +1,7 @@
 # 100M 参数 × raw-1000 Top-100 容量基准
 
+本文是 2026-08-11 的吞吐与容量快照。随后完成的四格三 seed 受控矩阵显示，100M 参数和 raw-1000 都没有形成稳定验证增益。当前只保留 `1M/raw-200` 候选，研究结论见[多周期与数据扩容路线](multi-horizon-data-expansion-roadmap.md)。
+
 ## 结论
 
 截至 2026-08-11，精确 100,817,575 参数的 `ChunkedDeepLOB` 已在同一份 raw-1000 Top-100 preflight 上完成 T4 与 A100 训练 benchmark，并在单个 A100 session 内完成物理 batch 2、4、8、16、32 的 sweep。五档均未 OOM，最佳是 physical batch 32、gradient accumulation 1、effective batch 32，达到 370.10 samples/s，峰值 reserved 显存 6.49 GiB。

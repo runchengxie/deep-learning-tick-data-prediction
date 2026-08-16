@@ -6,8 +6,8 @@
 
 | 模块 | 职责 |
 |---|---|
-| `ticknet.model` | 网络结构和模型工厂 |
-| `ticknet.dataset` | 共享张量形状常量与合成数据工具 |
+| `ticknet.model` | FI-2010 兼容 DeepLOB 网络和模型工厂 |
+| `ticknet.dataset` | FI-2010 兼容张量常量与合成数据工具 |
 | `ticknet.train` | 主链路与 FI-2010 复现共用的训练工具（`set_seed`、`resolve_device`、`f1_metrics`） |
 | `ticknet.nextday` | 次日标签、日期切分、分片读取、分块模型、横截面指标和训练，含分钟 HGB、TCN、GRU 基线与原始盘口主线 |
 | `ticknet.eventstream` | L2 逐笔事件流的无损打包、因果 Transformer 训练和预测导出 |
@@ -19,7 +19,7 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 
 | 脚本 | 用途 |
 |---|---|
-| `smoke_test.py` | 无真实数据的快速链路检查 |
+| `smoke_test.py` | FI-2010 兼容 DeepLOB 的快速模型检查 |
 | `prepare_nextday.py` | 股票日日线、事件清单转次日预测 NPY 分片 |
 | `run_nextday_baseline.py` | 聚合日内特征的 Logistic Regression 对照 |
 | `run_minute_baseline.py` | 分钟级聚合特征的 HGB 基线，支持多年滚动验证和预测明细导出 |
@@ -75,6 +75,10 @@ eventstream 链路覆盖：
 - 事件窗口采样、多任务预测头和日级信号头
 - 训练、断点恢复、数据集指纹与预测导出契约
 
+CLI 契约测试读取 `pyproject.toml` 的全部命令声明，逐个导入目标函数并运行 `--help`。新增、删除或移动入口时，测试会直接反映声明与代码是否一致。
+
+文档测试覆盖根目录 README、AGENTS 和 `docs/` 下的 Markdown 文件。它会检查内部链接目标，并检查中文正文是否误用双引号、强调、分号、破折号、半角括号和先否定再转折的句式。`docs/reports/` 是冻结产物，不参加文风检查。
+
 研究闭环覆盖：
 
 - ExperimentSpec v2 严格解析、白名单 executor、结构化 metric gates 和 artifact contract
@@ -88,19 +92,19 @@ eventstream 链路覆盖：
 - Registry 到 ResearchContext 的基线选择、失败与 Audit 回流、稳定指纹和 novelty replay 拒绝
 - Brainstorm 与 Critic 共用上下文、预算和 executor 限制，以及 context review 快照
 
-冒烟脚本补充检查模型前向传播、softmax、梯度、参数量和数据窗口。冒烟脚本由人工或本地 pre-push hook 单独执行，不参与 pytest 收集。
+冒烟脚本检查 FI-2010 兼容 DeepLOB 的前向传播、softmax、梯度和参数量。它不读取真实数据，也不覆盖次日、分钟、事件流或研究闭环。冒烟脚本由 `scripts/check.py` 和本地 pre-push hook 调用，不参与 pytest 收集。
 
 ## 质量门禁
 
 本地运行：
 
-```powershell
+```bash
 python scripts/check.py
 ```
 
 脚本依次运行以下检查：
 
-```powershell
+```bash
 ruff check .
 ruff format --check .
 ty check
@@ -118,15 +122,17 @@ pre-commit 在提交前运行 Ruff 自动修复、Ruff 格式化和 ty。运行 
 
 运行依赖和开发依赖统一写在 `pyproject.toml`。使用以下命令安装开发环境：
 
-```powershell
+```bash
 python -m pip install -e ".[dev]"
 ```
 
 项目提交 `uv.lock`。修改依赖后运行：
 
-```powershell
+```bash
 uv lock
 ```
+
+修改 `pyproject.toml` 中的 CLI 入口后，应重新运行可编辑安装。已有 `.venv` 不会自动生成新增的命令脚本。
 
 ## 后续重构顺序
 

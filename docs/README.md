@@ -1,20 +1,25 @@
 # 文档索引
 
-本目录按主题分成三个子目录，加上复现与实验产物。每一篇都写清命令、口径和结论，方便直接引用。先看阅读路径，再按需取用。
+本目录收录项目现状、专题说明、研究记录和冻结产物。先看当前状态，再按主题阅读，可以区分现行结论、阶段记录和历史快照。
 
 ## 阅读路径
 
-新人从根目录 README 了解项目全貌后，按下面的顺序读，可以走通从数据到结论的完整链条。
+新人从根目录 README 了解项目全貌后，按下面的顺序阅读：
 
-1. [nextday/cross-sectional-prediction.md](nextday/cross-sectional-prediction.md) 定义主链路的口径，包括样本、标签、日期切分、训练评估入口和指标清单
-2. [nextday/raw-200-end-to-end-pipeline.md](nextday/raw-200-end-to-end-pipeline.md) 给出从本地加工到 Colab 训练的操作顺序
-3. [nextday/eventstream.md](nextday/eventstream.md) 说明 L2 逐笔事件流这条新增主线
-4. [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 汇总当前真实结论和 M0 到 M9 的执行状态
-5. [research/topk-agentx-m0-research-contract.md](research/topk-agentx-m0-research-contract.md) 说明 2025 已见、2026 封存的数据边界，跑任何实验前都要看
-6. [research/topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) 记录正在推进的正式 Top-K 诊断进度
-7. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
+1. [project-status.md](project-status.md) 汇总当前功能、研究结论、数据权限和工作顺序
+2. [nextday/cross-sectional-prediction.md](nextday/cross-sectional-prediction.md) 定义样本、标签、日期切分和评估口径
+3. [research/topk-agentx-m0-research-contract.md](research/topk-agentx-m0-research-contract.md) 说明当前研究使用的 2025 已见、2026 封存边界
+4. [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 说明研究设计和 M0 至 M9 的状态
+5. [research/topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) 记录正在推进的正式 Top-K 诊断
+6. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
+
+`project-status.md` 和路线总览用于判断当前状态。M0、M1、M2a 至 M2d 文档记录对应里程碑完成时的设计和结论，后续功能可能已经继续扩展。`reports/` 与 `baselines/` 是冻结产物。
 
 ## 目录
+
+| 文档 | 内容 |
+|---|---|
+| [project-status.md](project-status.md) | 当前功能、研究结论、数据权限和下一步 |
 
 ### nextday
 
@@ -23,9 +28,9 @@ A 股次日横截面预测主线，覆盖样本口径、数据加工、训练入
 | 文档 | 内容 |
 |---|---|
 | [cross-sectional-prediction.md](nextday/cross-sectional-prediction.md) | 主链路总规范，数据格式、适配、切分、训练、评估 |
-| [raw-200-end-to-end-pipeline.md](nextday/raw-200-end-to-end-pipeline.md) | 200 tick 原始盘口端到端操作流程 |
+| [raw-200-end-to-end-pipeline.md](nextday/raw-200-end-to-end-pipeline.md) | 原始盘口端到端操作流程和当前候选 |
 | [eventstream.md](nextday/eventstream.md) | L2 逐笔事件流无损打包、因果 Transformer 与预测导出 |
-| [raw-data-expansion-roadmap.md](nextday/raw-data-expansion-roadmap.md) | 五年 raw-200 数据生成、审计、上传和扩展门槛 |
+| [raw-data-expansion-roadmap.md](nextday/raw-data-expansion-roadmap.md) | 五年 raw 数据生成、审计和扩展记录 |
 | [multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) | 1/3/5 日标签、容量门槛、raw-1000 与全天 tick 路线 |
 | [nextday-100m-raw1000-benchmark.md](nextday/nextday-100m-raw1000-benchmark.md) | 100M 参数容量基准与 A100 batch sweep 实测快照 |
 | [h5-rolling-eventstream-roadmap.md](nextday/h5-rolling-eventstream-roadmap.md) | H5 Rank IC 主目标、3/1/1 滚动协议与全天事件数据 pilot |
@@ -40,7 +45,7 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 | [topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) | 研究路线总览，真实结论、统一原则和 M0 到 M9 状态 |
 | [topk-agentx-m0-research-contract.md](research/topk-agentx-m0-research-contract.md) | 研究契约，数据权限审计和交易口径 |
 | [topk-agentx-m1-portfolio-evaluator.md](research/topk-agentx-m1-portfolio-evaluator.md) | Top-K long-only 组合评估内核的输入契约和成本公式 |
-| [topk-agentx-m2a-deterministic-loop.md](research/topk-agentx-m2a-deterministic-loop.md) | ExperimentSpec v2 与确定性实验闭环 |
+| [topk-agentx-m2a-deterministic-loop.md](research/topk-agentx-m2a-deterministic-loop.md) | M2a 完成时的 ExperimentSpec v2 与确定性闭环记录 |
 | [topk-agentx-m2b-locked-approval.md](research/topk-agentx-m2b-locked-approval.md) | locked test 的一次性人工签发与受控消费 |
 | [topk-agentx-m2c-executors-comparison.md](research/topk-agentx-m2c-executors-comparison.md) | prediction 导出、多 seed 对比与 walk-forward 稳健性 |
 | [topk-agentx-m2d-registry-context.md](research/topk-agentx-m2d-registry-context.md) | 由 Registry 构造的可重放 ResearchContext |
@@ -67,14 +72,14 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 
 ## 数据结论的存放约定
 
-同一条实验结果会在多处出现，因为不同的文档面向不同的阅读场景。维护时遵循下面的约定，可以避免数值漂移。
+不同文档面向不同的阅读场景。维护时遵循下面的约定，可以减少数值漂移。
 
-- 实验结论只在三处保留完整记录，其他文档用一句话摘要并加链接
+- [project-status.md](project-status.md) 只保留当前摘要和工作状态
 - [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 的当前证据一节收录最新真实结论
 - [nextday/multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) 收录多周期与容量实验
 - [research/experiment-log.md](research/experiment-log.md) 按日期收录带完整数字的历史实验记录
 
-涉及资源容量、磁盘占用、Drive 套餐这类随时间变化的数字，写明年份并放在带日期的章节里，例如 2026-08-09 的资源盘点。历史产物（`reports/`、`baselines/`）是冻结快照，改动会破坏可核对性，不更新，只保留。
+涉及资源容量、磁盘占用、Drive 套餐这类随时间变化的数字，应写明日期。历史产物（`reports/`、`baselines/`）保持冻结，不随当前状态改写。
 
 ## 写作规范
 

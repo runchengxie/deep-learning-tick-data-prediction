@@ -8,7 +8,9 @@ Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临�
 - Colab VM 只保存一次 session 所需的数据、wheel、临时凭据和运行输出。
 - Google Drive 保存训练数据、checkpoint 和跨设备实验产物。
 - rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
-- 2025 test 仍由代码锁定。自动化入口支持 2024 多周期 validation、独立 H=5 训练，以及 raw-1000 Top-100 上的 100M 参数 benchmark 和正式训练。
+- 早期原始盘口容量系列继续锁定 2025 test。当前事件流和 AgentX 系列把 2025 用作开发区，并由协议锁定 2026。自动化入口支持多周期评估、独立 H=5、容量矩阵和事件流基准。
+
+截至 2026-08-16，原始盘口四格三 seed 矩阵和事件流输入基准已经完成。本文保留对应命令用于复现。当前尚未执行的是事件流最近折正式训练。
 
 ## Linux 主机安装
 
@@ -68,8 +70,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 
 `h5-train` 默认读取 `configs/nextday-raw-200-capacity-1m-h5.yaml`。它会把已有同名 checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续。每次训练结束或失败都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
 
-五年 raw-1000 Top-100 的正式 100M seed 0 使用 A100 与 batch 32。训练只用 2021 至
-2023，checkpoint 只由 2024 validation 选择，2025 test 不评估：
+五年 raw-1000 Top-100 的 100M 训练使用 A100 与 batch 32。训练只用 2021 至 2023，checkpoint 只由 2024 validation 选择，2025 test 不评估。三个 seed 都已经完成，下面保留 seed 0 的复现命令：
 
     python scripts/run_colab_nextday.py \
       --workflow raw1000-train \
@@ -79,12 +80,9 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --gpu A100 \
       --local-output-dir artifacts/raw-1000-top100-capacity_100m/training
 
-`raw1000-train` 默认读取
-`configs/nextday-raw-1000-top100-capacity-100m.yaml`，从 Drive 下载完整 8.84GiB 工作集，
-并在启动前恢复同一训练目录已有的 checkpoint。后续 seed 1 和 2 使用相同命令修改
-`--seeds`，不得根据 2025 test 结果筛选 seed。
+`raw1000-train` 默认读取 `configs/nextday-raw-1000-top100-capacity-100m.yaml`，从 Drive 下载完整的 8.84 GiB 工作集，并在启动前恢复同一训练目录已有的 checkpoint。seed 1 和 2 使用相同命令修改 `--seeds`。三个 seed 的选择都没有读取 2025 test。
 
-容量与窗口 2×2 矩阵共用上面的 Top-100 工作集。raw-200 格通过 `input_last_chunks: 2` 只读取每个样本最后两个 100-event chunk，股票日、标签和底层数据指纹均不变，也不复制分片。先运行新的同口径 `1M/raw-200` seed 0：
+容量与窗口 2×2 矩阵共用上面的 Top-100 工作集。raw-200 格通过 `input_last_chunks: 2` 只读取每个样本最后两个 100-event chunk，股票日、标签和底层数据指纹均不变，也不复制分片。四格三 seed 均已完成。下面保留同口径 `1M/raw-200` seed 0 的复现命令：
 
     python scripts/run_colab_nextday.py \
       --workflow capacity-matrix-train \
@@ -95,7 +93,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --gpu A100 \
       --local-output-dir artifacts/raw-1000-top100-capacity-matrix/1m-raw200
 
-`--matrix-cell` 还接受 `1m-raw1000` 和 `100m-raw200`。三格分别读取 `configs/nextday-capacity-matrix-1m-raw200.yaml`、`configs/nextday-capacity-matrix-1m-raw1000.yaml` 和 `configs/nextday-capacity-matrix-100m-raw200.yaml`。它们固定使用 batch 32、学习率 0.0001、patience 8、2024 validation 选模和锁定的 2025 test。每格使用独立 Drive 目录并支持断点恢复。
+`--matrix-cell` 还接受 `1m-raw1000` 和 `100m-raw200`。三格分别读取 `configs/nextday-capacity-matrix-1m-raw200.yaml`、`configs/nextday-capacity-matrix-1m-raw1000.yaml` 和 `configs/nextday-capacity-matrix-100m-raw200.yaml`。它们固定使用 batch 32、学习率 0.0001、patience 8 和 2024 validation 选模，2025 test 保持锁定。每格使用独立 Drive 目录并支持断点恢复。
 
 100M benchmark 先用相同 revision、相同 raw-1000 单月 preflight 分别测 T4 和 A100：
 
@@ -107,7 +105,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --warmup-batches 5 \
       --local-output-dir artifacts/raw-1000-top100-capacity_100m/benchmarks/t4
 
-把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。正式 Top-100 train 样本数在数据完成前按 75,000 外推，完成后应使用实际样本数重算。
+把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。早期基准按 75,000 个训练样本外推，数据完成后已用实际的 70,805 个样本重算。
 
 首个 Top-400 全天事件流 H5 fold 使用独立 workflow。Drive 只需要预先放入2021-01 benchmark pack 和 fold 级 H5 标签，A100 会运行精确 100,604,180 参数的 eventstream 模型：
 
@@ -133,11 +131,9 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
 
-recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问
-2025-08 train pack。2025-11 validation、2025-12 OOS 和 2026 locked 均不参与 benchmark。
+recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问 2025 年 8 月 train pack。2025 年 11 月 validation、2025 年 12 月 OOS 和 2026 locked 均不参与 benchmark。
 
-如果 batch sweep 的吞吐没有随物理 batch 增长，使用相同 2025-08 pack 拆分 DataLoader 和
-GPU，并扫描 worker 数：
+如果 batch sweep 的吞吐没有随物理 batch 增长，可以使用相同的 2025 年 8 月 pack 分别测量 DataLoader 和 GPU，并扫描 worker 数：
 
     python scripts/run_colab_nextday.py \
       --workflow eventstream-recent-input-profile \
@@ -150,15 +146,11 @@ GPU，并扫描 worker 数：
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
 
-输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 选择以端
-到端吞吐为准。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
+输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 数按端到端吞吐选择。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
 
-2026-08-12 的优化后实测选择 8 workers：DataLoader-only 140.48 samples/s，端到端 149.40
-samples/s，GPU-only 238.79 samples/s。完整 120,000 样本、20 epoch 外推为 4.46 小时每 seed。
-正式 recent 配置使用 `num_workers: 8`。
+2026-08-12 的优化后实测选择 8 个 worker。DataLoader-only 为 140.48 samples/s，端到端为 149.40 samples/s，GPU-only 为 238.79 samples/s。按 120,000 个样本和 20 个 epoch 外推，每个 seed 约为 4.46 小时。正式 recent 配置使用 `num_workers: 8`。
 
-eventstream recent sweep 复用同一份 2025-08 staging，在一个 A100 session 内测 batch
-8、16、32、64，并按完整三个月的 120,000 个训练样本外推：
+事件流 recent sweep 复用同一份 2025 年 8 月暂存数据，在一个 A100 session 内测 batch 8、16、32 和 64，并按完整三个月的 120,000 个训练样本外推：
 
     python scripts/run_colab_nextday.py \
       --workflow eventstream-recent-batch-size-sweep \
@@ -171,9 +163,7 @@ eventstream recent sweep 复用同一份 2025-08 staging，在一个 A100 sessio
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
 
-正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16、32。命令固定 effective
-batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch；单档 OOM 会留下记录并
-继续，最终按未 OOM 档位的 samples/s 选择最佳值：
+正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16 和 32。命令固定 effective batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch。单档 OOM 会留下记录并继续，最终按成功档位的 samples/s 选择最佳值：
 
     python scripts/run_colab_nextday.py \
       --workflow batch-size-sweep \
@@ -192,7 +182,7 @@ runner 会执行：
 2. 查询同名 session。默认要求它不存在，只有显式传入 `--reuse-session` 才允许复用。
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree。需要新 session 时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签；100M benchmark 下载 raw-1000 preflight、2021-01 eventstream pack 或 2025-08 recent pack。
+5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签。100M benchmark 下载 raw-1000 preflight、2021 年 1 月事件流 pack 或 2025 年 8 月 recent pack。
 6. 执行多周期 validation、独立 H=5 训练、raw-1000 正式训练或对应的100M容量 benchmark。
 7. 将 JSON 和 Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
@@ -260,7 +250,6 @@ batch-size sweep 目录包含每档的 `batch-NN.json`、汇总
 `batch-size-sweep.json`、`colab-run-summary.json` 和 `execution.ipynb`。汇总文件记录每档梯度
 累积、吞吐、显存、相对最小成功 batch 的加速比和最终选择。
 
-eventstream input profile 目录包含 `gpu-only.json`、每个 worker 的 data-only 与 end-to-end
-JSON、汇总 `input-profile.json`、`colab-run-summary.json` 和 `execution.ipynb`。
+事件流输入分析目录包含 `gpu-only.json`、每个 worker 的 data-only 与 end-to-end JSON、汇总 `input-profile.json`、`colab-run-summary.json` 和 `execution.ipynb`。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。

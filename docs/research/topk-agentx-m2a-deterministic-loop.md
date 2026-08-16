@@ -16,7 +16,7 @@ ExperimentSpec v2
   → KEEP / EXTEND / DISCARD
 ```
 
-它解决的是实验语义与证据可信度，不代表模型已经获得新的收益结论。M2 仍为进行中。
+它解决的是实验语义与证据可信度，不代表模型已经获得新的收益结论。本文记录 M2a 完成时的状态。后续 M2b、M2c 和 M2d 已经完成，当前总进度见[研究路线总览](topk-agentx-research-roadmap.md)。
 
 ## ExperimentSpec v2
 
@@ -58,9 +58,9 @@ novelty_signature: top50-buffer20-cost10-v1
 stage: screening
 ```
 
-## Typed executors
+## 执行器
 
-当前可运行：
+M2a 发布时可以运行：
 
 - `train_nextday`：固定调用次日模型训练入口。
 - `train_minute_tcn`：固定调用分钟 TCN 训练入口。
@@ -68,7 +68,7 @@ stage: screening
 - `topk_cost_sweep`：复用 M1 的 `evaluate_topk_portfolio()`，扫描 K、buffer 和成本。
 - `compare_experiments`：从 Registry 读取已登记指标并生成基础对比 artifact。
 
-`train_ranker`、`export_predictions` 和 `walk_forward_robustness` 已保留类型名，但当前会显式报尚未实现。这种失败会进入 Registry，且不会静默回退到其他训练入口。
+后续 M2c 已经实现 `import_predictions`、`export_predictions`、`walk_forward_robustness` 和更完整的 `compare_experiments`。`train_ranker` 仍会明确报告尚未实现。当前执行器清单由 `ticknet.research.spec` 和 `ticknet.research.executors` 共同约束。
 
 ## Artifact 与 Registry v2
 
@@ -97,8 +97,9 @@ ticknet-research compare --ids EXP-BASE-001 EXP-TOPK-001
 
 合成端到端测试覆盖：成本分析不启动训练、训练预测自动 Audit、locked predictions 拒绝、递归指标与 artifact 登记、KEEP、EXTEND、DISCARD、重复 ID、任意入口和 artifact 冲突。
 
-## M2 后续工作
+## 后续完成情况
 
-1. 实现 `export_predictions`、`walk_forward_robustness`，并为 `train_ranker` 固定入口。
-2. 让 compare 在均值表之外输出对照差值与多 seed 波动。
-3. 从 Registry 自动构造 ResearchContext，使异常、负面结果和 parent DAG 回流下一轮提案。
+1. M2b 完成内容绑定的一次性锁定测试批准。
+2. M2c 完成预测导入导出、多 seed 对比和 walk-forward 汇总。
+3. M2d 完成 Registry 到 ResearchContext 的确定性构造与回放。
+4. `train_ranker` 的固定入口仍待实现，当前研究阶段不依赖它。
