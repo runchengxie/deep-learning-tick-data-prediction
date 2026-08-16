@@ -38,15 +38,14 @@
 
 ## 修改要求
 
-完成代码修改后运行：
+完成修改后运行：
 
 ```bash
-ruff format .
-ruff check .
-ty check
-python -m pytest -q
-python scripts/smoke_test.py
+pre-commit run --all-files
+python scripts/check.py
 ```
+
+`pre-commit` 检查基础文件卫生、Ruff、ty 和 notebook。`scripts/check.py` 运行 Ruff 静态检查、Ruff 格式检查、ty、带覆盖率的 pytest 和冒烟检查。GitHub Actions 在 Python 3.12 上运行完整门禁，在 Python 3.10 上补充运行时兼容性检查，并审计两个版本的锁定依赖。
 
 涉及数据协议时，增加能识别错误选段、标签错列或跨文件窗口的回归测试。涉及检查点时，测试恢复位置和配置冲突。涉及文档命令时，用 `--help` 核对参数名再落笔。
 
