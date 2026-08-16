@@ -107,7 +107,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 
 把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。早期基准按 75,000 个训练样本外推，数据完成后已用实际的 70,805 个样本重算。
 
-首个 Top-400 全天事件流 H5 fold 使用独立 workflow。Drive 只需要预先放入2021-01 benchmark pack 和 fold 级 H5 标签，A100 会运行精确 100,604,180 参数的 eventstream 模型：
+首个 Top-400 全天事件流 H5 fold 使用独立工作流。Drive 只需要预先放入 2021-01 benchmark pack 和 fold 级 H5 标签，A100 会运行精确 100,604,180 参数的事件流模型：
 
     python scripts/run_colab_nextday.py \
       --workflow eventstream-capacity-benchmark \
@@ -118,7 +118,7 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-fold0/benchmarks/a100
 
-默认配置是 `configs/eventstream-h5-fold0-capacity100m-colab.yaml`。该 workflow 只构造2021-01 train dataset，不读取2021-04 validation 或2021-05 OOS。
+默认配置是 `configs/eventstream-h5-fold0-capacity100m-colab.yaml`。该工作流只构造 2021-01 训练集，不读取 2021-04 validation 或 2021-05 OOS。
 
 2021 结果只作基础设施吞吐基线。正式 recent fold 应上传 2025-08 pack，并补一次相同口径 benchmark：
 
@@ -131,7 +131,24 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
 
-recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问 2025 年 8 月 train pack。2025 年 11 月 validation、2025 年 12 月 OOS 和 2026 locked 均不参与 benchmark。
+最近折工作流默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问 2025 年 8 月训练 pack。2025 年 11 月 validation、2025 年 12 月 OOS 和 2026 locked 均不参与 benchmark。
+
+最近折正式训练使用固定窗口物化目录。每次只运行一个 seed，第一次用一个 epoch 验证恢复，不读取 OOS：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-train \
+  --session ticknet-eventstream-h5-recent-seed0-a100 \
+  --gpu A100 \
+  --seeds 0 \
+  --training-epochs 1 \
+  --no-evaluate-test \
+  --timeout 7200 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
+```
+
+工作流在训练前核对物化清单和允许访问分片的全部 SHA-256，从 Drive 恢复同一 seed 的 checkpoint。短任务会排除 OOS 和 H3 OOS 分片。成功或失败都会回传 checkpoint、history、result、物化预检和 `colab-run-summary.json`。短任务通过后把 `--training-epochs` 改为 `20`，使用新的 session 名并加 `--evaluate-test`。
 
 如果 batch sweep 的吞吐没有随物理 batch 增长，可以使用相同的 2025 年 8 月 pack 分别测量 DataLoader 和 GPU，并扫描 worker 数：
 
@@ -146,7 +163,7 @@ recent workflow 默认使用 `configs/eventstream-h5-recent-capacity100m-colab.y
       --keep-on-failure \
       --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
 
-输出分别记录 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。worker 数按端到端吞吐选择。该 workflow 不读取 validation、OOS 或 2026 locked 数据。
+输出分别记录只运行 DataLoader、预加载 batch 的纯 GPU 和真实端到端吞吐。worker 数按端到端吞吐选择。该工作流不读取 validation、OOS 或 2026 locked 数据。
 
 2026-08-12 的优化后实测选择 8 个 worker。DataLoader-only 为 140.48 samples/s，端到端为 149.40 samples/s，GPU-only 为 238.79 samples/s。按 120,000 个样本和 20 个 epoch 外推，每个 seed 约为 4.46 小时。正式 recent 配置使用 `num_workers: 8`。
 
@@ -182,7 +199,7 @@ runner 会执行：
 2. 查询同名 session。默认要求它不存在，只有显式传入 `--reuse-session` 才允许复用。
 3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree。需要新 session 时才创建命名的 Colab GPU runtime。
 4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载 workflow 所需数据。多周期和 H=5 使用 raw-200 与侧车标签。100M benchmark 下载 raw-1000 preflight、2021 年 1 月事件流 pack 或 2025 年 8 月 recent pack。
+5. Colab 从 Drive 下载工作流所需数据。多周期和 H=5 使用 raw-200 与侧车标签。100M benchmark 下载 raw-1000 preflight、2021 年 1 月事件流 pack 或 2025 年 8 月 recent pack。
 6. 执行多周期 validation、独立 H=5 训练、raw-1000 正式训练或对应的100M容量 benchmark。
 7. 将 JSON 和 Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
 8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。

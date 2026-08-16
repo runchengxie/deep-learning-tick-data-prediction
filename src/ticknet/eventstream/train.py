@@ -27,6 +27,11 @@ from torch.utils.data import DataLoader
 from ticknet.eventstream.config import PACK_ROOT, day_is_packed
 from ticknet.eventstream.dataset import L2WindowDataset
 from ticknet.eventstream.fingerprint import dataset_fingerprint, file_sha256
+from ticknet.eventstream.materialized import (
+    MaterializedWindowDataset,
+    assert_materialized_compatible,
+    load_materialized_manifest,
+)
 from ticknet.eventstream.model import CONFIGS, build_eventstream_model, compute_loss
 from ticknet.train import resolve_device, set_seed
 
@@ -43,9 +48,11 @@ class EventstreamConfig:
         "device",
         "epochs",
         "eval_tickers",
+        "evaluate_test",
         "gradient_accumulation_steps",
         "label_path",
         "lr",
+        "materialized_root",
         "min_events",
         "min_symbols_per_day",
         "model",
@@ -59,6 +66,7 @@ class EventstreamConfig:
         "seed",
         "selection_metric",
         "seq_len",
+        "source_revision",
         "test_end",
         "test_start",
         "train_end",
@@ -87,9 +95,11 @@ class EventstreamConfig:
         min_events: int = 256,
         samples_per_day: int = 2000,
         eval_tickers: int = 200,
+        evaluate_test: bool = True,
         epochs: int = 20,
         batch_size: int = 8,
         lr: float = 3e-4,
+        materialized_root: str = "",
         weight_decay: float = 0.1,
         patience: int = 4,
         seed: int = 0,
@@ -101,6 +111,7 @@ class EventstreamConfig:
         checkpoint_dir: str = "./checkpoints-eventstream",
         checkpoint_name: str = "eventstream",
         selection_metric: str = "daily_rank_ic_mean",
+        source_revision: str = "",
         min_symbols_per_day: int = 20,
     ):
         self.pack_root = pack_root
@@ -119,9 +130,11 @@ class EventstreamConfig:
         self.min_events = min_events
         self.samples_per_day = samples_per_day
         self.eval_tickers = eval_tickers
+        self.evaluate_test = evaluate_test
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
+        self.materialized_root = materialized_root
         self.weight_decay = weight_decay
         self.patience = patience
         self.seed = seed
@@ -133,6 +146,7 @@ class EventstreamConfig:
         self.checkpoint_dir = checkpoint_dir
         self.checkpoint_name = checkpoint_name
         self.selection_metric = selection_metric
+        self.source_revision = source_revision
         self.min_symbols_per_day = min_symbols_per_day
 
     def validate(self) -> None:
@@ -158,8 +172,16 @@ class EventstreamConfig:
             not self.monitor_name.isascii() or not self.monitor_name.replace("_", "").isalnum()
         ):
             raise ValueError("monitor_name 只能包含 ASCII 字母、数字和下划线")
-        if not self.days and not (0 < self.train_start < self.train_end):
+        if (
+            not self.materialized_root
+            and not self.days
+            and not (0 < self.train_start < self.train_end)
+        ):
             raise ValueError("需要显式 days 或有效的 train_start/train_end 区间")
+        if self.source_revision and (
+            not self.source_revision.isascii() or len(self.source_revision) < 7
+        ):
+            raise ValueError("source_revision 应为至少 7 位 ASCII 标识")
 
     def to_dict(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__slots__}
@@ -195,6 +217,42 @@ def make_dataloaders(
     *,
     device: torch.device,
 ) -> tuple[DataLoader, DataLoader | None, DataLoader | None]:
+    if config.materialized_root:
+        root = Path(config.materialized_root)
+        manifest = load_materialized_manifest(root)
+        assert_materialized_compatible(manifest, config)
+        train_ds = MaterializedWindowDataset(root, "train")
+        val_ds = MaterializedWindowDataset(root, "validation")
+        test_ds = MaterializedWindowDataset(root, "oos") if config.evaluate_test else None
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=config.batch_size,
+            shuffle=True,
+            drop_last=True,
+            num_workers=config.num_workers,
+            pin_memory=device.type == "cuda",
+            persistent_workers=config.num_workers > 0,
+        )
+        val_loader = DataLoader(
+            val_ds,
+            batch_size=config.batch_size,
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=device.type == "cuda",
+        )
+        test_loader = (
+            DataLoader(
+                test_ds,
+                batch_size=config.batch_size,
+                shuffle=False,
+                num_workers=config.num_workers,
+                pin_memory=device.type == "cuda",
+            )
+            if test_ds is not None
+            else None
+        )
+        return train_loader, val_loader, test_loader
+
     root = Path(config.pack_root)
     label_path = Path(config.label_path) if config.label_path else None
     train_ds = L2WindowDataset(
@@ -234,7 +292,7 @@ def make_dataloaders(
             num_workers=config.num_workers,
             pin_memory=device.type == "cuda",
         )
-    if config.test_start:
+    if config.test_start and config.evaluate_test:
         test_days = list_packed_days(config.test_start, config.test_end, root)
         test_ds = L2WindowDataset(
             test_days,
@@ -261,6 +319,27 @@ def make_monitor_dataloaders(
     device: torch.device,
 ) -> tuple[DataLoader | None, DataLoader | None]:
     """用同一批确定性收盘窗口加载只监控标签，不参与 checkpoint 选择。"""
+    if config.materialized_root:
+        root = Path(config.materialized_root)
+        validation = DataLoader(
+            MaterializedWindowDataset(root, "monitor_validation"),
+            batch_size=config.batch_size,
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=device.type == "cuda",
+        )
+        oos = (
+            DataLoader(
+                MaterializedWindowDataset(root, "monitor_oos"),
+                batch_size=config.batch_size,
+                shuffle=False,
+                num_workers=config.num_workers,
+                pin_memory=device.type == "cuda",
+            )
+            if config.evaluate_test
+            else None
+        )
+        return validation, oos
     if not config.monitor_label_path:
         return None, None
     root = Path(config.pack_root)
@@ -328,8 +407,8 @@ def evaluate_rank_ic(
     if dataloader is None:
         return _empty_metrics()
     dataset = dataloader.dataset
-    if not isinstance(dataset, L2WindowDataset):
-        raise TypeError("事件流评估需要 L2WindowDataset")
+    if not isinstance(dataset, (L2WindowDataset, MaterializedWindowDataset)):
+        raise TypeError("事件流评估需要原始或物化窗口数据集")
     if len(dataset) == 0:
         return _empty_metrics()
     preds: list[np.ndarray] = []
@@ -438,9 +517,17 @@ def _experiment_signature(
     monitor_label_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     signature = config.to_dict()
-    for name in ("epochs", "resume", "device", "num_workers", "amp", "gradient_accumulation_steps"):
+    for name in (
+        "epochs",
+        "resume",
+        "device",
+        "num_workers",
+        "amp",
+        "gradient_accumulation_steps",
+        "evaluate_test",
+    ):
         signature.pop(name)
-    if not config.monitor_label_path:
+    if not config.monitor_label_path and not config.materialized_root:
         signature.pop("monitor_label_path")
         signature.pop("monitor_name")
     signature["dataset_fingerprint"] = fingerprint
@@ -466,7 +553,11 @@ def _checkpoint_paths(config: EventstreamConfig) -> tuple[str, Path, Path, Path,
     )
 
 
-def train(config: EventstreamConfig) -> dict[str, Any]:
+def train(
+    config: EventstreamConfig,
+    *,
+    expected_parameter_count: int | None = None,
+) -> dict[str, Any]:
     """训练事件流基础模型并在验证/测试区间上评估 day 头 Rank IC。"""
     started_at = time.perf_counter()
     config.validate()
@@ -476,17 +567,27 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
     monitor_val_loader, monitor_test_loader = make_monitor_dataloaders(config, device=device)
 
     root = Path(config.pack_root)
-    fingerprint = dataset_fingerprint(
-        _resolve_days(config, root),
-        root=root,
-        label_path=Path(config.label_path) if config.label_path else None,
-    )
+    if config.materialized_root:
+        materialized_manifest = load_materialized_manifest(Path(config.materialized_root))
+        assert_materialized_compatible(materialized_manifest, config)
+        fingerprint = str(materialized_manifest["dataset_fingerprint"])
+    else:
+        fingerprint = dataset_fingerprint(
+            _resolve_days(config, root),
+            root=root,
+            label_path=Path(config.label_path) if config.label_path else None,
+        )
     monitor_label_fingerprint = (
-        file_sha256(config.monitor_label_path) if config.monitor_label_path else None
+        file_sha256(config.monitor_label_path)
+        if config.monitor_label_path and not config.materialized_root
+        else None
     )
     signature = _experiment_signature(config, fingerprint, monitor_label_fingerprint)
 
     model = build_eventstream_model(config.model).to(device)
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    if expected_parameter_count is not None and parameter_count != expected_parameter_count:
+        raise ValueError(f"事件流参数量不匹配：{parameter_count} != {expected_parameter_count}")
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.lr, weight_decay=config.weight_decay, betas=(0.9, 0.95)
     )
@@ -605,8 +706,10 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
     val_metrics = evaluate_rank_ic(
         model, val_loader, device, min_symbols_per_day=config.min_symbols_per_day
     )
-    test_metrics = evaluate_rank_ic(
-        model, test_loader, device, min_symbols_per_day=config.min_symbols_per_day
+    test_metrics = (
+        evaluate_rank_ic(model, test_loader, device, min_symbols_per_day=config.min_symbols_per_day)
+        if config.evaluate_test
+        else None
     )
     monitor_val_metrics = evaluate_rank_ic(
         model,
@@ -614,28 +717,34 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
         device,
         min_symbols_per_day=config.min_symbols_per_day,
     )
-    monitor_test_metrics = evaluate_rank_ic(
-        model,
-        monitor_test_loader,
-        device,
-        min_symbols_per_day=config.min_symbols_per_day,
+    monitor_test_metrics = (
+        evaluate_rank_ic(
+            model,
+            monitor_test_loader,
+            device,
+            min_symbols_per_day=config.min_symbols_per_day,
+        )
+        if config.evaluate_test
+        else None
     )
     train_dataset = train_loader.dataset
-    if not isinstance(train_dataset, L2WindowDataset):
+    dataset_types = (L2WindowDataset, MaterializedWindowDataset)
+    if not isinstance(train_dataset, dataset_types):
         raise TypeError("训练数据集类型无效")
     val_count = 0
     if val_loader is not None:
-        if not isinstance(val_loader.dataset, L2WindowDataset):
+        if not isinstance(val_loader.dataset, dataset_types):
             raise TypeError("验证数据集类型无效")
         val_count = len(val_loader.dataset)
     test_count = 0
     if test_loader is not None:
-        if not isinstance(test_loader.dataset, L2WindowDataset):
+        if not isinstance(test_loader.dataset, dataset_types):
             raise TypeError("测试数据集类型无效")
         test_count = len(test_loader.dataset)
     result = {
         "mode": "eventstream_train",
         "config": config.to_dict(),
+        "parameter_count": parameter_count,
         "samples": {"train": len(train_dataset), "val": val_count, "test": test_count},
         "environment": _environment(device),
         "duration_seconds": time.perf_counter() - started_at,
@@ -645,6 +754,7 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
         "best_selection_value": float(best["best_selection_value"]),
         "val": val_metrics,
         "test": test_metrics,
+        "test_status": "evaluated" if config.evaluate_test else "not_evaluated",
         "monitor": (
             None
             if monitor_val_loader is None
@@ -663,14 +773,34 @@ def train(config: EventstreamConfig) -> dict[str, Any]:
     return safe_result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="YAML 配置文件")
-    args = parser.parse_args()
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--source-revision")
+    parser.add_argument("--expected-parameter-count", type=int)
+    parser.add_argument(
+        "--evaluate-test",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+    )
+    args = parser.parse_args(argv)
     with open(args.config, encoding="utf-8") as file:
         raw = yaml.safe_load(file)
+    if not isinstance(raw, dict):
+        raise ValueError("事件流配置应为 YAML 对象")
+    overrides = {
+        "seed": args.seed,
+        "epochs": args.epochs,
+        "source_revision": args.source_revision,
+        "evaluate_test": args.evaluate_test,
+    }
+    for name, value in overrides.items():
+        if value is not None:
+            raw[name] = value
     config = EventstreamConfig.from_mapping(dict(raw))
-    train(config)
+    train(config, expected_parameter_count=args.expected_parameter_count)
 
 
 if __name__ == "__main__":

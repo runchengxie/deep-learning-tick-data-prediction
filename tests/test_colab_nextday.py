@@ -43,6 +43,8 @@ def _arguments(tmp_path: Path) -> Namespace:
         batch_sizes=[2, 4, 8, 16, 32],
         num_workers=[2, 4, 8, 16],
         effective_batch_size=32,
+        training_epochs=None,
+        evaluate_test=True,
         session="ticknet-test",
         gpu="T4",
         config=tmp_path / "config.yaml",
@@ -186,6 +188,34 @@ def test_eventstream_recent_capacity_spec_uses_2025_pack(tmp_path: Path) -> None
     assert spec["projected_train_samples"] == 42_000
 
 
+def test_eventstream_recent_training_uses_one_materialized_seed(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-train"
+    arguments.gpu = "A100"
+    arguments.seeds = [0]
+    arguments.training_epochs = 1
+    arguments.evaluate_test = False
+
+    spec = build_job_spec(arguments, "abc1234")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-materialized/seed0")
+    assert spec["feature_local"] == "/content/ticknet-eventstream/materialized/recent"
+    assert spec["checkpoint_local"] == spec["output_local"]
+    assert spec["checkpoint_remote"] == spec["output_remote"]
+    assert spec["expected_parameter_count"] == 100_604_180
+    assert spec["projected_train_samples"] == 120_000
+    assert spec["training_epochs"] == 1
+    assert spec["evaluate_test"] is False
+
+
+def test_eventstream_training_requires_one_seed(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-train"
+
+    with pytest.raises(ValueError, match="一个 seed"):
+        _validate_lifecycle_arguments(arguments)
+
+
 def test_eventstream_recent_sweep_spec_projects_full_training_window(
     tmp_path: Path,
 ) -> None:
@@ -315,6 +345,42 @@ def test_downloaded_summary_must_confirm_revision_and_success(tmp_path: Path) ->
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="source_revision 不匹配"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_eventstream_summary_confirms_seed_locked_and_oos_status(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-recent-train",
+        "source_revision": "abc1234",
+        "seeds": [0],
+        "evaluate_test": False,
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "not_evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _validate_downloaded_summary(tmp_path, spec)
+
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="OOS 状态"):
         _validate_downloaded_summary(tmp_path, spec)
 
 
@@ -560,6 +626,87 @@ def test_raw_training_stages_features_and_resumable_checkpoints(
             str(tmp_path / "checkpoints"),
         ),
     ]
+
+
+def test_eventstream_training_restores_materialized_data_and_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str, tuple[str, ...]]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **kwargs: copies.append(
+            (source, destination, tuple(kwargs.get("exclude", ())))
+        ),
+    )
+    monkeypatch.setattr(
+        colab_job,
+        "_remote_directory_exists",
+        lambda _source, **_kwargs: True,
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "eventstream-recent-train",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/materialized/seed0",
+            "feature_local": "/content/materialized",
+            "checkpoint_remote": "project/runs/eventstream/training",
+            "checkpoint_local": str(tmp_path / "checkpoints"),
+            "evaluate_test": False,
+        },
+        {},
+    )
+
+    assert copies == [
+        (
+            "gdrive:project/data/materialized/seed0",
+            "/content/materialized",
+            ("shards/oos-*/**", "shards/monitor_oos-*/**"),
+        ),
+        (
+            "gdrive:project/runs/eventstream/training",
+            str(tmp_path / "checkpoints"),
+            (),
+        ),
+    ]
+
+
+def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+    spec = {
+        "workflow": "eventstream-recent-train",
+        "feature_local": "/content/materialized",
+        "output_local": str(tmp_path / "output"),
+        "training_config": "/content/config.yaml",
+        "seeds": [0],
+        "source_revision": "abc1234",
+        "expected_parameter_count": 100_604_180,
+        "training_epochs": 1,
+        "evaluate_test": False,
+    }
+
+    colab_job._execute_workflow(spec)
+
+    assert any("ticknet.eventstream.materialized" in command for command in captured)
+    preflight = next(
+        command for command in captured if "ticknet.eventstream.materialized" in command
+    )
+    assert preflight.count("--partition") == 3
+    train_command = next(command for command in captured if "ticknet.eventstream.train" in command)
+    assert train_command[train_command.index("--seed") + 1] == "0"
+    assert train_command[train_command.index("--epochs") + 1] == "1"
+    assert train_command[train_command.index("--expected-parameter-count") + 1] == "100604180"
+    assert "--no-evaluate-test" in train_command
 
 
 def test_h5_training_invokes_each_requested_seed(

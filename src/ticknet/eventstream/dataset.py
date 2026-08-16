@@ -50,6 +50,37 @@ def _log1p(x: np.ndarray) -> np.ndarray:
     return np.log1p(np.maximum(x.astype(np.float32), 0.0))
 
 
+def _resolve_window_entries(
+    entries: list[tuple[int, int]],
+    index_by_day: dict[int, dict],
+    *,
+    seq_len: int,
+    eval_mode: bool,
+    fixed_windows: bool,
+    rng: np.random.Generator,
+) -> list[tuple[int, int, int]]:
+    """为评估或正式物化预先固定窗口起点。"""
+    resolved: list[tuple[int, int, int]] = []
+    need = seq_len + 1
+    for day, ticker_index in entries:
+        index = index_by_day[day]
+        total = int(
+            index["o_len"][ticker_index]
+            + index["t_len"][ticker_index]
+            + index["s_len"][ticker_index]
+        )
+        if total < need:
+            start = 0
+        elif eval_mode:
+            start = total - need
+        elif not fixed_windows:
+            start = -1
+        else:
+            start = int(rng.integers(0, total - need + 1))
+        resolved.append((day, ticker_index, start))
+    return resolved
+
+
 class L2WindowDataset(Dataset):
     """训练模式：随机窗口，股票按事件数比例采样。
 
@@ -68,6 +99,7 @@ class L2WindowDataset(Dataset):
         seed: int = 0,
         eval_mode: bool = False,
         eval_tickers: int = 0,
+        fixed_windows: bool = False,
     ):
         self.root = Path(root)
         self.seq_len = int(seq_len)
@@ -136,7 +168,14 @@ class L2WindowDataset(Dataset):
                 entries.extend((day, int(t)) for t in picks)
         if not entries:
             raise RuntimeError(f"no packed days found under {self.root}")
-        self.entries = entries
+        self.entries = _resolve_window_entries(
+            entries,
+            self.index,
+            seq_len=self.seq_len,
+            eval_mode=self.eval_mode,
+            fixed_windows=fixed_windows,
+            rng=self.rng,
+        )
         n_total = sum(len(v["label"]) for v in self.index.values())
         print(
             f"[dataset] {'eval' if self.eval_mode else 'train'} "
@@ -159,7 +198,7 @@ class L2WindowDataset(Dataset):
         return len(self.entries)
 
     def __getitem__(self, index: int):
-        day, tk = self.entries[index]
+        day, tk, start = self.entries[index]
         idx = self.index[day]
         mmaps = self._get_mmaps(day)
         order = mmaps["order"][idx["o_off"][tk] : idx["o_off"][tk] + idx["o_len"][tk]]
@@ -170,12 +209,8 @@ class L2WindowDataset(Dataset):
         n = len(order) + len(trade) + len(snap)
         length = self.seq_len
         need = length + 1  # 需要下一个事件作目标
-        if n < need:
-            start = 0
-        elif self.eval_mode:
-            start = n - need  # 全量日上下文：收盘前的最后事件
-        else:
-            start = int(self.rng.integers(0, n - need + 1))
+        if start < 0:
+            start = int(self.rng.integers(0, max(n - need + 1, 1)))
         end = min(start + need, n)
         feats, window_stream, window_otype = _merge_window_and_featurize(
             order,

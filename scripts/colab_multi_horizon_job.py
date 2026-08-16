@@ -19,6 +19,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
+EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -44,6 +45,7 @@ def _rclone_copy(
     destination: str,
     *,
     env: dict[str, str],
+    exclude: tuple[str, ...] = (),
 ) -> None:
     command = [
         "rclone",
@@ -58,6 +60,8 @@ def _rclone_copy(
         "--stats",
         "30s",
     ]
+    for pattern in exclude:
+        command.extend(("--exclude", pattern))
     _run(command, env=env)
 
 
@@ -85,10 +89,16 @@ def _remote_directory_exists(source: str, *, env: dict[str, str]) -> bool:
 def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
     remote = str(spec["rclone_remote"])
     workflow = str(spec["workflow"])
+    excluded_partitions = (
+        ("shards/oos-*/**", "shards/monitor_oos-*/**")
+        if workflow in EVENTSTREAM_TRAIN_WORKFLOWS and not spec["evaluate_test"]
+        else ()
+    )
     _rclone_copy(
         _drive_path(remote, str(spec["feature_remote"])),
         str(spec["feature_local"]),
         env=env,
+        exclude=excluded_partitions,
     )
     if workflow in {"multi-horizon-validation", "h5-train"}:
         _rclone_copy(
@@ -119,7 +129,9 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
                 ],
                 env=env,
             )
-    elif workflow in {"h5-train", "raw1000-train", "capacity-matrix-train"}:
+    elif workflow in (
+        {"h5-train", "raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
+    ):
         checkpoint_remote = _drive_path(remote, str(spec["checkpoint_remote"]))
         if _remote_directory_exists(checkpoint_remote, env=env):
             _rclone_copy(checkpoint_remote, str(checkpoint_root), env=env)
@@ -195,6 +207,48 @@ def _train_nextday(spec: dict[str, Any]) -> None:
                 str(int(seed)),
             ]
         )
+
+
+def _verify_eventstream_materialized(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        "ticknet.eventstream.materialized",
+        "verify",
+        "--root",
+        str(spec["feature_local"]),
+        "--output",
+        str(output_dir / "materialized-preflight.json"),
+    ]
+    if not spec["evaluate_test"]:
+        for partition in ("train", "validation", "monitor_validation"):
+            command.extend(("--partition", partition))
+    _run(command)
+
+
+def _train_eventstream(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for seed in spec["seeds"]:
+        command = [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.train",
+            "--config",
+            str(spec["training_config"]),
+            "--seed",
+            str(int(seed)),
+            "--source-revision",
+            str(spec["source_revision"]),
+            "--expected-parameter-count",
+            str(int(spec["expected_parameter_count"])),
+            "--evaluate-test" if spec["evaluate_test"] else "--no-evaluate-test",
+        ]
+        if spec.get("training_epochs") is not None:
+            command.extend(("--epochs", str(int(spec["training_epochs"]))))
+        _run(command)
 
 
 def _benchmark_capacity(spec: dict[str, Any]) -> None:
@@ -372,6 +426,11 @@ def _write_summary(
         "seeds": spec["seeds"],
         "output_remote": spec["output_remote"],
         "test_status": "locked_not_accessed",
+        "oos_status": (
+            "evaluated"
+            if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"]
+            else "not_evaluated"
+        ),
     }
     if spec.get("matrix_cell") is not None:
         summary["matrix_cell"] = spec["matrix_cell"]
@@ -406,6 +465,9 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _profile_eventstream_input(spec)
     elif spec["workflow"] in EVENTSTREAM_BENCHMARK_WORKFLOWS:
         _benchmark_eventstream(spec)
+    elif spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
+        _verify_eventstream_materialized(spec)
+        _train_eventstream(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
 
@@ -434,6 +496,7 @@ def main() -> None:
                 "eventstream-recent-capacity-benchmark",
                 "eventstream-recent-batch-size-sweep",
                 "eventstream-recent-input-profile",
+                "eventstream-recent-train",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
@@ -451,6 +514,11 @@ def main() -> None:
                     "source_revision": spec["source_revision"],
                     "output_remote": spec["output_remote"],
                     "test_status": "locked_not_accessed",
+                    "oos_status": (
+                        "evaluated"
+                        if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"]
+                        else "not_evaluated"
+                    ),
                 },
                 ensure_ascii=False,
             )
