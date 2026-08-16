@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import torch
 import yaml
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from ticknet.eventstream.dataset import N_FEATURES, L2WindowDataset
 from ticknet.eventstream.fingerprint import file_sha256, git_sha
@@ -302,6 +302,8 @@ def _write_shard(
     partition: str,
     month: str,
     seq_len: int,
+    batch_size: int,
+    num_workers: int,
 ) -> dict[str, Any]:
     relative_dir = Path("shards") / f"{partition}-{month}"
     final_dir = root / relative_dir
@@ -329,12 +331,26 @@ def _write_shard(
         )
         for name, dtype in ARRAY_DTYPES.items()
     }
-    for output_index, dataset_index in enumerate(indices):
-        values = _as_numpy(dataset[dataset_index])
+    loader = DataLoader(
+        Subset(dataset, indices),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    output_index = 0
+    next_progress = 1000
+    for batch in loader:
+        values = _as_numpy(batch)
+        rows = int(values["x"].shape[0])
         for name, array in arrays.items():
-            array[output_index] = values[name]
-        if (output_index + 1) % 1000 == 0:
-            print(f"[materialize] {partition}-{month}: {output_index + 1}/{len(indices)}")
+            array[output_index : output_index + rows] = values[name]
+        output_index += rows
+        while output_index >= next_progress:
+            print(f"[materialize] {partition}-{month}: {next_progress}/{len(indices)}")
+            next_progress += 1000
+    if output_index != len(indices):
+        raise RuntimeError(f"物化分片样本数不一致：{output_index} != {len(indices)}")
     for array in arrays.values():
         array.flush()
     del arrays
@@ -544,6 +560,8 @@ def build_materialized_dataset(
                 partition=partition,
                 month=month,
                 seq_len=config.seq_len,
+                batch_size=config.batch_size,
+                num_workers=config.num_workers,
             )
             manifest["shards"].append(record)
             _refresh_totals(manifest)

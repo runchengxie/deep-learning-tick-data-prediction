@@ -239,6 +239,24 @@ def test_materialization_registers_atomic_orphan_shard(
     verify_materialized_dataset(output)
 
 
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded:DeprecationWarning")
+def test_materialization_supports_multiple_workers(
+    packed_day: dict,
+    tmp_path: Path,
+) -> None:
+    config, storage_path = _prepare_formal_fixture(packed_day, tmp_path)
+    config.num_workers = 2
+    manifest = build_materialized_dataset(
+        config,
+        storage_manifest_path=storage_path,
+        output_root=tmp_path / "workers",
+        source_revision=SOURCE_REVISION,
+    )
+
+    assert manifest["status"] == "complete"
+    assert manifest["totals"]["samples"] == 8
+
+
 def test_training_reads_materialized_windows_without_oos(
     materialized_fixture: tuple[EventstreamConfig, Path],
     tmp_path: Path,
