@@ -99,6 +99,59 @@ python scripts/run_colab_nextday.py \
 
 压缩抽样约为原始体积的 24% 至 27%，目前只作为工程候选，尚未形成正式方案。
 
+### 存储清单与预检
+
+`ticknet-eventstream-storage-readiness` 已经提供不依赖远端存储方案的审计基础。清单生成器读取五个月按日股票池，把每个交易日固定到 train、validation 或 OOS，逐项记录 412 个 pack 文件及标签产物的字节数、MD5 和 SHA-256。股票池触及 2026、日期没有落入唯一分区、pack 缺失或源数据指纹不一致时会停止生成。
+
+在保存本地真实产物的主工作区执行：
+
+```bash
+ticknet-eventstream-storage-readiness build \
+  --config configs/eventstream-h5-recent-capacity100m.yaml \
+  --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1 \
+  --universe artifacts/eventstream-h5-recent-fold/202508/universe.json \
+  --universe artifacts/eventstream-h5-recent-fold/202509/universe.json \
+  --universe artifacts/eventstream-h5-recent-fold/202510/universe.json \
+  --universe artifacts/eventstream-h5-recent-fold/202511/universe.json \
+  --universe artifacts/eventstream-h5-recent-fold/202512/universe.json \
+  --artifact fold-labels/manifest.json=artifacts/eventstream-h5-recent-fold/fold-labels/manifest.json \
+  --artifact fold-labels/h3.parquet=artifacts/eventstream-h5-recent-fold/fold-labels/h3.parquet \
+  --artifact fold-labels/h5.parquet=artifacts/eventstream-h5-recent-fold/fold-labels/h5.parquet \
+  --output artifacts/eventstream-h5-recent-fold/storage-manifest.json
+```
+
+生成过程会顺序读取完整 pack 计算内容哈希，只需在数据定版后执行一次。输出清单只含文件路径、大小、哈希、日期合同和聚合统计，不含股票列表或行情内容。
+
+直接以散文件保存到 Drive 或 GCS 时，可以在创建 GPU session 前核对远端文件集合。远端必须通过 rclone 提供 MD5 或 SHA-256 中的至少一种：
+
+```bash
+rclone lsjson remote:ticknet-data/eventstream-h5-recent \
+  --recursive --files-only --hash \
+  > artifacts/eventstream-h5-recent-fold/remote-listing.json
+
+ticknet-eventstream-storage-readiness verify-direct-remote \
+  --manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
+  --listing artifacts/eventstream-h5-recent-fold/remote-listing.json
+```
+
+完整复制方案还要在运行环境中检查数据、临时文件和 checkpoint 空间。默认给数据体积留出 5% 余量，并额外保留 20 GiB：
+
+```bash
+ticknet-eventstream-storage-readiness check-full-copy-capacity \
+  --manifest /content/storage-manifest.json \
+  --path /content
+```
+
+数据落盘后再做一次逐文件内容核对：
+
+```bash
+ticknet-eventstream-storage-readiness verify-staged \
+  --manifest /content/storage-manifest.json \
+  --root /content/ticknet-eventstream/top400-h5-recent
+```
+
+月度压缩包或流式暂存需要额外定义传输清单、解包原子性和月间恢复位置。当前命令不会选择其中一种方案，也不会创建 Colab session。正式训练 workflow 要在存储布局确定后强制串联远端清单核对、运行盘检查和落盘内容核对，任一步失败都不能进入训练。
+
 基础设施门槛通过后运行最近折正式 seed 0。H5 用于选择 checkpoint，H3 只作监控。seed 0 需要同时满足以下条件，随后才补 seed 1 和 2：
 
 - validation 与 OOS 的 H5 每日 Rank IC 均为正
