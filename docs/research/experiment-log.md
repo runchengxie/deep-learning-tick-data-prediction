@@ -159,3 +159,21 @@ src/ticknet/research/
 | 16 | 171.07 | 140.73 | 4.74 小时/seed |
 
 选择 8 workers。相对旧 Dataset 的最佳端到端吞吐提升 8.21 倍，相对最初 batch 8、2 workers 的约 4.4 samples/s 累计提升约 34 倍。三个 seed 串行 20 epoch 上限约 13.39 小时；正式训练还包含 validation、checkpoint I/O 和早停，以真实墙钟为准。当前模型已经是带 RoPE、causal scaled-dot-product attention 和 FFN 的 Transformer，换用 Hugging Face `transformers` 封装不会解决本轮确认的输入瓶颈。
+
+## 2026-08-16：raw-1000 Top-100 100M 三 seed 正式训练
+
+按 [nextday-raw-1000-top100-capacity-100m.yaml](../../configs/nextday-raw-1000-top100-capacity-100m.yaml) 的冻结合同完成 seed 0、1、2。模型有 100,817,575 个参数，目标为下一交易日开盘到收盘的个股超额收益，checkpoint 按 2024 validation 日均 Rank IC 选择。训练期为 2021 至 2023，验证期为 2024。工作集共 118,078 个样本，其中 train 为 70,805 个，validation 为 23,472 个。数据指纹为 `f8a17e63d0716f9e48fd05f9a269bb61cea5bff81e9a7acf90c4a42e47505e5c`。
+
+seed 0 使用源码版本 `56f99d9`，seed 1 和 2 使用合并后的 `95a3a90`。三次训练的模型、数据、目标、优化器、选模指标和早停合同一致。结果如下：
+
+| seed | 最佳 epoch | 实际 epoch | validation Rank IC | Rank ICIR | Macro F1 | MCC | 训练时间 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 9 | 17 | 0.03295 | 0.19748 | 0.37910 | 0.09666 | 66.70 分钟 |
+| 1 | 20 | 28 | 0.03340 | 0.23013 | 0.38944 | 0.11766 | 109.65 分钟 |
+| 2 | 12 | 20 | 0.02822 | 0.18163 | 0.36553 | 0.10205 | 78.27 分钟 |
+
+三 seed 最佳 validation Rank IC 均值为 0.03152，seed 间样本标准差为 0.00287，范围为 0.02822 至 0.03340。串行训练累计 15,276.83 秒，即 4.24 GPU 小时。相对既有 `1M/raw-200` 三 seed 的均值 0.02031，候选组合高 0.01121，约为 55.2%。这个差值只描述两个已运行组合，不是容量的独立因果效应。
+
+当前候选同时改变了模型容量、事件窗口和股票样本集合，学习率与最小日横截面门槛也不同。checkpoint 又是在同一 2024 validation 上按 Rank IC 选择，因此均值带有选模乐观偏差，不能解释为样本外显著性或可交易收益。正式归因需要在同一 Top-100 样本集合和同一训练合同下补齐 `100M/raw-200` 与 `1M/raw-1000`，并与两端组合构成 2×2 对照。
+
+2025 test 仍保持锁定。三个结果文件中的 `test` 均为 `null`，运行摘要为 `locked_not_accessed`。清单中的 23,512 只表示 test 元数据行数，没有执行模型评估。下一步先补齐同口径归因矩阵和 validation 稳定性检查，再冻结一次性 test 评估条件。
