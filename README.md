@@ -23,7 +23,7 @@
 - L2 事件流最近折已完成 2025 年 8 月至 12 月的 103 个交易日打包和 A100 输入基准，正式训练尚未开始，因此目前只有工程结论
 - AgentX 研究闭环的 M0 至 M3 已完成。M3 v2 使用 2021 年 7 月至 2025 年 12 月的完整沪深分钟特征，2025 年下半年 Rank IC 为 0.06994。正式 64 组 Top-K 成本矩阵没有找到可覆盖单边 10bp 成本并跑赢 Top-400 等权基准的组合
 
-完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
+各模型的输入、运行原理、优点、限制和研究状态见[模型清单](docs/model-catalog.md)。完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
 
 ## 快速开始
 
