@@ -71,8 +71,6 @@ max-complexity = 15
 "scripts/smoke_test.py" = ["E402"]
 "scripts/prepare_minute_shards.py" = ["C901"]
 "src/ticknet/nextday/minute_tcn.py" = ["C901"]
-"src/ticknet/nextday/train_tcn.py" = ["C901"]
-"src/ticknet/nextday/train_gru.py" = ["C901"]
 "legacy/scripts/fi2010_smoke_test.py" = ["E402"]
 # 以下两处高复杂度是已知技术债，将在 PR-3 拆分上帝文件（dataset.py / train.py）时解决。
 "src/ticknet/nextday/dataset.py" = ["C901"]
