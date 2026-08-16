@@ -1,8 +1,6 @@
-# 原始盘口 200 tick 端到端主线
+# 原始盘口端到端主线
 
-> 适用范围：验证深度模型直接接受原始十档 snapshot tick 并输出次日方向的端到端能力。
-> 本文与 [resource-strategy-and-pilot-gates](../research/resource-strategy-and-pilot-gates.md)
-> 互补。那份文档讲资源怎么省着用，这份讲 raw-200 这条主线怎么从本地数据一路走到锁定测试，以及每一步用什么门槛拦住。
+本文说明原始十档快照从本地加工到锁定测试的操作流程。资源门槛见[资源策略与试验门槛](../research/resource-strategy-and-pilot-gates.md)。本文保留 raw-200 pilot 的执行记录，当前状态以[项目现状](../project-status.md)为准。
 
 ## 1. 目标与现状
 
@@ -12,8 +10,8 @@
 
 ### 现状
 
-- `raw_snapshot.py` 数据准备链路、`train.py` 训练器和 raw-200 pilot 配置都已就位。默认 86k 模型和百万参数版本均已有真实 2024 pilot 多 seed 结果。
-- 百万参数版本没有提高跨 seed 平均验证 Rank IC。五年 Top-400 工作集已经生成，容量实验和多周期评估已跑出真实结论，详见 [raw-data-expansion-roadmap.md](raw-data-expansion-roadmap.md) 与 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
+- `raw_snapshot.py` 数据准备链路、`train.py` 训练器和 raw 配置都已就位。raw-200、raw-1000、约 1M 参数和 100M 参数均有真实训练结果。
+- 五年 Top-400 raw-200 工作集和五年 Top-100 raw-1000 工作集已经生成。四格三 seed 受控矩阵选择 `1M/raw-200` 作为唯一候选，继续扩容和加长窗口已经停止。完整数字见 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
 - 数据加工在本地主机完成，Colab 只做训练，这个分工参考 `notebooks/nextday_end_to_end_colab.ipynb`。
 - 本地主机 CPU 实测约 8.5 股票日每秒，三年分块 DeepLOB 一个 epoch 约 9.8 小时，正式训练必须上 Colab 或云 GPU。
 
@@ -54,7 +52,7 @@
 - 每个股票日只有一个样本。
 - 分片 sha256 齐全且 manifest 指纹一致，Colab 端可以校验。
 
-## 3. 门槛式推进（每步通过才进下一步）
+## 3. 门槛式推进（阶段记录）
 
 ```text
 本地数据加工（第 2 节，占 CPU 但不占 Colab 额度）
@@ -112,12 +110,12 @@ roadmap 要求先过 Logistic，证明分片里真有信息，同时校验管线
 
 出现任一停止信号就停止扩大模型，停止本身是有效的研究结论。完整的停止信号清单见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md) 的评估和停止规则一节。
 
-## 6. 下一步动作
+## 6. 当前动作
 
-1. 在五年 Top-400 工作集上完成分片校验、日期覆盖和 train、val、test purge 审计后上传 Drive。
-2. 冻结正式配置，评估 2025 锁定测试。
-3. 在正式工作集上重新比较 86k 与 1.03M，容量增量跨 seed 稳定后才增加参数或窗口。
+1. 固定 `1M/raw-200` 的三个 checkpoint、seed 聚合方式和验收指标。
+2. 预先写明 2025 锁定测试的触发条件和通过条件。
+3. 满足门槛后一次性评估 2025，测试结果不得用于重新选择模型。
 
-整体的工程实施顺序见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md) 的工程实施顺序一节。
+项目整体工作顺序见[项目现状](../project-status.md)。
 
 参考：`notebooks/nextday_end_to_end_colab.ipynb`、`configs/nextday-raw-pilot.yaml`、`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、[raw-data-expansion-roadmap.md](raw-data-expansion-roadmap.md)。

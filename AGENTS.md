@@ -4,7 +4,7 @@
 
 ## 项目目标
 
-项目包含两条独立链路：复现 DeepLOB 在 FI-2010 上的 Table I 和 Table II，以及研究 tick 和 LOB 数据对次日横截面方向的预测。复现已归档到 `legacy/`，只作临摹参考。代码和文档应清楚区分：
+项目保留 DeepLOB 在 FI-2010 上的复现归档，并持续研究 tick 和 LOB 数据对次日横截面方向的预测。复现代码位于 `legacy/`，只作临摹参考。代码和文档应清楚区分：
 
 - 已经由自动化测试验证的工程事实
 - 由论文或官方数据格式支持的实验设定
@@ -14,7 +14,7 @@
 
 ## 代码边界
 
-- `src/ticknet/model.py`、`dataset.py`、`train.py` 只承载 FI-2010 复现逻辑，随 legacy 归档
+- `src/ticknet/model.py` 和 `dataset.py` 保留兼容模型与合成数据工具。`src/ticknet/train.py` 提供主链路复用的随机种子、设备选择和分类指标工具
 - `src/ticknet/nextday/` 负责次日标签、分片数据集、分块模型、横截面指标和训练，包含分钟 HGB、TCN、GRU 三套基线和原始盘口主线
 - `src/ticknet/eventstream/` 负责 L2 逐笔事件流的无损打包、因果 Transformer 训练和预测导出，数据契约见 `config.py`
 - `src/ticknet/research/` 负责实验研究闭环，包括提案定义、策略校验、锁定测试隔离、实验登记、预测审计和研究 Agent 框架。它通过 CLI 入口名和 YAML 配置与 `nextday` 解耦，不直接 import `nextday` 的实现
@@ -33,12 +33,14 @@
 - setup2 使用 CF_7 Training 和 CF_7、CF_8、CF_9 三个 Testing 文件
 - 真实数据训练必须提供转换脚本生成的 NPY 和元数据文件
 - 缺少元数据时应停止运行，不得静默改用随机切分
+- 早期原始盘口容量系列锁定 2025，当前 AgentX 与事件流系列把 2025 作为开发区并锁定 2026
+- 当前功能和研究进度统一维护在 `docs/project-status.md`，阶段路线图不能代替现状页
 
 ## 修改要求
 
 完成代码修改后运行：
 
-```powershell
+```bash
 ruff format .
 ruff check .
 ty check
@@ -52,18 +54,16 @@ python scripts/smoke_test.py
 
 每次改动都在独立的 worktree 上进行，避免多个代理同时改同一份文件互相竞争。
 
-1. 从 main 新建 worktree 和分支，命名见历史约定，例如 `feat/next-round`
+1. 从 `main` 新建 worktree 和 `agent/<topic>` 分支
 2. 在 worktree 里实现改动，跑通上面的门禁
 3. 提交、推送、开 PR 并把 PR 合并到 main
 4. 删除已合并的分支和对应的 worktree，拉取最新 main
 
 worktree 里没有 `.venv`，跑 ty 前先建立软链：
 
-```bash
-ln -sfn ~/code/deep-learning-tick-data-prediction/.venv <worktree>/.venv
-```
+在仓库外的 worktree 中建立指向主工作区 `.venv` 的软链即可。提交前删除这个软链，它会被 Git 当成未跟踪文件。
 
-提交前删掉这个软链，它会被 Git 当成未跟踪文件。
+文档改动也要运行 pytest。文档测试会检查内部 Markdown 链接和本文件约定的中文文风。修改文档里的命令时，先用对应的 `--help` 核对参数名。
 
 ## 文档语言
 

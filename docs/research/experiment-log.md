@@ -17,7 +17,7 @@ Drive 上散落了本项目多代命名（旧名 `deeplob`）与个人文件。�
 
 目录名统一为 `ticknet` 前缀或语义化新名，checkpoint 文件名 `deeplob.setup2.*.pt` 改为 `ticknet.setup2.*.pt`。旧代码快照内部的 `deeplob` 包名和文档名保持原样，改包名会使旧快照无法运行，它只是历史存档。
 
-本次整理确认 A 股 raw-200 pilot 已完整跑完：数据 2024 全年 23,515 样本；Logistic 基线验证集 Rank IC 约 0.015、MCC 约 0.059；深度模型 5 seed 锁定测试 Rank IC 约 0.0075 ± 0.015、MCC 约 0.070 ± 0.010、Macro F1 约 0.335 ± 0.028，信号微弱、跨 seed 不稳定，未明显超过基线。另设 1,033,383 参数容量实验，与 86,775 参数基线保持相同数据和训练口径。
+本次整理确认 A 股 raw-200 pilot 已完整跑完。2024 全年数据有 23,515 个样本。Logistic 基线验证集 Rank IC 约为 0.015，MCC 约为 0.059。深度模型 5 seed 锁定测试 Rank IC 约为 0.0075 ± 0.015，MCC 约为 0.070 ± 0.010，Macro F1 约为 0.335 ± 0.028。信号微弱，跨 seed 不稳定，未明显超过基线。另设 1,033,383 参数容量实验，与 86,775 参数基线保持相同数据和训练口径。
 
 Drive 操作全部经远程主机 rclone。本机 `gdrive:` 的 OAuth token 会过期，若要更持久，配置自定义 Google Cloud OAuth 凭据（见私有记录，不写入本仓库）。
 
@@ -61,7 +61,7 @@ TCN 3 seed 锁定测试聚合：
 | 2024 | 0.0353 | 124 | 0.113 | 67,930 |
 | 2025 | 0.0304 | 125 | 0.081 | 92,118 |
 
-四个 test 年 Rank IC 全部为正，区间 0.022 至 0.035，分类指标也全部为正。结论：分钟聚合特征 HGB 的信号在 4 个独立样本外年一致为正，信号真实存在但弱，约 Rank IC 0.02 至 0.035，跨年稳定，尚不足以直接构成扣除成本后盈利的策略。工程改动：`run_minute_baseline.py` 增加按年流式读取（`_build_samples_by_year`），峰值内存从 20 GB 以上降至约 9 GB；`minute_baseline.py` 分钟特征由 float64 降为 float32，内存再减半，指标不变。
+四个 test 年 Rank IC 全部为正，区间为 0.022 至 0.035，分类指标也全部为正。分钟聚合特征 HGB 的信号在 4 个独立样本外年一致为正，信号真实存在但较弱，跨年较稳定，尚不足以直接构成扣除成本后盈利的策略。`run_minute_baseline.py` 增加按年流式读取（`_build_samples_by_year`），峰值内存从 20 GB 以上降至约 9 GB。`minute_baseline.py` 的分钟特征由 float64 降为 float32，内存再减半，指标不变。
 
 ## 2026-08-08：成本后多空组合收益评估
 
@@ -119,7 +119,7 @@ src/ticknet/research/
     orchestrator.py  research_step 闭环
 ```
 
-闭环为 ResearchContext 到 Brainstorm、Critic、Policy、Runner、Audit、Registry 的单向流程。`ticknet-research` CLI 提供 run、show、compare、audit、approve-locked-test、locked-test 和 agent-step 子命令。关键设计：权限由程序控制，Agent 不能改 `test_end` 等字段；确定性先于 LLM，指标提取和裁决用确定性 Python；每个提案必须声明 falsification_condition；负面结果写入 Registry 形成 parent DAG；测试集物理隔离。
+闭环为 ResearchContext 到 Brainstorm、Critic、Policy、Runner、Audit、Registry 的单向流程。`ticknet-research` CLI 提供 run、show、compare、audit、approve-locked-test、locked-test 和 agent-step 子命令。权限由程序控制，Agent 不能修改 `test_end` 等字段。指标提取和裁决使用确定性 Python。每个提案必须声明 falsification_condition。负面结果写入 Registry 并形成 parent DAG。测试集保持物理隔离。
 
 验证结果：全套件 115 个测试通过（新增 research 16 个），端到端 `agent-step` 真实跑通（Brainstorm 从极端日贡献偏高生成 data_audit 提案，TCN 训练完成并登记 EXP-AUTO-TCN2），越权实验被 PolicyViolation 拦截。后续未做：Developer Agent、SGPO 或 Harness Evolution、Brainstorm 接真实 LLM（`--provider deepseek/openai` 已预留接口）。
 
@@ -141,13 +141,13 @@ src/ticknet/research/
 
 ## 2026-08-12：eventstream A100 输入流水线优化
 
-在 2025-08 Top-400 train pack 上，用 100,604,180 参数的 `capacity100m` 因果 Transformer 拆分 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。实验只读取 2025-08 训练数据，dataset fingerprint 为 `705445378f0fc5842ce80bcfa41a01cdd10236198c5683f108f0ba146f8c3b82`；validation、OOS 和 2026 locked 数据均未访问。
+在 2025-08 Top-400 train pack 上，用 100,604,180 参数的 `capacity100m` 因果 Transformer 分别测量 DataLoader-only、预加载 batch 的 GPU-only 和真实端到端吞吐。实验只读取 2025-08 训练数据，dataset fingerprint 为 `705445378f0fc5842ce80bcfa41a01cdd10236198c5683f108f0ba146f8c3b82`。validation、OOS 和 2026 locked 数据均未访问。
 
 旧 Dataset 的 GPU-only 为 235.28 samples/s。worker sweep 结果为 2、4、8、16 workers 对应端到端 4.62、9.53、13.23、18.19 samples/s，确认瓶颈在输入流水线。按 120,000 个样本和 20 epoch 外推，最佳 16 workers 仍需 36.65 小时每 seed。
 
-旧实现每取一个 512 事件窗口都会对该股票全天 order、trade、snapshot 重新拼接、稳定排序并构造全部 80 维特征。2025-08 有 8,097 个 `(day, ticker)` 和约 24.55 亿事件。`uint32` merge index 全月约 9.15GiB；按正式 shuffle 顺序模拟 20 epoch，16 workers 每个 512MiB、合计 8GiB 的 LRU 命中率只有 5.45%，合计 32GiB 也只有 22.15%，因此不落地 LRU。
+旧实现每取一个 512 事件窗口，都会对该股票全天 order、trade 和 snapshot 重新合并、稳定排序并构造全部 80 维特征。2025-08 有 8,097 个 `(day, ticker)` 和约 24.55 亿事件。`uint32` merge index 全月约为 9.15 GiB。按正式 shuffle 顺序模拟 20 个 epoch 时，16 个 worker 各使用 512 MiB、合计 8 GiB 的 LRU 命中率只有 5.45%，合计 32 GiB 时也只有 22.15%，因此不采用 LRU。
 
-优化改为对三条已排序流做时间二分，定位目标合并排名后只稳定归并窗口附近 513 个事件，并从窗口前最后一个有效 snapshot 延续滚动中间价。合成数据穷举同时间戳顺序和全部窗口均与旧实现一致；真实 2025-08 三个交易日、9 个窗口逐元素一致，单样本数据构造加速 15.6 至 18.9 倍。
+优化后的实现对三条已排序流做时间二分，定位目标合并排名后只稳定合并窗口附近的 513 个事件，并从窗口前最后一个有效 snapshot 延续滚动中间价。合成数据穷举同时间戳顺序和全部窗口，结果均与旧实现一致。真实 2025-08 三个交易日的 9 个窗口也逐元素一致，单样本数据构造速度提高 15.6 至 18.9 倍。
 
 优化后 A100 runtime 有 12 个 CPU core，GPU-only 为 238.79 samples/s。worker sweep 结果：
 
@@ -158,7 +158,7 @@ src/ticknet/research/
 | 8 | 140.48 | 149.40 | 4.46 小时/seed |
 | 16 | 171.07 | 140.73 | 4.74 小时/seed |
 
-选择 8 workers。相对旧 Dataset 的最佳端到端吞吐提升 8.21 倍，相对最初 batch 8、2 workers 的约 4.4 samples/s 累计提升约 34 倍。三个 seed 串行 20 epoch 上限约 13.39 小时；正式训练还包含 validation、checkpoint I/O 和早停，以真实墙钟为准。当前模型已经是带 RoPE、causal scaled-dot-product attention 和 FFN 的 Transformer，换用 Hugging Face `transformers` 封装不会解决本轮确认的输入瓶颈。
+最终选择 8 个 worker。相对旧 Dataset 的最佳端到端吞吐提高 8.21 倍，相对最初 batch 8、2 个 worker 的约 4.4 samples/s 累计提高约 34 倍。三个 seed 串行运行 20 个 epoch 的上限约为 13.39 小时。正式训练还包含 validation、checkpoint I/O 和早停，以真实墙钟为准。当前模型已经是带 RoPE、causal scaled-dot-product attention 和 FFN 的 Transformer，改用 Hugging Face `transformers` 封装无法解决本轮确认的输入瓶颈。
 
 ## 2026-08-16：raw-1000 Top-100 100M 三 seed 正式训练
 
@@ -174,7 +174,7 @@ seed 0 使用源码版本 `56f99d9`，seed 1 和 2 使用合并后的 `95a3a90`�
 
 三 seed 最佳 validation Rank IC 均值为 0.03152，seed 间样本标准差为 0.00287，范围为 0.02822 至 0.03340。串行训练累计 15,276.83 秒，即 4.24 GPU 小时。相对既有 `1M/raw-200` 三 seed 的均值 0.02031，候选组合高 0.01121，约为 55.2%。这个差值只描述两个已运行组合，不是容量的独立因果效应。
 
-当前候选同时改变了模型容量、事件窗口和股票样本集合，学习率与最小日横截面门槛也不同。checkpoint 又是在同一 2024 validation 上按 Rank IC 选择，因此均值带有选模乐观偏差，不能解释为样本外显著性或可交易收益。正式归因需要在同一 Top-100 样本集合和同一训练合同下补齐 `100M/raw-200` 与 `1M/raw-1000`，并与两端组合构成 2×2 对照。
+当时的候选同时改变了模型容量、事件窗口和股票样本集合，学习率与最小日横截面门槛也不同。checkpoint 又是在同一 2024 validation 上按 Rank IC 选择，因此均值带有选模乐观偏差，不能解释为样本外显著性或可交易收益。正式归因需要在同一 Top-100 样本集合和同一训练合同下补齐 `100M/raw-200` 与 `1M/raw-1000`，并与两端组合构成 2×2 对照。
 
 2025 test 仍保持锁定。三个结果文件中的 `test` 均为 `null`，运行摘要为 `locked_not_accessed`。清单中的 23,512 只表示 test 元数据行数，没有执行模型评估。下一步先补齐同口径归因矩阵和 validation 稳定性检查，再冻结一次性 test 评估条件。
 

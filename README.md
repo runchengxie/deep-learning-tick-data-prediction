@@ -1,51 +1,56 @@
 # 深度学习 tick 数据预测
 
-用 A 股交易所逐笔数据训练模型，预测下一交易日的横截面涨跌位置。项目从复现 DeepLOB 论文起步，现在以真实业务的端到端链路为主，论文复现已经归档到 `legacy/`，只作临摹参考。
+本项目用 A 股逐笔行情研究下一交易日的横截面排序信号。项目从 DeepLOB 论文复现起步，现在主要维护真实数据训练、成本评估和受控实验研究三类能力。FI-2010 复现已归档到 `legacy/`，论文和阅读笔记放在 `references/`。
 
-论文原文和阅读笔记放在 `references/`，见该目录下的 `README.md`。
+## 项目能力
 
-## 项目在做什么
+当前代码包含四条可以独立运行的链路：
 
-核心问题：一只股票当天盘口和成交的表现，能不能用来判断它下一个交易日相对全市场的涨跌位置。数据只使用信号时点之前的信息，时间按完整交易日切分，训练、验证、测试三段互不重叠。
+1. 原始盘口链路读取信号时点前最后 200 或 1,000 个十档快照，由分块 DeepLOB 和 GRU 编码，输出连续分数与三分类概率
+2. 分钟聚合链路提供 HGB、TCN 和 GRU，用较低成本检验分钟量价特征
+3. L2 事件流链路无损打包委托、成交和快照，由因果 Transformer 完成事件任务与日级信号输出
+4. 研究闭环用 ExperimentSpec、白名单执行器、Registry、预测审计和锁定测试审批管理实验
 
-当前有三条模型主线，共用同一套横截面标签和评估口径：
-
-1. 原始盘口主线，输入信号时点前最后 200 个十档 snapshot 事件，切成两个 100 事件块，用共享权重的 DeepLOB 编码器提特征，GRU 汇总成向量，输出连续超额收益分数和下跌、中性、上涨三分类概率
-2. 分钟聚合主线，把分钟级量价序列分别喂给 HGB 树模型、TCN 和 GRU 三种模型，用作低成本对照
-3. L2 逐笔事件流主线，把委托、成交、快照三流无损打包，喂给因果 Transformer 做下一事件预测和日级信号输出，详见 [docs/nextday/eventstream.md](docs/nextday/eventstream.md)
-
-配套的实验研究闭环参考 AgentX 论文实现，把提案、训练、审计、锁定测试串成确定性流程，负责可交易 Top-K 组合的评估与诊断。
+这些链路共用按交易日切分、时间外评估和横截面排序的基本原则。不同研究阶段使用的锁定区间有所区别，开始实验前请查看[项目现状](docs/project-status.md)和[研究契约](docs/research/topk-agentx-m0-research-contract.md)。
 
 ## 当前结论
 
-分钟级特征携带真实的次日信息，但强度不足以覆盖交易成本。HGB 在 2022 至 2025 四个独立样本外年份的每日 Rank IC 全部为正，约 0.02 至 0.035。日频换手约 83%，单边 10 个基点成本下净年化为负，盈亏平衡成本约 5 至 6 个基点，低于实际可实现水平。多空组合的收益还集中在少数极端交易日。
+截至 2026-08-16，已经落地的主要结论如下：
 
-分钟 TCN 在验证集上的排序能力强于 HGB，但优势没有泛化到测试集。原始盘口和逐笔事件流主线的正式结论仍在推进中。详细结果和证据链见 [docs/research/topk-agentx-research-roadmap.md](docs/research/topk-agentx-research-roadmap.md)。
+- 分钟 HGB 在 2022 至 2025 四个样本外年份的每日 Rank IC 均为正，约为 0.02 至 0.035。信号强度不足以覆盖现实交易成本
+- 分钟 TCN 的验证集排序能力高于 HGB，优势未延续到测试集
+- 原始盘口 Top-100 的三 seed 受控矩阵已经完成。`1M/raw-200` 的验证 Rank IC 为 `0.03748 ± 0.00096`，是四格中最稳的候选。扩大到 100M 参数或把窗口增至 raw-1000 都没有形成稳定增益
+- L2 事件流最近折已完成 2025 年 8 月至 12 月的 103 个交易日打包和 A100 输入基准，正式训练尚未开始，因此目前只有工程结论
+- AgentX 研究闭环的 M0 至 M2 已完成。M3 正在物化 60 个月的正式分钟特征，目前完成 6 个月，正式 Top-K 预测和成本诊断仍待执行
+
+完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
 
 ## 快速开始
 
-以下步骤不需要真实行情数据，可以确认代码链路正常。环境为 Python 3.11 或更高版本。
+以下步骤不需要真实行情数据，支持 Python 3.10 及以上版本。
 
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 python -m pip install -e ".[dev]"
 pre-commit install
 python scripts/check.py
 ```
 
-`scripts/check.py` 依次跑 Ruff、格式检查、ty 类型检查、带覆盖率的 pytest 和冒烟脚本。也可以单独运行 `python scripts/smoke_test.py`、`python -m pytest -q`、`ruff check .`、`ty check`。Linux 和 macOS 使用对应的虚拟环境激活命令。
+`scripts/check.py` 会运行 Ruff、格式检查、ty、带覆盖率的 pytest 和 FI-2010 兼容模型冒烟检查。
 
-## 用真实数据跑通主链路
+Windows PowerShell 使用 `.\.venv\Scripts\Activate.ps1` 激活环境。修改 `pyproject.toml` 中的命令入口后，需要重新执行可编辑安装，让 `.venv/bin/` 或 Windows 的 `.venv\Scripts\` 生成新入口。
 
-在已有沪深月度 snapshot Parquet 的机器上，先准备数据再训练。
+## 运行真实数据链路
+
+在已经准备好沪深月度快照 Parquet 的机器上，可以先生成分片，再启动训练：
 
 ```bash
 ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
 ticknet-nextday-train --config configs/nextday.yaml
 ```
 
-训练完成后用推理 CLI 把单只股票信号时点前的原始事件转成次日信号：
+训练完成后，可以把单只股票的原始事件转成次日信号：
 
 ```bash
 ticknet-nextday-predict \
@@ -56,32 +61,24 @@ ticknet-nextday-predict \
   --device cpu
 ```
 
-输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易优先用同一天股票的分数排序。
+输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易使用同一天全部股票的分数排序。
 
-分钟线用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`，逐笔事件流用 `ticknet-eventstream-pack` 和 `ticknet-eventstream-train`，完整命令见对应文档。
-
-## 文档导航
-
-技术细节全部放在 `docs/`，按主题分目录，从 [docs/README.md](docs/README.md) 进入。建议阅读顺序是主链路规范、端到端流程、研究路线图、开发指南。
-
-维护者和代码代理的使用约定见 [AGENTS.md](AGENTS.md)。
+分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-train` 和 `ticknet-eventstream-export-predictions`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
 
 ## 项目结构
 
 ```text
-src/ticknet/            模型、数据集和训练逻辑
-src/ticknet/nextday     次日标签、分片数据集、分块模型、指标和训练入口
-src/ticknet/eventstream L2 逐笔事件流打包、因果 Transformer、预测导出
-src/ticknet/research    实验研究闭环，提案、审计、Registry 和 Agent 框架
-scripts/                数据准备、基线和冒烟检查等人工执行入口
-tests/                  不依赖真实数据的自动化测试
-configs/                本地和 Colab 配置
-docs/                   技术文档，按主题分目录
-references/             论文原文和阅读笔记
-legacy/                 FI-2010 复现归档，不参与主链路开发
+src/ticknet/            共享训练工具和兼容模型
+src/ticknet/nextday     次日标签、分片、分钟模型和原始盘口模型
+src/ticknet/eventstream L2 事件流打包、因果 Transformer 和预测导出
+src/ticknet/research    实验提案、执行、审计、Registry 和研究 Agent
+scripts/                数据准备、基线和本地检查入口
+tests/                  不依赖真实行情的主链路自动化测试
+configs/                本地与 Colab 配置
+docs/                   当前说明、路线图和实验记录
+references/             论文与阅读笔记
+legacy/                 FI-2010 复现归档
 notebooks/              Colab 入口笔记本
 ```
 
-## FI-2010 数据格式
-
-官方文本文件形状为 `149 × N`，每列一个样本。第 0 至 39 行是十档买卖盘的价格和数量，即 DeepLOB 输入。第 40 至 143 行是 104 个手工特征，转换后保留但不进入模型。第 144 至 148 行是五个预测标签，列索引对应跨度 10、20、30、50、100。项目使用论文采用的 NoAuction 和 z-score 版本。完整说明见 [docs/reproduction-audit.md](docs/reproduction-audit.md)。
+维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。

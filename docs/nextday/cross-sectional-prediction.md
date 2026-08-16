@@ -2,7 +2,7 @@
 
 ## 研究问题
 
-这条实验链路与 FI-2010 论文复现相互独立。原始盘口实验的定义如下：
+这条实验链路与 FI-2010 论文复现相互独立。原始盘口支持 raw-200 和 raw-1000 两种窗口。下面以当前候选 raw-200 为例：
 
 ```text
 一只股票 × 一个输入交易日
@@ -17,7 +17,7 @@
 
 每个股票交易日只生成一个样本。代码不会把同一天的每个 tick 复制成共享一个标签的独立样本。
 
-当前端到端主线直接训练原始 tick 模型。第一版把窗口限制在 200 个事件，让五年、动态 400 股票的 float16 工作集保持在约 8 GB。分钟微观结构模型保留为低成本对照，是原始序列实验的可选前置步骤。资源预算和扩展门槛见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md)。
+端到端主线直接训练原始 tick 模型。raw-200 让五年、动态 Top-400 的 float16 工作集保持在约 8 GB。raw-1000 与 100M 参数模型也已经实现并完成受控比较，当前证据仍支持较小的 `1M/raw-200`。分钟微观结构模型保留为低成本对照。资源预算和扩展门槛见[硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md)。
 
 raw-200 默认结构为 16 个卷积通道、每个 Inception 分支 32 个通道、64 维日内 embedding 和 64 维日级 GRU，共 86,775 个参数。`configs/nextday-raw-1m-pilot.yaml` 提供独立的容量实验配置，对应宽度为 32、64、320 和 192，共 1,033,383 个参数。新配置使用不同的 checkpoint 目录，不会覆盖默认基线。训练和推理 checkpoint 都记录完整结构签名。
 
@@ -245,6 +245,6 @@ ticknet-nextday-train --config configs/nextday-raw-1m-pilot.yaml --seed 0
 
 ## 当前状态和下一步
 
-当前版本已经实现真实月度 snapshot 适配、双头分块编码、AMP、梯度累积、断点恢复和 Colab 交接。五年 raw-200 工作集已经生成，容量实验和多周期评估已经跑出真实结论，详见 [raw-data-expansion-roadmap.md](raw-data-expansion-roadmap.md) 和 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。硬盘中的逐笔委托和成交由 eventstream 主线承接，说明见 [eventstream.md](eventstream.md)。
+当前版本已经实现真实月度 snapshot 适配、双头分块编码、AMP、梯度累积、断点恢复和 Colab 交接。五年 raw-200 工作集、raw-1000 Top-100 工作集、多周期评估和四格三 seed 容量矩阵均已完成，详见 [raw-data-expansion-roadmap.md](raw-data-expansion-roadmap.md) 和 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。硬盘中的逐笔委托和成交由事件流主线承接，说明见 [eventstream.md](eventstream.md)。
 
-下一步是冻结正式配置后评估 2025 锁定测试，并把原始盘口模型的结论与分钟基线放到同一证据链里比较。多日版本可以缓存每日 embedding 后再训练，无需反复编码原始 tick。
+当前只保留 `1M/raw-200` 作为候选。下一步需要先冻结三 seed 聚合方式、checkpoint 和一次性测试通过条件，再决定是否解锁 2025 测试。多日版本可以缓存每日 embedding 后再训练，无需反复编码原始 tick。
