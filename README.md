@@ -63,7 +63,7 @@ ticknet-nextday-predict \
 
 输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易使用同一天全部股票的分数排序。
 
-分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-train` 和 `ticknet-eventstream-export-predictions`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
+分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train` 和 `ticknet-eventstream-export-predictions`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
 
 ## 项目结构
 
