@@ -14,6 +14,7 @@ from scripts.run_colab_nextday import (
     REMOTE_RCLONE_CONFIG,
     _build_committed_wheel,
     _colab_command,
+    _default_config,
     _dry_run_plan,
     _ensure_secret_outside_repository,
     _remote_wheel_path,
@@ -31,6 +32,7 @@ from ticknet.nextday.train import load_config
 def _arguments(tmp_path: Path) -> Namespace:
     return Namespace(
         workflow="multi-horizon-validation",
+        matrix_cell="1m-raw200",
         drive_root="deep-learning-tick-data-prediction",
         rclone_remote="gdrive",
         seeds=[0, 1, 2],
@@ -118,6 +120,40 @@ def test_raw1000_training_spec_uses_full_dataset_and_resumable_directory(
     assert spec["output_remote"].endswith("capacity_100m/training")
     assert spec["projected_train_samples"] == 70_805
     assert spec["seeds"] == [0]
+
+
+@pytest.mark.parametrize(
+    ("cell", "checkpoint_name", "parameter_count"),
+    [
+        ("1m-raw200", "raw-200-top100-dual-head-capacity_1m-matrix", 1_033_383),
+        ("1m-raw1000", "raw-1000-top100-dual-head-capacity_1m-matrix", 1_033_383),
+        ("100m-raw200", "raw-200-top100-dual-head-capacity_100m-matrix", 100_817_575),
+    ],
+)
+def test_capacity_matrix_training_spec_uses_shared_top100_dataset(
+    tmp_path: Path,
+    cell: str,
+    checkpoint_name: str,
+    parameter_count: int,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "capacity-matrix-train"
+    arguments.matrix_cell = cell
+    arguments.gpu = "A100"
+
+    spec = build_job_spec(arguments, "abc123")
+
+    assert spec["matrix_cell"] == cell
+    assert spec["feature_remote"].endswith("nextday-raw-1000-pilot-2021-2025-top100")
+    assert spec["feature_local"] == "/content/nextday-raw-1000-pilot-2021-2025-top100"
+    assert spec["checkpoint_name"] == checkpoint_name
+    assert spec["checkpoint_remote"].endswith(f"capacity-matrix/{cell}")
+    assert spec["checkpoint_local"] == spec["output_local"]
+    assert spec["expected_parameter_count"] == parameter_count
+    assert spec["projected_train_samples"] == 70_805
+    assert _default_config("capacity-matrix-train", cell).name == (
+        f"nextday-capacity-matrix-{cell}.yaml"
+    )
 
 
 def test_eventstream_capacity_spec_uses_month_pack_and_exact_model_size(
@@ -279,6 +315,22 @@ def test_downloaded_summary_must_confirm_revision_and_success(tmp_path: Path) ->
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="source_revision 不匹配"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_downloaded_matrix_summary_must_confirm_cell(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "capacity-matrix-train",
+        "source_revision": "abc123",
+        "matrix_cell": "1m-raw200",
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps({**spec, "status": "complete", "matrix_cell": "1m-raw1000"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="matrix_cell 不匹配"):
         _validate_downloaded_summary(tmp_path, spec)
 
 
@@ -471,9 +523,11 @@ def test_capacity_workflows_stage_features_without_target_sidecar(
     assert copies == [("gdrive:project/raw1000", "/content/raw1000")]
 
 
-def test_raw1000_training_stages_features_and_resumable_checkpoints(
+@pytest.mark.parametrize("workflow", ["raw1000-train", "capacity-matrix-train"])
+def test_raw_training_stages_features_and_resumable_checkpoints(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    workflow: str,
 ) -> None:
     copies: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -489,7 +543,7 @@ def test_raw1000_training_stages_features_and_resumable_checkpoints(
 
     colab_job._stage_inputs(
         {
-            "workflow": "raw1000-train",
+            "workflow": workflow,
             "rclone_remote": "gdrive",
             "feature_remote": "project/data/raw1000",
             "feature_local": "/content/raw1000",

@@ -154,6 +154,7 @@ class NextDayShardDataset(Dataset):
         verify_checksums: bool = False,
         target_sidecar_path: str | Path | None = None,
         target_horizon: int = 1,
+        input_last_chunks: int = 0,
     ) -> None:
         self.manifest_path = Path(manifest_path).expanduser().resolve()
         with self.manifest_path.open(encoding="utf-8") as file:
@@ -181,7 +182,16 @@ class NextDayShardDataset(Dataset):
         self.target_fingerprint = self.dataset_fingerprint
         self.target_return_contract = "next_open_to_close_excess_benchmark"
 
-        self.chunks_per_sample = self._positive_int(manifest, "chunks_per_sample")
+        self.source_chunks_per_sample = self._positive_int(manifest, "chunks_per_sample")
+        try:
+            self.input_last_chunks = int(input_last_chunks)
+        except (TypeError, ValueError) as error:
+            raise ValueError("input_last_chunks 应为整数") from error
+        if self.input_last_chunks < 0:
+            raise ValueError("input_last_chunks 不能为负数")
+        if self.input_last_chunks > self.source_chunks_per_sample:
+            raise ValueError("input_last_chunks 不能超过 manifest 的 chunks_per_sample")
+        self.chunks_per_sample = self.input_last_chunks or self.source_chunks_per_sample
         self.chunk_size = self._positive_int(manifest, "chunk_size")
         self.num_features = self._positive_int(manifest, "num_features")
         if self.num_features != NUM_FEATURES:
@@ -227,7 +237,7 @@ class NextDayShardDataset(Dataset):
             shard_bytes.append(expected_bytes)
             shard_checksums.append(raw_checksum)
 
-        total_events = self.chunks_per_sample * self.chunk_size
+        total_events = self.source_chunks_per_sample * self.chunk_size
         raw_samples = manifest.get("samples")
         if not isinstance(raw_samples, list) or not raw_samples:
             raise ValueError("数据清单缺少非空的 samples 列表")
@@ -336,7 +346,7 @@ class NextDayShardDataset(Dataset):
         *,
         verify_checksums: bool,
     ) -> None:
-        expected_tail = (self.chunks_per_sample, self.chunk_size, self.num_features)
+        expected_tail = (self.source_chunks_per_sample, self.chunk_size, self.num_features)
         for index, (path, rows, byte_count, checksum) in enumerate(
             zip(
                 self._shard_paths,
@@ -379,6 +389,8 @@ class NextDayShardDataset(Dataset):
                 mmap_mode="r",
             )
         features = self._arrays[record.shard][record.row]
+        if self.input_last_chunks:
+            features = features[-self.input_last_chunks :]
         model_features = np.expand_dims(features.astype(np.float32, copy=True), axis=1)
         return model_features, record.label, np.float32(record.target_return)
 

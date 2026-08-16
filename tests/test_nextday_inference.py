@@ -106,6 +106,33 @@ def test_predictor_restores_frontend_widths_from_checkpoint(tmp_path):
     assert predictor.model.intraday_encoder.inception.branch_3[0].out_channels == 16
 
 
+def test_predictor_restores_latest_chunk_view_from_checkpoint(tmp_path):
+    checkpoint, manifest = _artifacts(tmp_path)
+    manifest_content = json.loads(manifest.read_text(encoding="utf-8"))
+    manifest_content["chunks_per_sample"] = 3
+    manifest.write_text(json.dumps(manifest_content), encoding="utf-8")
+
+    content = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    model = build_nextday_model(
+        chunks_per_sample=2,
+        chunk_size=20,
+        intraday_embedding_size=8,
+        day_hidden_size=8,
+    )
+    content["model"] = model.state_dict()
+    content["experiment"]["input_last_chunks"] = 2
+    torch.save(content, checkpoint)
+
+    predictor = NextDayPredictor(checkpoint, manifest)
+    signal = predictor.predict_raw_snapshot(_raw_events(65))
+
+    assert predictor.source_chunks_per_sample == 3
+    assert predictor.source_total_events == 60
+    assert predictor.chunks_per_sample == 2
+    assert predictor.total_events == 40
+    assert sum(signal.probabilities) == pytest.approx(1.0)
+
+
 def test_prediction_cli_accepts_normalized_npy(tmp_path, capsys):
     checkpoint, manifest = _artifacts(tmp_path)
     events = tmp_path / "events.npy"

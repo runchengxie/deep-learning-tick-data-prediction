@@ -20,6 +20,15 @@ DEFAULT_100M_BENCHMARK_CONFIG = (
 DEFAULT_100M_TRAIN_CONFIG = (
     REPOSITORY_ROOT / "configs" / "nextday-raw-1000-top100-capacity-100m.yaml"
 )
+CAPACITY_MATRIX_CONFIGS = {
+    cell: REPOSITORY_ROOT / "configs" / f"nextday-capacity-matrix-{cell}.yaml"
+    for cell in ("1m-raw200", "1m-raw1000", "100m-raw200")
+}
+CAPACITY_MATRIX_CHECKPOINTS = {
+    "1m-raw200": "raw-200-top100-dual-head-capacity_1m-matrix",
+    "1m-raw1000": "raw-1000-top100-dual-head-capacity_1m-matrix",
+    "100m-raw200": "raw-200-top100-dual-head-capacity_100m-matrix",
+}
 DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "eventstream-h5-fold0-capacity100m-colab.yaml"
 )
@@ -51,6 +60,7 @@ def _parser() -> argparse.ArgumentParser:
             "multi-horizon-validation",
             "h5-train",
             "raw1000-train",
+            "capacity-matrix-train",
             "capacity-benchmark",
             "batch-size-sweep",
             "eventstream-capacity-benchmark",
@@ -62,6 +72,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--session", default="ticknet-multi-horizon")
     parser.add_argument("--gpu", choices=("T4", "L4", "G4", "A100", "H100"), default="T4")
+    parser.add_argument(
+        "--matrix-cell",
+        choices=tuple(CAPACITY_MATRIX_CONFIGS),
+        default="1m-raw200",
+    )
     parser.add_argument("--config", type=Path)
     parser.add_argument(
         "--rclone-config",
@@ -155,7 +170,9 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--num-workers 不能为负数")
 
 
-def _default_config(workflow: str) -> Path:
+def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
+    if workflow == "capacity-matrix-train":
+        return CAPACITY_MATRIX_CONFIGS[matrix_cell]
     return {
         "multi-horizon-validation": DEFAULT_CONFIG,
         "h5-train": DEFAULT_H5_CONFIG,
@@ -289,6 +306,14 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         output_local = f"/content/drive/MyDrive/{output_remote}"
         feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-pilot-2021-2025-top100"
         feature_local = "/content/nextday-raw-1000-pilot-2021-2025-top100"
+    elif workflow == "capacity-matrix-train":
+        matrix_cell = arguments.matrix_cell
+        run_name = f"raw-1000-top100-capacity-matrix/{matrix_cell}"
+        checkpoint_name = CAPACITY_MATRIX_CHECKPOINTS[matrix_cell]
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}"
+        output_local = f"/content/drive/MyDrive/{output_remote}"
+        feature_remote = f"{drive_root}/ticknet-data/nextday-raw-1000-pilot-2021-2025-top100"
+        feature_local = "/content/nextday-raw-1000-pilot-2021-2025-top100"
     elif workflow in {"capacity-benchmark", "batch-size-sweep"}:
         run_name = "raw-1000-top100-capacity_100m"
         checkpoint_name = "raw-1000-top100-dual-head-capacity_100m"
@@ -329,9 +354,13 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
-    checkpoint_remote = output_remote if workflow == "raw1000-train" else run_root
+    checkpoint_remote = (
+        output_remote if workflow in {"raw1000-train", "capacity-matrix-train"} else run_root
+    )
     checkpoint_local = (
-        output_local if workflow == "raw1000-train" else f"/content/drive/MyDrive/{run_root}"
+        output_local
+        if workflow in {"raw1000-train", "capacity-matrix-train"}
+        else f"/content/drive/MyDrive/{run_root}"
     )
     return {
         "workflow": workflow,
@@ -346,6 +375,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "checkpoint_local": checkpoint_local,
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
+        "matrix_cell": arguments.matrix_cell if workflow == "capacity-matrix-train" else None,
         "training_config": REMOTE_CONFIG,
         "wheel": REMOTE_WHEEL,
         "seeds": list(arguments.seeds),
@@ -357,7 +387,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "num_workers": list(arguments.num_workers),
         "effective_batch_size": arguments.effective_batch_size,
         "expected_parameter_count": (
-            100_604_180 if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS else 100_817_575
+            1_033_383
+            if workflow == "capacity-matrix-train" and arguments.matrix_cell.startswith("1m-")
+            else 100_604_180
+            if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS
+            else 100_817_575
         ),
         "projected_train_samples": (
             120_000
@@ -368,7 +402,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             else 40_000
             if workflow == "eventstream-capacity-benchmark"
             else 70_805
-            if workflow == "raw1000-train"
+            if workflow in {"raw1000-train", "capacity-matrix-train"}
             else 75_000
         ),
         "requested_gpu": arguments.gpu,
@@ -384,7 +418,10 @@ def _validate_downloaded_summary(
     if not summary_path.is_file():
         raise RuntimeError("Colab job 缺少 colab-run-summary.json 完成标记")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    for field in ("workflow", "source_revision"):
+    fields = ["workflow", "source_revision"]
+    if spec.get("matrix_cell") is not None:
+        fields.append("matrix_cell")
+    for field in fields:
         if summary.get(field) != spec[field]:
             raise RuntimeError(
                 f"Colab job {field} 不匹配：{summary.get(field)!r} != {spec[field]!r}"
@@ -458,7 +495,7 @@ def run(arguments: argparse.Namespace) -> None:
     _validate_lifecycle_arguments(arguments)
     repository_root = REPOSITORY_ROOT.resolve()
     if arguments.config is None:
-        arguments.config = _default_config(arguments.workflow)
+        arguments.config = _default_config(arguments.workflow, arguments.matrix_cell)
     arguments.config = arguments.config.expanduser().resolve()
     arguments.rclone_config = arguments.rclone_config.expanduser().resolve()
     arguments.local_output_dir = arguments.local_output_dir.expanduser().resolve()

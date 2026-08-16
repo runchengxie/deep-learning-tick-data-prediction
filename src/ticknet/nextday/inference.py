@@ -64,16 +64,16 @@ class NextDayPredictor:
         if stored_fingerprint is not None and stored_fingerprint != computed_fingerprint:
             raise ValueError("manifest dataset_fingerprint 与内容不一致")
         self.dataset_fingerprint = stored_fingerprint or computed_fingerprint
-        self.chunks_per_sample = int(manifest["chunks_per_sample"])
+        self.source_chunks_per_sample = int(manifest["chunks_per_sample"])
         self.chunk_size = int(manifest["chunk_size"])
-        self.total_events = self.chunks_per_sample * self.chunk_size
+        self.source_total_events = self.source_chunks_per_sample * self.chunk_size
         metadata = manifest.get("metadata", {})
         if not isinstance(metadata, dict):
             raise ValueError("manifest metadata 应为对象")
         normalization = metadata.get("normalization")
         self.normalization = normalization if isinstance(normalization, dict) else None
         self.min_valid_events = int(metadata.get("min_valid_events", 1))
-        if not 1 <= self.min_valid_events <= self.total_events:
+        if not 1 <= self.min_valid_events <= self.source_total_events:
             raise ValueError("manifest min_valid_events 超出窗口范围")
 
         checkpoint = _load_checkpoint(
@@ -83,6 +83,11 @@ class NextDayPredictor:
         experiment = checkpoint.get("experiment")
         if not isinstance(experiment, dict):
             raise ValueError("checkpoint 缺少 experiment 配置")
+        input_last_chunks = int(experiment.get("input_last_chunks", 0))
+        if not 0 <= input_last_chunks <= self.source_chunks_per_sample:
+            raise ValueError("checkpoint input_last_chunks 与 manifest 不兼容")
+        self.chunks_per_sample = input_last_chunks or self.source_chunks_per_sample
+        self.total_events = self.chunks_per_sample * self.chunk_size
         checkpoint_fingerprint = experiment.get("dataset_fingerprint")
         if (
             checkpoint_fingerprint is not None
@@ -146,7 +151,7 @@ class NextDayPredictor:
         if self.normalization is None:
             raise ValueError("manifest 未记录原始 snapshot 归一化契约")
         events = np.asarray(raw_events)
-        selected = events[valid_lob_event_rows(events)][-self.total_events :]
+        selected = events[valid_lob_event_rows(events)][-self.source_total_events :]
         if selected.shape[0] < self.min_valid_events:
             raise ValueError(
                 f"有效盘口事件不足：至少需要 {self.min_valid_events}，实际为 {selected.shape[0]}"

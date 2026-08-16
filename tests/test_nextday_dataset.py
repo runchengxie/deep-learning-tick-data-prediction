@@ -91,6 +91,41 @@ def test_dataset_reads_shards_and_purges_cross_boundary_samples(tmp_path):
     assert train.target_returns.tolist() == pytest.approx([0.008])
 
 
+def test_dataset_can_read_latest_chunk_view_without_copying_shards(tmp_path):
+    sample = _sample(2, 3, rows=7)
+    manifest = write_sharded_dataset(
+        [sample],
+        tmp_path / "prepared",
+        chunks_per_sample=3,
+        chunk_size=2,
+    )
+    full = NextDayShardDataset(manifest, date_split=_split(), split="train")
+    raw200_view = NextDayShardDataset(
+        manifest,
+        date_split=_split(),
+        split="train",
+        input_last_chunks=2,
+    )
+
+    full_features, _, _ = full[0]
+    view_features, _, _ = raw200_view[0]
+
+    assert full.source_chunks_per_sample == raw200_view.source_chunks_per_sample == 3
+    assert full.chunks_per_sample == 3
+    assert raw200_view.chunks_per_sample == 2
+    assert view_features.shape == (2, 1, 2, 40)
+    assert np.array_equal(view_features, full_features[-2:])
+    assert raw200_view.dataset_fingerprint == full.dataset_fingerprint
+
+    with pytest.raises(ValueError, match="不能超过"):
+        NextDayShardDataset(
+            manifest,
+            date_split=_split(),
+            split="train",
+            input_last_chunks=4,
+        )
+
+
 def test_writer_rejects_events_after_signal(tmp_path):
     sample = _sample(2, 3)
     invalid = PreparedSample(
