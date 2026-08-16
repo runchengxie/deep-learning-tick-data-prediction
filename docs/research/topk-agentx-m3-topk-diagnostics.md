@@ -2,11 +2,13 @@
 
 ## 当前结论
 
-M3 的工程链路已经可以把一份预测明细展开为完整的 K、buffer、成本笛卡尔积，并生成一个确定性的甜点区判断。诊断同时检查成本后相对股票池等权收益、净 Sharpe、正超额收益月份、超额收益极端日集中度和 buffer 的净收益效率。所有组合必须使用相同的评估日期，否则整个矩阵失败。
+M3 v2 已完成正式分钟特征物化、HGB、预测登记和 64 组 Top-K 成本矩阵。2025 年下半年 HGB 每日 Rank IC 为 0.06994，六个月月度 IC 均为正。成本矩阵使用 124 个相同评估日，每日恰有 400 个候选，并包含不可买、不可卖和调出股票状态。
 
-2025 HGB Top-100 历史预测已完成 64 组冒烟。10bp 单边成本和 5bp 卖出印花税下，没有组合在扣除交易成本后跑赢当日预测股票池等权收益，结果为 `NO_TRADEABLE_REGION`。缓冲带明显降低换手并改善净收益，但当前样本中最好的相对等权收益盈亏平衡单边成本只有约 6.55bp，仍低于 10bp 决策成本。
+正式结论为 `NO_TRADEABLE_REGION`。单边 10bp 成本和 5bp 卖出印花税下，16 个 K 与 buffer 候选的成本后主动收益全部为负。绝对净收益最高的是 `K=100、buffer=50`，日均净收益为 12.15bp，净 Sharpe 为 1.41。同期 Top-400 等权基准表现更好，该组合的日均净主动收益为 -4.75bp，六个月中只有一个月为正。
 
-以上只是工程证据，没有正式交易结论。源预测使用 next-open-to-same-close 历史标签，没有 `can_buy`、`can_sell` 字段，也没有绑定当前 Registry 的数据指纹。125 个日期中只有 91 个日期达到 100 只股票，替代不了动态 Top-400、open-to-following-open 和完整交易状态的正式实验。
+全部策略的主动收益盈亏平衡单边成本最高约为 4.33bp，对应 `K=100、buffer=50`，低于 10bp 决策成本。这个组合的绝对收益盈亏平衡成本约为 24.51bp，较高数值包含同期市场整体上涨，不能单独解释为预测信号收益。buffer 能降低换手并改善绝对净收益，仍不足以形成相对等权基准的稳定增量。
+
+早期 Top-100 冒烟也得到 `NO_TRADEABLE_REGION`，但它缺少正式交易状态和 Registry 数据指纹，只保留为工程历史证据。
 
 ## 诊断契约
 
@@ -75,6 +77,10 @@ uv run python scripts/run_minute_baseline.py \
 
 本地真实数据证据：
 
+- v2 manifest 状态为 `complete`，54 个分片共 436,800 行，其中 436,256 行有完整特征，544 行保留为全 NaN，覆盖率为 99.88%。全部分片通过 SHA-256 复核，没有临时或残缺文件。物化耗时 4,240.2 秒，峰值内存约 1.71GB。
+- v2 数据切分包含 339,600 个训练样本、46,000 个验证样本和 49,600 个测试样本。验证 Rank IC 为 0.08091，测试 Rank IC 为 0.06994，测试 Macro F1 为 0.32129，MCC 为 0.13208。
+- prediction 共 51,489 行，包含 49,600 个候选和 1,889 条状态行。124 个日期每天均为 400 个候选，其中 863 行不可买、849 行不可卖。prediction SHA-256 为 `bdeb2cbe7de8b894fd246ff56c31e49e510c0c38eac115687047c096a9a2a45d`。
+- 正式数据指纹为 `6ca055086c8885bcb866da01af4481a95d58c1334ed3fe0b574cca5b66dcbb7a`。预测已登记为 `PRED-HGB-400-OPEN2OPEN-001`，成本矩阵已登记为 `TRD-TOPK-400-001`。
 - v1 的日线面板覆盖 2021-01-04 至 2025-12-29 共 1,210 个完整信号日，每日均为 400 个候选，合计 484,000 个候选标签。股票池本身完整，早期委托源的市场覆盖不完整。
 - 另生成 13,329 条调出股票状态行。候选及状态中记录到 3,282 条停牌、264 条一字涨停和 209 条一字跌停状态。
 - 2025-07-01 的真实 L2 单日抽取请求 400 个候选，399 个有完整三模态分钟行，1 个走全 NaN 缺失特征路径。读取 6 个相关 row group，按日期元数据跳过 835 个无关 row group。
@@ -85,7 +91,7 @@ uv run python scripts/run_minute_baseline.py \
 - 正式 HGB 已实测拒绝残缺 manifest，并列出缺失月份，不会用部分数据训练。相同月份重跑会先验证身份与分片 SHA-256 再跳过。
 - 所有日线面板显式截断到 2025-12-31。prediction 契约新增 `return_end_date`，防止 2025 样本借用 2026 locked 收益。
 
-这些结果证明数据口径、资源边界、恢复和缺失路径可执行，也暴露了 v1 的早期委托覆盖缺口。正式结论需要完成 v2 的 54 个月物化、prediction 登记和成本矩阵。
+这些结果证明数据口径、资源边界、恢复和缺失路径可执行。v2 已避开 v1 的早期委托覆盖缺口，并形成正式 M3 结论。
 
 ## 甜点区判定
 
@@ -179,15 +185,15 @@ results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/
 
 工程 gate `diagnostic.grid.validated_combinations >= 64` 通过，Runner 决策为 `EXTEND`。这里的 `EXTEND` 只表示诊断链路完整，不表示交易策略通过。交易判断由 `diagnostic.decision.status=NO_TRADEABLE_REGION` 给出。
 
-## 下一步
+## 结论与下一步
 
-M3 正式结论仍需：
+M3 已完成：
 
-1. 使用 v2 配置物化 2021 年 7 月至 2025 年 12 月的 54 个月，再运行正式 HGB 生成动态 Top-400、open-to-following-open、带完整交易状态和 metadata 的 predictions，通过 `import_predictions` 登记。
-2. 使用同一数据指纹运行 `TRD-TOPK-400-001` 完整矩阵。
-3. 对有希望的 buffer 区域运行滚动年份或月份稳健性检查，形成 `TRD-BUFFER-400-001`。
-4. 若正式矩阵仍没有 10bp 甜点区，进入 M4 的 HGB 与 LambdaMART 同口径比较，不进入高成本盘口预训练或神经排序损失。
+1. v2 的 54 个月物化、正式 HGB、prediction 登记和完整成本矩阵均已完成。
+2. 10bp 下没有通过门槛的候选区域，因此不运行依赖候选区域的 `TRD-BUFFER-400-001` 稳健性扩展。
+3. 下一步进入 M4，用相同数据指纹比较 HGB 与 LambdaMART，检查点预测目标与 Top-K 排序目标是否错配，并补齐 NDCG、Precision 和风险暴露诊断。
+4. 当前结果不支持进入高成本盘口预训练或神经排序损失。
 
-当前本地 `results/registry.sqlite` 是旧 schema，包含重复 run、metric 和 review，不能由 v2 Registry 静默迁移。本次冒烟使用独立 Registry。正式实验开始前应显式导入或重建干净的 v2 Registry，保留旧文件作为只读历史证据。
+正式实验使用独立 Registry `results/m3-formal-registry-v2.sqlite` 和独立产物目录 `results/m3-formal-experiments-v2/`。旧 `results/registry.sqlite` 保留为只读历史证据。
 
 现有 `results/predictions-rolling-2025.parquet` 已用正式 validator 实测拒绝，缺少 `can_buy`、`can_sell` 和 `in_universe`。这是一条确定性失败边界，不会用默认可交易状态伪装成正式输入。
