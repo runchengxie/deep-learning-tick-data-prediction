@@ -50,7 +50,9 @@ H5 purge 要求 `trading_date`、`entry_date` 和 `return_end_date` 全部位于
 
 preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstream-h5-recent-fold/`。H3 在 train、validation 和 OOS 分别保留 22,058、6,578 和 7,732 条标签。H5 分别保留 21,266、5,807 和 6,966 条标签。跨 split 的收益标签已经清除。
 
-五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 pack 约为 68.58 GB，已完成审计和上传。正式 3/1/1 训练需要选择 400GB Drive、GCS 或按月流式暂存，不能通过删除字段降低精度。
+五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 pack 约为 68.58 GB，已完成审计和上传。截至 2026-08-16，Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。正式 3/1/1 训练需要选择 400GB Drive、GCS 或可恢复的月度流式暂存，不能通过删除字段降低精度。
+
+本机没有可用 CUDA GPU。现有 `run_colab_nextday.py` 只覆盖事件流 benchmark、batch sweep 和 input profile，尚无正式训练 workflow。压缩抽样约为原始体积的 24% 至 27%，目前还没有形成正式暂存方案。
 
 ## 分阶段进度
 
@@ -63,8 +65,11 @@ preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstrea
 | D2 | 完成 | 2025 年 8 月 21 日 pack 完成审计并上传 |
 | B0 | 完成 | A100 输入分析完成，优化后为 149.40 samples/s，20 epoch 外推 4.46 小时每 seed |
 | D3 | 完成 | 2025 年 9 月至 12 月全部打包，103 个交易日均有完整日索引 |
-| T0 | 待执行 | 最近折正式 seed 0，H5 选择 checkpoint，H3 只作监控 |
-| T1 | 待执行 | seed 1 和 2 及更多滚动折，报告最差 OOS 月和成本敏感性 |
+| S0 | 待执行 | 选择可恢复的月度流式暂存或足够容量的远端存储，补齐正式训练与产物回传 workflow |
+| T0 | 待前置 | S0 完成后运行最近折正式 seed 0，H5 选择 checkpoint，H3 只作监控，门槛见[事件流主线](eventstream.md#正式训练与扩容门槛) |
+| T1 | 待门槛 | seed 0 通过后补 seed 1 和 2，报告三 seed 均值、方向一致性与成本敏感性 |
+| E0 | 待门槛 | 100M checkpoint 通过后生成冻结 embedding，接入 AgentX M4 的相同下游合同 |
+| C0 | 待门槛 | 100M 信号或迁移门槛通过后，运行 `probe150m` benchmark 与 seed 0 容量消融 |
 | L0 | 封存 | 2026 达到协议门槛并获批后一次性评估，不据此回调本轮模型 |
 
 ## 可复现命令
