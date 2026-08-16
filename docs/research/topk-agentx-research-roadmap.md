@@ -19,11 +19,11 @@
 - 组合毛利集中在少数极端交易日，前 5 日贡献超过全部收益。
 - 分钟 TCN 的验证集优势没有稳定泛化到测试集，聚合特征 HGB 更稳健。
 - 固定 Top-100 样本的原始盘口四格三 seed 矩阵已经完成。`1M/raw-200` 的验证 Rank IC 为 `0.03748 ± 0.00096`，表现最好且波动最小。扩大到 100M 参数或 raw-1000 都没有形成稳定增益。
-- L2 事件流已经完成 2025 年 8 月至 12 月的 103 个交易日打包和 A100 输入基准。正式模型训练尚未开始。
+- L2 事件流已经完成 2025 年 8 月至 12 月的 103 个交易日打包和 A100 输入基准。远端目前只有 2025 年 8 月 benchmark pack，本机没有可用 CUDA GPU，正式训练还缺存储暂存方案和自动化入口。
 - AgentX 的 M0 至 M2 已完成，已经具备受控执行器、预测导入导出、多 seed 对比、walk-forward 汇总、Registry 上下文和一次性锁定测试批准。
 - M3 的正式分钟特征计划覆盖 60 个月，当前完成 2025 年 7 月至 12 月共 6 个月。正式预测和 Top-K 成本诊断要在完整物化后运行。
 
-这些结果决定当前优先完成 M3 正式诊断，并保持原始盘口扩容停止。事件流下一项高成本实验是最近折正式 seed 0。
+这些结果决定当前并行推进 M3 正式诊断和事件流 T0 基础设施。M3 使用数据处理与 CPU 资源，事件流准备完成后使用远端 GPU，二者可以分别排队。T0 基础设施通过后再运行 `capacity100m` seed 0。原始盘口扩容继续停止，后续大容量实验只用于检验事件流表征及其下游增量。
 
 ## 统一研究原则
 
@@ -63,7 +63,7 @@ M0 需要先审计 2026 数据可用性，再选择一个未被查看的 2026 �
 | M2 | AgentX 确定性闭环修复 | typed executor、artifact contract、完整 Registry | 已完成 |
 | M3 | 无重训组合诊断 | Top-K、缓冲区和成本敏感性结论 | 进行中 |
 | M4 | 横截面排序基线 | HGB 与 LambdaMART 同口径比较 | 待开始 |
-| M5 | A 股短周期 embedding | 多期限预训练、缓存 embedding、增量实验 | 待开始 |
+| M5 | 事件流表征与冻结 embedding | 100M 多 seed、缓存 embedding、下游增量实验 | 进行中 |
 | M6 | 神经 Top-K 损失 | DayBatchSampler、pairwise 或 LambdaRank 损失 | 待开始 |
 | M7 | 多日与多期限模型 | 5/10/20 日输入、1 日与 5 日预测头 | 待开始 |
 | M8 | AgentX 研究智能 | Context Builder、候选排序、Evaluation 回流 | 待开始 |
@@ -350,15 +350,32 @@ stage
 - `MDL-RANK-SMOKE-001`
 - `MDL-RANK-ROLLING-001`
 
-## M5：A 股短周期多任务 embedding
+## M5：事件流表征与冻结 embedding
 
 ### 目标
 
-从 A 股盘口中提取比聚合特征更有增量的隐藏表征，并验证其是否能改善 Top-K 交易结果。
+从 A 股逐笔事件中提取隐藏表征，并验证其相对分钟聚合特征能否改善 Top-K 交易结果。当前先完成 `capacity100m` 最近折，再把通过门槛的 checkpoint 作为冻结编码器接入 M4。
+
+### 当前入口与执行顺序
+
+最近折使用 `configs/eventstream-h5-recent-capacity100m.yaml`，训练期为 2025 年 8 月至 10 月，validation 为 2025 年 11 月，OOS 为 2025 年 12 月，2026 继续锁定。`capacity100m` 有 100,604,180 个参数，输入打包与 A100 吞吐基准已经完成。
+
+截至 2026-08-16，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB，只上传了 2025 年 8 月的 68.58 GB benchmark pack。完整五个月 pack 约为 313.11 GiB。`run_colab_nextday.py` 已支持事件流 benchmark、batch sweep 和 input profile，尚无正式训练 workflow。
+
+1. 先完成 T0 基础设施门槛。选择可恢复的月度流式暂存、400GB Drive 或 GCS 等存储方案，并为正式训练补齐可恢复的远端 workflow、产物回传和失败续跑检查。
+2. 基础设施门槛通过后运行 seed 0。H5 validation 每日 Rank IC 用于选择 checkpoint，H3 只作监控。
+3. seed 0 的 validation 与 OOS H5 每日 Rank IC 均为正，且数据指纹、训练历史、checkpoint 和评估产物完整时，再补 seed 1 和 2。未通过时停止追加 seed，记录失败原因。
+4. 三 seed 的 validation 与 OOS H5 平均 Rank IC 均为正，且至少两个 seed 的方向一致时，记为事件流 100M 信号门槛通过。
+5. 使用固定 checkpoint 生成每日冻结 embedding，分别接入 M4 的 HGB 和最佳 ranker。下游数据切分、股票池、标签和评估口径保持一致。
+6. `probe150m` 只在事件流 100M 信号门槛或冻结 embedding 迁移门槛通过后启动。第一轮只做同数据、同目标、同优化器和同训练预算的容量消融，并先完成 benchmark 与 seed 0。
+
+压缩抽样目前约为原始体积的 24% 至 27%，可以继续验证为月度流式暂存的工程候选。它尚未形成正式存储方案，不作为 T0 已通过的证据。
+
+冻结 embedding 迁移门槛沿用本节的增量验收条件。`probe150m` 当前只是代码中的模型预设，正式实验开始前需要补齐配置、精确参数量测试、预算和停止条件。
 
 ### 数据与标签
 
-短周期预训练优先使用 A 股自身数据，不直接迁移 FI-2010 权重。候选辅助目标包括：
+短周期预训练使用 A 股自身数据，不迁移 FI-2010 权重。候选辅助目标包括：
 
 - 未来 10、50、100、500 个盘口事件的中间价方向或收益
 - 未来 1、5、30 分钟收益
@@ -368,7 +385,7 @@ stage
 
 ### 日内采样
 
-第一版不只使用 14:55 前最后 200 个状态，至少比较：
+冻结特征实验至少比较：
 
 - 单一尾盘 embedding
 - 10:00、11:30、14:00、14:55 多锚点 embedding
@@ -388,18 +405,19 @@ stage
 ### 验收门槛
 
 - E2 或 E3 在多个滚动窗口稳定优于 E0。
-- Top-K 净收益、NDCG 和月度稳定性至少有一组一致改善，不能只提高训练集指标。
+- Top-K 净收益、NDCG 和月度稳定性至少有一组一致改善，训练集指标不单独作为通过依据。
 - embedding 增量不能由股票代码、日期或未来数据泄漏解释。
 - 冻结 embedding 通过门槛后，才允许联合微调。
 
-未通过时停止扩大 200 至 500、1,000 tick 窗口，并保留聚合特征路线。
+未通过时保留聚合特征路线，并停止联合微调和新的容量扩张。原始盘口四格矩阵已经形成停止结论，本里程碑不重新启动 raw-200、raw-1000 的容量或窗口扩张。
 
 ### 计划实验 ID
 
-- `FEAT-RAW-CAPACITY-1M-001`
-- `FEAT-EMB-PRETRAIN-001`
+- `FEAT-EVENTSTREAM-100M-SEED0-001`
+- `FEAT-EVENTSTREAM-100M-ROBUSTNESS-001`
 - `FEAT-EMB-FROZEN-001`
 - `FEAT-EMB-MULTI-ANCHOR-001`
+- `FEAT-EVENTSTREAM-150M-ABLATION-001`
 
 ## M6：神经 Top-K 排序损失
 
@@ -571,10 +589,13 @@ next_action: ""
 
 ## 当前下一步
 
-M0、M1、M2 已完成。M3 的完整矩阵、工程冒烟、正式 prediction artifact 契约、Registry 导入入口、正式 HGB 输入生成器和可恢复的月度物化链路已完成。当前真实 manifest 已完成 2025-07 至 2025-12，下一轮继续全量物化与登记：
+M0、M1、M2 已完成。M3 和 M5 的事件流表征支线正在并行推进。当前优先级如下：
 
-1. 从现有 manifest 继续处理剩余 54 个月，汇总逐月耗时、峰值内存、缺失特征比例和全量数据指纹。不得因缺分钟行缩小每日 Top-400。
-2. 校验 Parquet 内容与版本化 metadata，通过 `import_predictions` 登记到干净的 v2 Registry。
-3. 运行 `TRD-TOPK-400-001` 和 `TRD-BUFFER-400-001`。若 10bp 下仍无相对等权甜点区，进入 M4 的 HGB 与 LambdaMART 同口径比较。
+1. 从现有 manifest 继续处理 M3 剩余 54 个月，汇总逐月耗时、峰值内存、缺失特征比例和全量数据指纹。不得因缺分钟行缩小每日 Top-400。
+2. 校验 Parquet 内容与版本化 metadata，通过 `import_predictions` 登记到干净的 v2 Registry，再运行 `TRD-TOPK-400-001` 和 `TRD-BUFFER-400-001`。
+3. 为事件流 T0 选择可恢复的月度流式暂存或足够容量的远端存储，并补齐正式训练、产物回传和失败续跑 workflow。
+4. T0 基础设施门槛通过后，在远端 GPU 运行 `capacity100m` 最近折 seed 0。通过预设门槛后补 seed 1 和 2，失败结果同样进入实验记录。
+5. M3 形成正式结论后启动 M4。若 10bp 下仍无相对等权甜点区，继续用 HGB 与 LambdaMART 检查排序目标是否错配。
+6. 把通过门槛的 100M 事件流 checkpoint 冻结为 embedding，接入 M4 的相同下游合同。只有事件流信号门槛或冻结 embedding 迁移门槛通过，才运行 `probe150m` 受控容量消融。
 
-在 M3 和 M4 得到结果前，不启动 embedding 预训练、神经排序损失或多日模型。
+神经排序损失、联合微调和多日模型继续遵守 M6、M7 的进入条件。原始盘口容量与窗口扩张保持停止。

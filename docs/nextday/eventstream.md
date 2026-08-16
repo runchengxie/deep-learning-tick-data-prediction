@@ -88,4 +88,23 @@ python scripts/run_colab_nextday.py \
 
 按 120,000 个训练样本和 20 个 epoch 外推，每个 epoch 约 13.39 分钟，每个 seed 上限约 4.46 小时，三个 seed 串行上限约 13.39 小时。这个估算不含 validation 和 checkpoint I/O，正式耗时以训练日志和早停结果为准。
 
-下一步先运行最近折正式 seed 0。H5 用于选择 checkpoint，H3 只作监控。seed 0 通过预先写明的门槛后，再补 seed 1 和 2。
+## 正式训练与扩容门槛
+
+截至 2026-08-16，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。远端只上传了 2025 年 8 月的 68.58 GB benchmark pack，完整五个月 pack 约为 313.11 GiB。现有 `run_colab_nextday.py` 支持 eventstream benchmark、batch sweep 和 input profile，还没有正式训练 workflow。
+
+正式 seed 0 需要先完成两项基础设施门槛：
+
+- 选择可恢复的月度流式暂存、400GB Drive 或 GCS 等方案，让训练、validation 和 OOS 数据按固定指纹进入远端任务
+- 补齐正式训练、checkpoint 回传、日志回传和失败续跑 workflow，并用短任务验证恢复语义
+
+压缩抽样约为原始体积的 24% 至 27%，目前只作为工程候选，尚未形成正式方案。
+
+基础设施门槛通过后运行最近折正式 seed 0。H5 用于选择 checkpoint，H3 只作监控。seed 0 需要同时满足以下条件，随后才补 seed 1 和 2：
+
+- validation 与 OOS 的 H5 每日 Rank IC 均为正
+- 数据指纹、训练历史、best 与 last checkpoint、validation 和 OOS 评估产物完整
+- 训练与评估没有读取 2026，OOS 结果不用于修改本轮配置
+
+完成三 seed 后，validation 与 OOS 的 H5 平均 Rank IC 均为正，且至少两个 seed 的方向一致，视为 100M 信号门槛通过。通过门槛的 checkpoint 会冻结为每日 embedding，并接入 AgentX M4 的 HGB 与最佳 ranker。分钟特征、股票池、标签、日期切分和评估口径保持一致，以验证 embedding 的增量。
+
+`probe150m` 当前只是代码中的模型预设。100M 信号门槛或冻结 embedding 迁移门槛通过后，才补充正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。

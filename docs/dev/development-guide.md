@@ -15,7 +15,9 @@
 
 FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口、文本转换和绘图）已归档到 `legacy/`，不再参与主链路开发与质量门禁。如需运行，参见 `legacy/` 下的对应脚本和测试。
 
-脚本层只处理人工入口：
+`scripts/` 主要放人工入口和运行编排。可复用的数据协议、模型计算和评估逻辑应放在 `src/ticknet/`。当前仍有少数脚本承担较长的 Colab 任务编排，后续重构需要逐步把可复用部分移回核心包。
+
+常用脚本如下：
 
 | 脚本 | 用途 |
 |---|---|
@@ -139,8 +141,11 @@ uv lock
 当前最值得继续投入的工作按优先级排列：
 
 1. 拆分 `train.py`、`train_tcn.py` 与 `train_gru.py` 共用的训练循环，抽取共享的 epoch 训练与评估逻辑
-2. 把 `run_minute_baseline.py` 与 `prepare_minute_shards.py` 重复的配置读取逻辑收敛为共享函数
-3. 为长时间训练增加结构化日志和运行状态监控
-4. 研究闭环接入真实 LLM 后，补足 Brainstorm 证据检索与实验去重
+2. 按校验、持久化和评估职责拆分 `ticknet.research` 中较长的 Registry、Spec 和组合评估模块
+3. 把跨模块复用的日期、指标和原子写入工具整理为公开接口，减少对其他模块私有函数的依赖
+4. 收窄 `run_colab_nextday.py` 和 `colab_multi_horizon_job.py` 的任务编排职责，把可测试的 job spec 与执行逻辑移入核心包
+5. 为长时间训练增加结构化日志和运行状态监控
 
-核心模块当前规模适中。FI-2010 复现的训练流程、命令行配置和实验汇总已拆到 `legacy/fi2010_train.py`。主链路 `ticknet.train` 只保留被次日预测复用的共享工具（`set_seed`、`resolve_device`、`f1_metrics`）。`ticknet.research` 通过 CLI 入口名和 YAML 配置与 `nextday` 解耦，不直接 import 其实现。
+核心模块的规模目前不均衡。训练器之间存在较多重复循环，研究闭环和部分编排脚本也已经承担多项职责。后续按上述顺序逐步拆分，每次保留稳定的 CLI、配置和 artifact 契约，并在对应重构完成后移除复杂度忽略项。
+
+FI-2010 复现的训练流程、命令行配置和实验汇总已拆到 `legacy/fi2010_train.py`。主链路 `ticknet.train` 只保留被次日预测复用的共享工具（`set_seed`、`resolve_device`、`f1_metrics`）。`ticknet.research` 通过 CLI 入口名和 YAML 配置与 `nextday` 解耦，不直接 import 其实现。
