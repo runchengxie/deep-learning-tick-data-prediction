@@ -408,6 +408,7 @@ def evaluate_validation_horizons(
         date_split=training_config.date_split(),
         split="val",
         verify_checksums=training_config.verify_data_checksums,
+        input_last_chunks=training_config.input_last_chunks,
     )
     checkpoints = _load_validated_checkpoints(
         training_config,

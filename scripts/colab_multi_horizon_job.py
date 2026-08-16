@@ -119,7 +119,7 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
                 ],
                 env=env,
             )
-    elif workflow in {"h5-train", "raw1000-train"}:
+    elif workflow in {"h5-train", "raw1000-train", "capacity-matrix-train"}:
         checkpoint_remote = _drive_path(remote, str(spec["checkpoint_remote"]))
         if _remote_directory_exists(checkpoint_remote, env=env):
             _rclone_copy(checkpoint_remote, str(checkpoint_root), env=env)
@@ -373,6 +373,8 @@ def _write_summary(
         "output_remote": spec["output_remote"],
         "test_status": "locked_not_accessed",
     }
+    if spec.get("matrix_cell") is not None:
+        summary["matrix_cell"] = spec["matrix_cell"]
     if error is not None:
         summary["error"] = error
     (output_dir / "colab-run-summary.json").write_text(
@@ -392,7 +394,7 @@ def _upload_output(spec: dict[str, Any], env: dict[str, str]) -> None:
 def _execute_workflow(spec: dict[str, Any]) -> None:
     if spec["workflow"] == "multi-horizon-validation":
         _evaluate(spec)
-    elif spec["workflow"] in {"h5-train", "raw1000-train"}:
+    elif spec["workflow"] in {"h5-train", "raw1000-train", "capacity-matrix-train"}:
         _train_nextday(spec)
     elif spec["workflow"] == "capacity-benchmark":
         _benchmark_capacity(spec)
@@ -425,6 +427,7 @@ def main() -> None:
             if spec["workflow"] in {
                 "h5-train",
                 "raw1000-train",
+                "capacity-matrix-train",
                 "capacity-benchmark",
                 "batch-size-sweep",
                 "eventstream-capacity-benchmark",

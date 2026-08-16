@@ -84,6 +84,19 @@ Stage C 的独立 H=5 seed 0 训练不需要 notebook：
 并在启动前恢复同一训练目录已有的 checkpoint。后续 seed 1 和 2 使用相同命令修改
 `--seeds`，不得根据 2025 test 结果筛选 seed。
 
+容量与窗口 2×2 矩阵共用上面的 Top-100 工作集。raw-200 格通过 `input_last_chunks: 2` 只读取每个样本最后两个 100-event chunk，股票日、标签和底层数据指纹均不变，也不复制分片。先运行新的同口径 `1M/raw-200` seed 0：
+
+    python scripts/run_colab_nextday.py \
+      --workflow capacity-matrix-train \
+      --matrix-cell 1m-raw200 \
+      --seeds 0 \
+      --keep-on-failure \
+      --session ticknet-matrix-1m-raw200-seed0 \
+      --gpu A100 \
+      --local-output-dir artifacts/raw-1000-top100-capacity-matrix/1m-raw200
+
+`--matrix-cell` 还接受 `1m-raw1000` 和 `100m-raw200`。三格分别读取 `configs/nextday-capacity-matrix-1m-raw200.yaml`、`configs/nextday-capacity-matrix-1m-raw1000.yaml` 和 `configs/nextday-capacity-matrix-100m-raw200.yaml`。它们固定使用 batch 32、学习率 0.0001、patience 8、2024 validation 选模和锁定的 2025 test。每格使用独立 Drive 目录并支持断点恢复。
+
 100M benchmark 先用相同 revision、相同 raw-1000 单月 preflight 分别测 T4 和 A100：
 
     python scripts/run_colab_nextday.py \

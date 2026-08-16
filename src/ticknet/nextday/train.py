@@ -48,6 +48,7 @@ def make_dataloaders(
             verify_checksums=config.verify_data_checksums and split == "train",
             target_sidecar_path=config.target_sidecar_path,
             target_horizon=config.target_horizon,
+            input_last_chunks=config.input_last_chunks,
         )
         for split in ("train", "val", "test")
     )
@@ -184,6 +185,7 @@ def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[st
     normalized.setdefault("inception_channels", DEFAULT_INCEPTION_CHANNELS)
     normalized.setdefault("target_sidecar_path", None)
     normalized.setdefault("target_horizon", 1)
+    normalized.setdefault("input_last_chunks", 0)
     return normalized == expected
 
 
@@ -233,6 +235,7 @@ def evaluate_best_checkpoints(
         verify_checksums=config.verify_data_checksums,
         target_sidecar_path=config.target_sidecar_path,
         target_horizon=config.target_horizon,
+        input_last_chunks=config.input_last_chunks,
     )
     test_loader = DataLoader(
         test_dataset,

@@ -65,9 +65,20 @@ def main(argv: list[str] | None = None) -> None:
         date_split=date_split,
         split="train",
         verify_checksums=config.verify_data_checksums,
+        input_last_chunks=config.input_last_chunks,
     )
-    validation = NextDayShardDataset(config.manifest_path, date_split=date_split, split="val")
-    test = NextDayShardDataset(config.manifest_path, date_split=date_split, split="test")
+    validation = NextDayShardDataset(
+        config.manifest_path,
+        date_split=date_split,
+        split="val",
+        input_last_chunks=config.input_last_chunks,
+    )
+    test = NextDayShardDataset(
+        config.manifest_path,
+        date_split=date_split,
+        split="test",
+        input_last_chunks=config.input_last_chunks,
+    )
     train_x, train_y = _aggregate(train)
     val_x, val_y = _aggregate(validation)
 

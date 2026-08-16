@@ -112,6 +112,7 @@ def run_benchmark(
         verify_checksums=config.verify_data_checksums,
         target_sidecar_path=config.target_sidecar_path,
         target_horizon=config.target_horizon,
+        input_last_chunks=config.input_last_chunks,
     )
     loader = DataLoader(
         dataset,
@@ -231,6 +232,8 @@ def run_benchmark(
             "manifest_path": str(config.manifest_path),
             "dataset_fingerprint": dataset.dataset_fingerprint,
             "train_samples": len(dataset),
+            "source_chunks_per_sample": dataset.source_chunks_per_sample,
+            "input_last_chunks": dataset.input_last_chunks,
             "chunks_per_sample": dataset.chunks_per_sample,
             "chunk_size": dataset.chunk_size,
             "events_per_sample": dataset.chunks_per_sample * dataset.chunk_size,

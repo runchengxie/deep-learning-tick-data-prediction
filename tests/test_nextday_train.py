@@ -64,6 +64,11 @@ def test_nextday_config_requires_sidecar_for_long_horizon():
         NextDayConfig(manifest_path="manifest.json", target_horizon=5).validate()
 
 
+def test_nextday_config_rejects_negative_input_chunk_view():
+    with pytest.raises(ValueError, match="input_last_chunks"):
+        NextDayConfig(manifest_path="manifest.json", input_last_chunks=-1).validate()
+
+
 def test_nextday_config_rejects_overlapping_dates():
     config = NextDayConfig(
         manifest_path="manifest.json",
@@ -94,6 +99,7 @@ def test_checkpoint_signature_defaults_legacy_frontend_widths():
     legacy.pop("inception_channels")
     legacy.pop("target_sidecar_path")
     legacy.pop("target_horizon")
+    legacy.pop("input_last_chunks")
     assert train_module._checkpoint_matches_experiment(
         {"experiment": legacy},
         expected,
