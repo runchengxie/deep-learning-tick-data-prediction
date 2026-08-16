@@ -1,0 +1,33 @@
+# M3 v2 正式输入生成：从三模态均完整覆盖沪深股票的首个完整月开始。
+# 2025 已属于研究可见区，只用于形成 M3 正式滚动结论，不称为 locked test。
+
+basic_root: /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/basic
+benchmark_path: /mnt/data/hdd6t/quant-data-lake/reference/cn_market_reference/csi_all_a_000985.CSI.parquet
+l2_root: /mnt/data/hdd6t/quant-data-lake/derived/level2_minute_cache/v1
+tushare_root: /home/richard/data/market-data-platform/assets/derived/a_share/minute_1m_v3_20260714
+
+start_date: "2021-07-01"
+end_date: "2025-12-31"
+top_n: 400
+min_history_days: 120
+liquidity_lookback_days: 20
+min_liquidity_observations: 15
+lower_quantile: 0.2
+upper_quantile: 0.8
+min_cross_section: 400
+target_return_contract: next_open_to_following_open
+
+feature_source: l2_cache
+window_minutes: 60
+min_window_minutes: 30
+
+train_start: "2021-07-01"
+train_end: "2024-12-31"
+val_start: "2025-01-01"
+val_end: "2025-06-30"
+test_start: "2025-07-01"
+test_end: "2025-12-31"
+
+min_symbols_per_day: 400
+portfolio_quantile: 0.1
+seed: 0

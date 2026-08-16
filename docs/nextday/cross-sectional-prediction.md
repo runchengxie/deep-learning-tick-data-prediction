@@ -62,24 +62,26 @@ ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
 - 按月利用 ticker row-group 范围跳过无关股票
 - 输出 float16 大分片、manifest 和 `data-audit.json`
 
-以上是原始序列模型保留的历史诊断口径。M3 Top-K 的正式 HGB 输入使用独立配置 `configs/nextday-minute-formal-2025.yaml`，目标改为 T 日信号对应 T+1 open 至 T+2 open 的持有收益，并按同期中证全指 open-to-open 收益形成分类监督。动态 Top-400 只使用 T 日以前的成交额。T+1 停牌、一字涨停和一字跌停分别写入交易状态，调出但尚不可卖的持仓继续写 `in_universe=false` 状态行。正式切分还要求 `return_end_date` 落在同一时间段内。
+以上是原始序列模型保留的历史诊断口径。M3 Top-K 的正式 HGB 输入使用独立配置 `configs/nextday-minute-formal-2025-v2.yaml`，目标改为 T 日信号对应 T+1 open 至 T+2 open 的持有收益，并按同期中证全指 open-to-open 收益形成分类监督。动态 Top-400 只使用 T 日以前的成交额。T+1 停牌、一字涨停和一字跌停分别写入交易状态，调出但尚不可卖的持仓继续写 `in_universe=false` 状态行。正式切分还要求 `return_end_date` 落在同一时间段内。
 
 ```bash
 uv run python scripts/materialize_minute_features.py \
-  --config configs/nextday-minute-formal-2025.yaml \
-  --output results/m3-formal-minute-features-v1
+  --config configs/nextday-minute-formal-2025-v2.yaml \
+  --output results/m3-formal-minute-features-v2-202107
 
 uv run python scripts/run_minute_baseline.py \
-  --config configs/nextday-minute-formal-2025.yaml \
-  --materialized-features results/m3-formal-minute-features-v1 \
+  --config configs/nextday-minute-formal-2025-v2.yaml \
+  --materialized-features results/m3-formal-minute-features-v2-202107 \
   --evaluate-test \
-  --save-predictions results/predictions-hgb-top400-open2open-2025.parquet \
-  --output results/nextday-minute-formal-2025.json
+  --save-predictions results/predictions-hgb-top400-open2open-2025-v2.parquet \
+  --output results/nextday-minute-formal-2025-v2.json
 ```
 
 第一条命令按月原子写入 Parquet，记录源文件身份、目标键、每月资源统计和分片 SHA-256。中断后重复执行即可从完整月份继续。第二条命令只接受覆盖全部目标月份的 manifest，输出正式数据指纹和 prediction metadata，供 `import_predictions` 登记。缺少 L2 分钟窗口的候选使用 HGB 原生支持的全 NaN 特征并保留在 Top-400 中，不能静默删除。
 
-真实物化已完成 2025-07 至 2025-12 共 49,600 行，其中 192 行缺少分钟特征，真实特征覆盖率 99.61%。连续数组抽取器在 2025-07 生成的分片与旧版 SHA-256 完全一致，耗时从 100.3 秒降至 72.4 秒，峰值内存从约 2.26 GB 降至 1.69 GB。其余五个月耗时在 62.0 至 82.6 秒之间，批次峰值不超过 1.72 GB。该结果只验证全量执行的资源、恢复和数值一致性边界，不代表预测效果。
+M3 v1 已物化 14/60 个月。2025 年 7 月至 12 月共 49,600 行，其中 192 行缺少分钟特征，真实特征覆盖率为 99.61%。恢复处理 2021 年数据后，发现 1 月至 5 月约有 48% 至 50% 的候选缺少全部三模态特征。逐日原始委托文件确认 2021 年 1 月 4 日至 6 月 4 日只覆盖深市，沪市从 6 月 7 日才开始出现。v1 已停止并保留，v2 从首个完整月份 `2021-07` 开始重新物化。
+
+连续数组抽取器在 2025 年 7 月生成的分片与旧版 SHA-256 完全一致，耗时从 100.3 秒降至 72.4 秒，峰值内存从约 2.26 GB 降至 1.69 GB。其余五个月耗时在 62.0 至 82.6 秒之间，批次峰值不超过 1.72 GB。这组结果只验证全量执行的资源、恢复和数值一致性边界，不代表预测效果。
 
 修正后的本机冒烟 v2 覆盖 2024-01-02 至 2024-01-12 的动态前 20 股票。180 个目标中写出 178 个，两个股票日缺少可用 snapshot。178 个写出样本均有完整 200 个有效 tick。430 个 row group 中读取 44 个并跳过 386 个。候选时段共剔除 1,017 行无效盘口。该结果只验证数据链路，不代表模型有效。
 

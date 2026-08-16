@@ -79,6 +79,18 @@ def test_shared_loader_preserves_formal_target_contract() -> None:
     assert config.feature_source == "l2_cache"
 
 
+def test_m3_v2_excludes_incomplete_early_order_coverage() -> None:
+    config = _load_config("configs/nextday-minute-formal-2025-v2.yaml")
+    assert config.formal is True
+    assert config.start_date == "2021-07-01"
+    assert config.train_start == "2021-07-01"
+    assert config.train_end == "2024-12-31"
+    assert config.val_start == "2025-01-01"
+    assert config.test_end == "2025-12-31"
+    assert config.top_n == config.min_symbols_per_day == 400
+    assert config.target_return_contract == FORMAL_TARGET_RETURN_CONTRACT
+
+
 def test_complete_formal_samples_imputes_missing_candidate() -> None:
     targets = [_target("000001"), _target("000002")]
     available = MinuteSample(
