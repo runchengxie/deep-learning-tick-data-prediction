@@ -48,40 +48,44 @@ inputs:
 
 ## 正式输入生成状态
 
-`configs/nextday-minute-formal-2025.yaml` 已把正式 HGB 输入固定为 2021 至 2024 训练、2025 上半年验证、2025 下半年输出。每日股票池只使用信号日以前 20 个交易日成交额，严格保留 400 只候选。模型监督目标是个股 T+1 open 到 T+2 open 减同期基准收益，prediction 中供组合核算的 `target_return` 则保存未减基准的个股持有收益。停牌以此前最近有效收盘价估值，一字涨停不可买、一字跌停不可卖。缺少分钟窗口的候选不从股票池删除，而是保留全 NaN 特征交给 HGB 的缺失值分支，并写出 `feature_available=false`。
+`configs/nextday-minute-formal-2025-v2.yaml` 已把正式 HGB 输入固定为 2021 年 7 月至 2024 年训练、2025 上半年验证、2025 下半年输出。每日股票池只使用信号日以前 20 个交易日成交额，严格保留 400 只候选。模型监督目标是个股 T+1 open 到 T+2 open 减同期基准收益，prediction 中供组合核算的 `target_return` 则保存未减基准的个股持有收益。停牌以此前最近有效收盘价估值，一字涨停不可买、一字跌停不可卖。缺少分钟窗口的候选不从股票池删除，而是保留全 NaN 特征交给 HGB 的缺失值分支，并写出 `feature_available=false`。
+
+v1 配置从 2021 年 1 月开始。恢复物化后确认，2021 年 1 月 4 日至 6 月 4 日的逐日委托文件只有 `0` 和 `3` 开头的深市股票，没有 `6` 开头的沪市股票。前 101 个交易日缺少沪市委托，6 月 7 日开始同时覆盖两个市场。快照和成交源在同期包含沪市，三模态严格对齐后使沪市候选的完整特征为空。现有委托原始文件无法补回缺口，因此 v1 在 14/60 个月处停止，保留原目录和 manifest 作为审计记录。
 
 先把约 110 GB 的源缓存按月物化为可恢复的聚合特征：
 
 ```bash
 uv run python scripts/materialize_minute_features.py \
-  --config configs/nextday-minute-formal-2025.yaml \
-  --output results/m3-formal-minute-features-v1
+  --config configs/nextday-minute-formal-2025-v2.yaml \
+  --output results/m3-formal-minute-features-v2-202107
 ```
 
-每个月只有在 Parquet 原子落盘并完成 SHA-256 后才会进入 manifest。重复执行相同命令会校验并跳过已有月份。需要单月诊断时可重复传入 `--period YYYY-MM`。manifest 绑定全部 484,000 个目标股票日、30 个原始分钟特征的列顺序、窗口参数以及 15 个年度三模态源文件的大小和修改时间。任何身份变化都会停止续跑。正式数据指纹还会对加载后的 120 维聚合特征、标签和交易状态逐值哈希。
+每个月只有在 Parquet 原子落盘并完成 SHA-256 后才会进入 manifest。重复执行相同命令会校验并跳过已有月份。需要单月诊断时可重复传入 `--period YYYY-MM`。manifest 绑定 v2 的全部目标股票日、30 个原始分钟特征的列顺序、窗口参数以及 15 个年度三模态源文件的大小和修改时间。任何身份变化都会停止续跑。正式数据指纹还会对加载后的 120 维聚合特征、标签和交易状态逐值哈希。
 
-全部 60 个月完成后运行 HGB：
+全部 54 个月完成后运行 HGB：
 
 ```bash
 uv run python scripts/run_minute_baseline.py \
-  --config configs/nextday-minute-formal-2025.yaml \
-  --materialized-features results/m3-formal-minute-features-v1 \
+  --config configs/nextday-minute-formal-2025-v2.yaml \
+  --materialized-features results/m3-formal-minute-features-v2-202107 \
   --evaluate-test \
-  --save-predictions results/predictions-hgb-top400-open2open-2025.parquet \
-  --output results/nextday-minute-formal-2025.json
+  --save-predictions results/predictions-hgb-top400-open2open-2025-v2.parquet \
+  --output results/nextday-minute-formal-2025-v2.json
 ```
 
 本地真实数据证据：
 
-- 2021-01-04 至 2025-12-29 共 1,210 个完整信号日，每日均为 400 个候选，合计 484,000 个候选标签。没有不完整股票池或缺失市场状态日期。
+- v1 的日线面板覆盖 2021-01-04 至 2025-12-29 共 1,210 个完整信号日，每日均为 400 个候选，合计 484,000 个候选标签。股票池本身完整，早期委托源的市场覆盖不完整。
 - 另生成 13,329 条调出股票状态行。候选及状态中记录到 3,282 条停牌、264 条一字涨停和 209 条一字跌停状态。
 - 2025-07-01 的真实 L2 单日抽取请求 400 个候选，399 个有完整三模态分钟行，1 个走全 NaN 缺失特征路径。读取 6 个相关 row group，按日期元数据跳过 835 个无关 row group。
 - 物化已完成 2025-07 至 2025-12 共 6 个月、49,600 个候选，其中 49,408 个有特征、192 个保留为全 NaN，真实特征覆盖率 99.61%。各月缺失数依次为 7、33、15、112、11、14，不能因 2025-10 缺失较多而静默缩小 Top-400。
 - L2 抽取已从逐分钟 Python 对象改为按股票日连续数组分组，并向量化去重、尾部截取和三模态对齐。独立重跑 2025-07 生成的 Parquet 与旧版 SHA-256 完全一致，耗时由 100.3 秒降至 72.4 秒，峰值内存由约 2.26 GB 降至 1.69 GB。新版其余月份耗时在 62.0 至 82.6 秒之间，批次峰值不超过 1.72 GB。累计 manifest 的峰值仍为历史旧版 2.26 GB，符合取全程最大值的定义。
-- 当前 manifest 状态为 `in_progress`，完成 6/60 个月。正式 HGB 已实测拒绝残缺 manifest，并列出缺失月份，不会用部分数据训练。相同月份重跑会先验证身份与分片 SHA-256 再跳过。
+- v1 manifest 状态为 `in_progress`，完成 14/60 个月，共 114,400 行，其中 94,573 行有特征，19,827 行保留为全 NaN。14 个分片均通过身份、SHA-256、行数、日期边界和 Parquet metadata 校验，没有临时或残缺文件。
+- v1 的 2021 年 1 月至 5 月缺失数依次为 3,969/8,000、2,911/6,000、4,447/9,200、4,061/8,400、3,437/7,200。2021 年 6 月缺失 786/8,400，7 月和 8 月分别只缺失 17/8,800 和 7/8,800。这个断点与委托源从 6 月 7 日开始出现沪市股票一致。
+- 正式 HGB 已实测拒绝残缺 manifest，并列出缺失月份，不会用部分数据训练。相同月份重跑会先验证身份与分片 SHA-256 再跳过。
 - 所有日线面板显式截断到 2025-12-31。prediction 契约新增 `return_end_date`，防止 2025 样本借用 2026 locked 收益。
 
-这些结果证明数据口径、资源边界、恢复和缺失路径可执行，不构成模型效果或可交易性结论。正式结论仍需完成其余 54 个月、prediction 登记和成本矩阵。
+这些结果证明数据口径、资源边界、恢复和缺失路径可执行，也暴露了 v1 的早期委托覆盖缺口。正式结论需要完成 v2 的 54 个月物化、prediction 登记和成本矩阵。
 
 ## 甜点区判定
 
@@ -179,7 +183,7 @@ results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/
 
 M3 正式结论仍需：
 
-1. 从当前 manifest 继续物化其余 54 个月，再运行正式 HGB 生成动态 Top-400、open-to-following-open、带完整交易状态和 metadata 的 predictions，通过 `import_predictions` 登记。
+1. 使用 v2 配置物化 2021 年 7 月至 2025 年 12 月的 54 个月，再运行正式 HGB 生成动态 Top-400、open-to-following-open、带完整交易状态和 metadata 的 predictions，通过 `import_predictions` 登记。
 2. 使用同一数据指纹运行 `TRD-TOPK-400-001` 完整矩阵。
 3. 对有希望的 buffer 区域运行滚动年份或月份稳健性检查，形成 `TRD-BUFFER-400-001`。
 4. 若正式矩阵仍没有 10bp 甜点区，进入 M4 的 HGB 与 LambdaMART 同口径比较，不进入高成本盘口预训练或神经排序损失。
