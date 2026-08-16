@@ -35,6 +35,9 @@ DEFAULT_EVENTSTREAM_BENCHMARK_CONFIG = (
 DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG = (
     REPOSITORY_ROOT / "configs" / "eventstream-h5-recent-capacity100m-colab.yaml"
 )
+DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG = (
+    REPOSITORY_ROOT / "configs" / "eventstream-h5-recent-capacity100m-materialized-colab.yaml"
+)
 EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
     {
         "eventstream-capacity-benchmark",
@@ -43,6 +46,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
+EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -67,6 +71,7 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-recent-capacity-benchmark",
             "eventstream-recent-batch-size-sweep",
             "eventstream-recent-input-profile",
+            "eventstream-recent-train",
         ),
         default="multi-horizon-validation",
     )
@@ -94,6 +99,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-sizes", nargs="+", type=int, default=[2, 4, 8, 16, 32])
     parser.add_argument("--num-workers", nargs="+", type=int, default=[2, 4, 8, 16])
     parser.add_argument("--effective-batch-size", type=int, default=32)
+    parser.add_argument("--training-epochs", type=int)
+    parser.add_argument(
+        "--evaluate-test",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--timeout", type=float, default=14_400.0)
     retention = parser.add_mutually_exclusive_group()
     retention.add_argument(
@@ -168,6 +179,10 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--num-workers 不能为空且不能重复")
     if any(workers < 0 for workers in arguments.num_workers):
         raise ValueError("--num-workers 不能为负数")
+    if arguments.training_epochs is not None and arguments.training_epochs < 1:
+        raise ValueError("--training-epochs 应为正整数")
+    if arguments.workflow in EVENTSTREAM_TRAIN_WORKFLOWS and len(arguments.seeds) != 1:
+        raise ValueError("事件流正式训练每次只接受一个 seed")
 
 
 def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
@@ -183,6 +198,7 @@ def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
         "eventstream-recent-capacity-benchmark": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
         "eventstream-recent-batch-size-sweep": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
         "eventstream-recent-input-profile": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
+        "eventstream-recent-train": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
     }[workflow]
 
 
@@ -351,15 +367,27 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         else:
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
+    elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS:
+        seed = int(arguments.seeds[0])
+        run_name = "eventstream-top400-h5-capacity100m-recent"
+        checkpoint_name = "eventstream-top400-h5-capacity100m-recent"
+        feature_remote = (
+            f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-materialized/seed{seed}"
+        )
+        feature_local = "/content/ticknet-eventstream/materialized/recent"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        output_local = f"/content/ticknet-results/{run_name}/training"
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
     checkpoint_remote = (
-        output_remote if workflow in {"raw1000-train", "capacity-matrix-train"} else run_root
+        output_remote
+        if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
+        else run_root
     )
     checkpoint_local = (
         output_local
-        if workflow in {"raw1000-train", "capacity-matrix-train"}
+        if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
         else f"/content/drive/MyDrive/{run_root}"
     )
     return {
@@ -386,17 +414,23 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "batch_sizes": list(arguments.batch_sizes),
         "num_workers": list(arguments.num_workers),
         "effective_batch_size": arguments.effective_batch_size,
+        "training_epochs": arguments.training_epochs,
+        "evaluate_test": arguments.evaluate_test,
         "expected_parameter_count": (
             1_033_383
             if workflow == "capacity-matrix-train" and arguments.matrix_cell.startswith("1m-")
             else 100_604_180
-            if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS
+            if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS | EVENTSTREAM_TRAIN_WORKFLOWS
             else 100_817_575
         ),
         "projected_train_samples": (
             120_000
             if workflow
-            in {"eventstream-recent-batch-size-sweep", "eventstream-recent-input-profile"}
+            in {
+                "eventstream-recent-batch-size-sweep",
+                "eventstream-recent-input-profile",
+                "eventstream-recent-train",
+            }
             else 42_000
             if workflow == "eventstream-recent-capacity-benchmark"
             else 40_000
@@ -426,6 +460,14 @@ def _validate_downloaded_summary(
             raise RuntimeError(
                 f"Colab job {field} 不匹配：{summary.get(field)!r} != {spec[field]!r}"
             )
+    if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
+        if summary.get("seeds") != spec["seeds"]:
+            raise RuntimeError("Colab 事件流训练 seed 与请求不一致")
+        if summary.get("test_status") != "locked_not_accessed":
+            raise RuntimeError("Colab 事件流训练没有确认 2026 locked 保持隔离")
+        expected_oos = "evaluated" if spec["evaluate_test"] else "not_evaluated"
+        if summary.get("oos_status") != expected_oos:
+            raise RuntimeError("Colab 事件流训练的 OOS 状态与请求不一致")
     if summary.get("status") != "complete":
         error = summary.get("error", "未提供远端错误")
         raise RuntimeError(f"Colab job 未完成：{error}")

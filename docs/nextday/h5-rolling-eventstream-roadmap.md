@@ -50,9 +50,9 @@ H5 purge 要求 `trading_date`、`entry_date` 和 `return_end_date` 全部位于
 
 preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstream-h5-recent-fold/`。H3 在 train、validation 和 OOS 分别保留 22,058、6,578 和 7,732 条标签。H5 分别保留 21,266、5,807 和 6,966 条标签。跨 split 的收益标签已经清除。
 
-五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 pack 约为 68.58 GB，已完成审计和上传。截至 2026-08-16，Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。正式 3/1/1 训练需要选择 400GB Drive、GCS 或可恢复的月度流式暂存，不能通过删除字段降低精度。
+五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 pack 约为 68.58 GB，已完成审计和上传。截至 2026-08-16，Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB，无法保存完整五个月 pack。
 
-本机没有可用 CUDA GPU。现有 `run_colab_nextday.py` 只覆盖事件流 benchmark、batch sweep 和 input profile，尚无正式训练 workflow。压缩抽样约为原始体积的 24% 至 27%，目前还没有形成正式暂存方案。
+正式训练改用固定窗口缓存。它在本地按配置和 seed 提前抽取训练、validation、OOS 与监控窗口，保留 float32 特征和原始标签，不降低数值精度。每个 seed 预计约 25 GiB，可以放入现有 Drive。缓存 manifest 绑定源文件清单、日期、配置、seed、数组规格和逐文件 SHA-256，上传后可以完整核对。`run_colab_nextday.py` 已增加正式训练工作流，支持训练前预检、checkpoint 恢复、失败产物回传和 OOS 访问控制。
 
 ## 分阶段进度
 
@@ -66,7 +66,7 @@ preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstrea
 | B0 | 完成 | A100 输入分析完成，优化后为 149.40 samples/s，20 epoch 外推 4.46 小时每 seed |
 | D3 | 完成 | 2025 年 9 月至 12 月全部打包，103 个交易日均有完整日索引 |
 | S0a | 完成 | 增加按月逻辑存储清单、直存远端文件核对、完整复制容量检查和落盘内容核对，固定 103 个交易日并阻断 2026 |
-| S0b | 待执行 | 选择可恢复的月度流式暂存或足够容量的远端存储，定义传输清单和恢复边界，补齐正式训练与产物回传 workflow |
+| S0b | 验收中 | 固定窗口物化和正式训练工作流已实现，真实 seed 0 仍需完成物化、上传与短恢复验证 |
 | T0 | 待前置 | S0b 完成后运行最近折正式 seed 0，H5 选择 checkpoint，H3 只作监控，门槛见[事件流主线](eventstream.md#正式训练与扩容门槛) |
 | T1 | 待门槛 | seed 0 通过后补 seed 1 和 2，报告三 seed 均值、方向一致性与成本敏感性 |
 | E0 | 待门槛 | 100M checkpoint 通过后生成冻结 embedding，接入 AgentX M4 的相同下游合同 |

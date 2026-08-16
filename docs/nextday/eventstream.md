@@ -90,18 +90,17 @@ python scripts/run_colab_nextday.py \
 
 ## 正式训练与扩容门槛
 
-截至 2026-08-16，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。远端只上传了 2025 年 8 月的 68.58 GB benchmark pack，完整五个月 pack 约为 313.11 GiB。现有 `run_colab_nextday.py` 支持 eventstream benchmark、batch sweep 和 input profile，还没有正式训练 workflow。
+截至 2026-08-16，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。远端只上传了 2025 年 8 月的 68.58 GB benchmark pack，完整五个月 pack 约为 313.11 GiB。三个训练月与验证月展开后约为 245.39 GiB，无法同时放入现有 Drive 或 Colab 临时盘。
 
-正式 seed 0 需要先完成两项基础设施门槛：
+正式训练改用固定窗口物化方案。训练窗口在本地按 seed 一次性确定，保存模型实际读取的 80 维特征、下一事件目标、日级标签和有效位置。物化清单绑定五个月源清单、源码 revision、日期、seed、采样参数和每个张量文件的 SHA-256。训练前逐文件复核，内容漂移、错误 seed、错误日期或错误源码 revision 都会停止运行。
 
-- 选择可恢复的月度流式暂存、400GB Drive 或 GCS 等方案，让训练、validation 和 OOS 数据按固定指纹进入远端任务
-- 补齐正式训练、checkpoint 回传、日志回传和失败续跑 workflow，并用短任务验证恢复语义
+`eventstream-recent-train` 工作流会下载单个 seed 的物化训练集，恢复已有 checkpoint，核对允许访问的文件，再启动 100M 训练。训练成功或失败都会回传 best、last、history、result、预检报告和运行摘要。短恢复验证只下载 train、validation 和 H3 validation 分片，训练一个 epoch，OOS 文件不会进入运行环境。随后使用相同源码 revision 恢复到正式 epoch 上限，此时才下载并评估 OOS。
 
-压缩抽样约为原始体积的 24% 至 27%，目前只作为工程候选，尚未形成正式方案。
+当前代码和合成数据已经覆盖物化前后逐张量一致、篡改拒绝和 1 至 2 epoch 恢复。真实 seed 0 仍需完成源清单、物化、上传和远端短恢复验证，完成前不记为正式训练结果。
 
 ### 存储清单与预检
 
-`ticknet-eventstream-storage-readiness` 已经提供不依赖远端存储方案的审计基础。清单生成器读取五个月按日股票池，把每个交易日固定到 train、validation 或 OOS，逐项记录 412 个 pack 文件及标签产物的字节数、MD5 和 SHA-256。股票池触及 2026、日期没有落入唯一分区、pack 缺失或源数据指纹不一致时会停止生成。
+`ticknet-eventstream-storage-readiness` 提供源数据审计基础。清单生成器读取五个月按日股票池，把每个交易日固定到 train、validation 或 OOS，逐项记录 412 个 pack 文件及标签产物的字节数、MD5 和 SHA-256。股票池触及 2026、日期没有落入唯一分区、pack 缺失或源数据指纹不一致时会停止生成。
 
 在保存本地真实产物的主工作区执行：
 
@@ -122,7 +121,7 @@ ticknet-eventstream-storage-readiness build \
 
 生成过程会顺序读取完整 pack 计算内容哈希，只需在数据定版后执行一次。输出清单只含文件路径、大小、哈希、日期合同和聚合统计，不含股票列表或行情内容。
 
-直接以散文件保存到 Drive 或 GCS 时，可以在创建 GPU session 前核对远端文件集合。远端必须通过 rclone 提供 MD5 或 SHA-256 中的至少一种：
+存储清单还保留了完整 pack 直传远端时的核对命令，供 benchmark pack 和将来的存储迁移使用。远端必须通过 rclone 提供 MD5 或 SHA-256 中的至少一种：
 
 ```bash
 rclone lsjson remote:ticknet-data/eventstream-h5-recent \
@@ -134,7 +133,7 @@ ticknet-eventstream-storage-readiness verify-direct-remote \
   --listing artifacts/eventstream-h5-recent-fold/remote-listing.json
 ```
 
-完整复制方案还要在运行环境中检查数据、临时文件和 checkpoint 空间。默认给数据体积留出 5% 余量，并额外保留 20 GiB：
+完整 pack 复制方案还要在运行环境中检查数据、临时文件和 checkpoint 空间。默认给数据体积留出 5% 余量，并额外保留 20 GiB：
 
 ```bash
 ticknet-eventstream-storage-readiness check-full-copy-capacity \
@@ -150,7 +149,7 @@ ticknet-eventstream-storage-readiness verify-staged \
   --root /content/ticknet-eventstream/top400-h5-recent
 ```
 
-月度压缩包或流式暂存需要额外定义传输清单、解包原子性和月间恢复位置。当前命令不会选择其中一种方案，也不会创建 Colab session。正式训练 workflow 要在存储布局确定后强制串联远端清单核对、运行盘检查和落盘内容核对，任一步失败都不能进入训练。
+上述完整 pack 命令用于审计和 benchmark，正式 100M 训练使用下文的固定窗口缓存。物化器按月原子落盘并支持恢复，正式训练工作流会串联缓存清单核对、checkpoint 恢复、训练和产物回传。
 
 基础设施门槛通过后运行最近折正式 seed 0。H5 用于选择 checkpoint，H3 只作监控。seed 0 需要同时满足以下条件，随后才补 seed 1 和 2：
 
@@ -161,3 +160,61 @@ ticknet-eventstream-storage-readiness verify-staged \
 完成三 seed 后，validation 与 OOS 的 H5 平均 Rank IC 均为正，且至少两个 seed 的方向一致，视为 100M 信号门槛通过。通过门槛的 checkpoint 会冻结为每日 embedding，并接入 AgentX M4 的 HGB 与最佳 ranker。分钟特征、股票池、标签、日期切分和评估口径保持一致，以验证 embedding 的增量。
 
 `probe150m` 当前只是代码中的模型预设。100M 信号门槛或冻结 embedding 迁移门槛通过后，才补充正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+
+### 固定窗口物化与正式训练
+
+源清单生成完成后，在保存完整 pack 的本地主机物化 seed 0：
+
+```bash
+ticknet-eventstream-materialize build \
+  --config configs/eventstream-h5-recent-capacity100m.yaml \
+  --storage-manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
+  --output artifacts/eventstream-h5-recent-fold/materialized/seed0 \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+物化支持按月恢复。已有分片会先复核 SHA-256，再跳过。完成后执行完整核对：
+
+```bash
+ticknet-eventstream-materialize verify \
+  --root artifacts/eventstream-h5-recent-fold/materialized/seed0
+```
+
+把通过核对的目录上传到固定 seed 路径：
+
+```bash
+rclone --config ~/.config/rclone/rclone.conf copy \
+  artifacts/eventstream-h5-recent-fold/materialized/seed0 \
+  gdrive:deep-learning-tick-data-prediction/ticknet-data/eventstream-top400-h5-recent-materialized/seed0 \
+  --checksum
+```
+
+第一次远端运行只完成一个正式 epoch，不读取 OOS，用于验证 checkpoint 回传和恢复：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-train \
+  --session ticknet-eventstream-h5-recent-seed0-a100 \
+  --gpu A100 \
+  --seeds 0 \
+  --training-epochs 1 \
+  --no-evaluate-test \
+  --timeout 7200 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
+```
+
+短任务通过后使用相同 revision 恢复正式训练，并在训练结束后评估 2025 年 12 月 OOS：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-train \
+  --session ticknet-eventstream-h5-recent-seed0-formal-a100 \
+  --gpu A100 \
+  --seeds 0 \
+  --training-epochs 20 \
+  --evaluate-test \
+  --timeout 21600 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
+```

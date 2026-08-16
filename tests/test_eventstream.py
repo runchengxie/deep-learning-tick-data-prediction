@@ -362,6 +362,16 @@ class TestDataset:
         # 窗口内最后位置的目标指向窗口外的下一个事件（sid 持有 span+1 个真实事件）
         assert int(tgt_sid[span - 1]) == int(sid[span])
 
+        dynamic = L2WindowDataset(
+            [DAY],
+            seq_len=2,
+            min_events=2,
+            samples_per_day=2,
+            root=pack_root,
+            seed=0,
+        )
+        assert all(start == -1 for _day, _ticker, start in dynamic.entries)
+
     def test_eval_mode_takes_last_window(self, tmp_path):
         raw, pack_root = _make_lake(tmp_path)
         pack_day(DAY, raw_root=raw, pack_root=pack_root)
