@@ -362,14 +362,15 @@ stage
 
 最近折使用 `configs/eventstream-h5-recent-capacity100m.yaml`，训练期为 2025 年 8 月至 10 月，validation 为 2025 年 11 月，OOS 为 2025 年 12 月，2026 继续锁定。`capacity100m` 有 100,604,180 个参数，输入打包与 A100 吞吐基准已经完成。
 
-截至 2026-08-17，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，剩余约 21.4 GiB。完整五个月 pack 约为 313.11 GiB，正式训练改用每个 seed 约 25 GiB 的固定窗口缓存。三个 seed 的缓存、checkpoint 和结果均已完成并通过指纹核对。
+截至 2026-08-17，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，共享尾盘缓存上传后剩余约 15.2 GiB。完整五个月 pack 约为 313.11 GiB，正式训练改用每个 seed 约 25 GiB 的固定窗口缓存。三个 seed 的缓存、checkpoint 和结果均已完成并通过指纹核对。
 
 1. [x] 完成 T0 基础设施门槛、真实缓存物化、远端核对和 checkpoint 恢复测试。
 2. [x] 完成 seed 0，H5 validation 每日 Rank IC 用于选择 checkpoint，H3 只作监控。
 3. [x] seed 0 通过门槛后完成 seed 1 和 2。
 4. [x] 三 seed 的 validation 与 OOS H5 平均 Rank IC 均为正，100M 信号门槛通过。
-5. [ ] 使用固定 checkpoint 生成每日冻结 embedding，分别接入 M4 的 HGB 和 LambdaMART。
-6. [ ] 根据冻结 embedding 迁移结果决定是否启动 `probe150m`。
+5. [x] 完成 seed 共用尾盘缓存的本地生成、全量核对、远端上传和远端逐文件核对。
+6. [ ] 使用固定 checkpoint 生成每日冻结 embedding，分别接入 M4 的 HGB 和 LambdaMART。
+7. [ ] 根据冻结 embedding 迁移结果决定是否启动 `probe150m`。
 
 冻结表征输入使用一份 seed 共用的尾盘窗口缓存。每个股票日取收盘前最后 512 个事件，编码后保存最后一个有效事件的 960 维隐藏状态。缓存和 embedding manifest 记录源数据指纹、checkpoint SHA-256、训练缓存指纹、源码 revision、日期、股票、锚点和 schema。三个 checkpoint 分别训练下游模型，最后汇总指标或平均预测分数。向量本身不跨 seed 逐维平均。
 
@@ -595,10 +596,9 @@ next_action: ""
 
 M0 至 M3 已完成。M4 与 M5 的事件流表征支线是当前重点。优先级如下：
 
-1. 完成 seed 共用尾盘窗口缓存并上传，远端逐文件核对后只保留一份。
-2. 用三个 100M checkpoint 分别导出冻结 embedding，核对股票日集合和有限值。
-3. 运行 HGB 与 LambdaMART 的 E0、E1、E2 对照，汇总 Rank IC、NDCG、Precision、Top-K 成本后收益和月度稳定性。
-4. 补齐行业、规模、波动率和流动性暴露输入。当前代码会在缺少暴露文件时显式标记 `unavailable`，不会用空结果代替诊断。
-5. 根据三个 seed 的配对增量和预测组合结果决定是否运行 `probe150m` 受控容量消融。
+1. 用三个 100M checkpoint 分别导出冻结 embedding，核对股票日集合和有限值。
+2. 运行 HGB 与 LambdaMART 的 E0、E1、E2 对照，汇总 Rank IC、NDCG、Precision、Top-K 成本后收益和月度稳定性。
+3. 补齐行业、规模、波动率和流动性暴露输入。当前代码会在缺少暴露文件时显式标记 `unavailable`，不会用空结果代替诊断。
+4. 根据三个 seed 的配对增量和预测组合结果决定是否运行 `probe150m` 受控容量消融。
 
 神经排序损失、联合微调和多日模型继续遵守 M6、M7 的进入条件。原始盘口容量与窗口扩张保持停止。

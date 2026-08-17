@@ -229,7 +229,7 @@ ticknet-eventstream-close-cache verify \
   --root artifacts/eventstream-h5-recent-fold/daily-close-cache
 ```
 
-缓存预计约 6.5 GiB，只需上传和核对一次。远端对每个 seed 分别载入对应训练缓存 manifest 和 checkpoint，导出 960 维向量。完整导出会读取已经批准评估的 2025 年 12 月 OOS，因此调度器会保留显式 OOS 授权。每次只处理一个 seed：
+共享缓存已完成本地生成、全量核对和远端上传，包含 39,903 个股票日、5 个分片，共 6,619,831,094 字节，约 6.17 GiB。数据指纹为 `59577182c8124c312de0591059c67e55d472511ca77753403ce77afbf8f109f4`。远端对每个 seed 分别载入对应训练缓存 manifest 和 checkpoint，导出 960 维向量。完整导出会读取已经批准评估的 2025 年 12 月 OOS，因此调度器会保留显式 OOS 授权。每次只处理一个 seed：
 
 ```bash
 python scripts/run_colab_nextday.py \
