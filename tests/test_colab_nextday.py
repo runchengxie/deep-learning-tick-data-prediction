@@ -38,6 +38,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         seeds=[0, 1, 2],
         horizons=[1, 3, 5],
         inference_batch_size=128,
+        embedding_batch_size=16,
         benchmark_batches=100,
         warmup_batches=5,
         batch_sizes=[2, 4, 8, 16, 32],
@@ -208,11 +209,42 @@ def test_eventstream_recent_training_uses_one_materialized_seed(tmp_path: Path) 
     assert spec["evaluate_test"] is False
 
 
+def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-export-embeddings"
+    arguments.gpu = "A100"
+    arguments.seeds = [1]
+
+    spec = build_job_spec(arguments, "abc1234")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-close-cache")
+    assert spec["training_manifest_remote"].endswith(
+        "eventstream-top400-h5-recent-materialized/seed1"
+    )
+    assert spec["checkpoint_remote"].endswith("capacity100m-recent/training")
+    assert spec["output_remote"].endswith("capacity100m-recent/embeddings/seed1")
+    assert spec["embedding_batch_size"] == 16
+    assert spec["expected_parameter_count"] == 100_604_180
+
+
 def test_eventstream_training_requires_one_seed(tmp_path: Path) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-train"
 
     with pytest.raises(ValueError, match="一个 seed"):
+        _validate_lifecycle_arguments(arguments)
+
+
+def test_eventstream_embedding_requires_one_seed_and_oos_authorization(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-export-embeddings"
+
+    with pytest.raises(ValueError, match="一个 seed"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.seeds = [0]
+    arguments.evaluate_test = False
+    with pytest.raises(ValueError, match="OOS"):
         _validate_lifecycle_arguments(arguments)
 
 
@@ -382,6 +414,29 @@ def test_eventstream_summary_confirms_seed_locked_and_oos_status(tmp_path: Path)
     )
     with pytest.raises(RuntimeError, match="OOS 状态"):
         _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_embedding_summary_requires_evaluated_oos(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-recent-export-embeddings",
+        "source_revision": "abc1234",
+        "seeds": [1],
+        "evaluate_test": True,
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _validate_downloaded_summary(tmp_path, spec)
 
 
 def test_downloaded_matrix_summary_must_confirm_cell(tmp_path: Path) -> None:
@@ -673,6 +728,51 @@ def test_eventstream_training_restores_materialized_data_and_checkpoint(
     ]
 
 
+def test_eventstream_embedding_stages_shared_cache_manifest_and_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str]] = []
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **_kwargs: copies.append((source, destination)),
+    )
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "eventstream-recent-export-embeddings",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/close-cache",
+            "feature_local": "/content/close-cache",
+            "training_manifest_remote": "project/data/materialized/seed2",
+            "training_manifest_local": str(tmp_path / "materialized"),
+            "checkpoint_remote": "project/runs/eventstream/training",
+            "checkpoint_local": str(tmp_path / "checkpoint"),
+            "checkpoint_name": "eventstream-recent",
+            "seeds": [2],
+            "evaluate_test": True,
+        },
+        {},
+    )
+
+    assert copies == [("gdrive:project/data/close-cache", "/content/close-cache")]
+    assert commands[0][-2:] == [
+        "gdrive:project/data/materialized/seed2/manifest.json",
+        str(tmp_path / "materialized" / "manifest.json"),
+    ]
+    assert commands[1][-2:] == [
+        "gdrive:project/runs/eventstream/training/eventstream-recent.seed2.best.pt",
+        str(tmp_path / "checkpoint" / "eventstream-recent.seed2.best.pt"),
+    ]
+
+
 def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -707,6 +807,39 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     assert train_command[train_command.index("--epochs") + 1] == "1"
     assert train_command[train_command.index("--expected-parameter-count") + 1] == "100604180"
     assert "--no-evaluate-test" in train_command
+
+
+def test_eventstream_embedding_executes_with_explicit_oos_authorization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+    spec = {
+        "workflow": "eventstream-recent-export-embeddings",
+        "feature_local": "/content/close-cache",
+        "checkpoint_local": "/content/checkpoint",
+        "checkpoint_name": "eventstream-recent",
+        "training_manifest_local": "/content/materialized",
+        "output_local": str(tmp_path / "output"),
+        "seeds": [2],
+        "source_revision": "abc1234",
+        "embedding_batch_size": 8,
+        "num_workers": [2, 8],
+    }
+
+    colab_job._execute_workflow(spec)
+
+    command = captured[0]
+    assert "ticknet.eventstream.embedding" in command
+    assert command[command.index("--checkpoint") + 1].endswith("eventstream-recent.seed2.best.pt")
+    assert command[command.index("--batch-size") + 1] == "8"
+    assert command[command.index("--num-workers") + 1] == "4"
+    assert "--allow-oos" in command
 
 
 def test_h5_training_invokes_each_requested_seed(

@@ -100,6 +100,7 @@ class L2WindowDataset(Dataset):
         eval_mode: bool = False,
         eval_tickers: int = 0,
         fixed_windows: bool = False,
+        require_eval_labels: bool = True,
     ):
         self.root = Path(root)
         self.seq_len = int(seq_len)
@@ -153,7 +154,7 @@ class L2WindowDataset(Dataset):
             self.index[day]["label"] = lab
             n_labeled += int(np.isfinite(lab).sum())
             if self.eval_mode:
-                cand = ok[np.isfinite(lab[ok])]
+                cand = ok[np.isfinite(lab[ok])] if require_eval_labels else ok
                 if eval_tickers and len(cand) > eval_tickers:
                     cand = np.sort(
                         np.random.default_rng(int(day)).choice(
@@ -177,11 +178,23 @@ class L2WindowDataset(Dataset):
             rng=self.rng,
         )
         n_total = sum(len(v["label"]) for v in self.index.values())
+        label_summary = (
+            f"day-label coverage {n_labeled}/{n_total} ({n_labeled / max(n_total, 1):.1%})"
+            if require_eval_labels or not self.eval_mode
+            else "day labels not required"
+        )
         print(
             f"[dataset] {'eval' if self.eval_mode else 'train'} "
-            f"{len(self.days)} days, {len(entries)} samples, day-label coverage "
-            f"{n_labeled}/{n_total} ({n_labeled / max(n_total, 1):.1%})"
+            f"{len(self.days)} days, {len(entries)} samples, {label_summary}"
         )
+
+    def sample_key(self, index: int) -> tuple[int, str]:
+        """返回样本对应的交易日与股票代码。"""
+        if not 0 <= index < len(self.entries):
+            raise IndexError(index)
+        day, ticker_index, _start = self.entries[index]
+        ticker = str(self.index[day]["tickers"][ticker_index])
+        return day, ticker
 
     def _get_mmaps(self, day: int) -> dict:
         mmaps = self.mmaps.get(day)

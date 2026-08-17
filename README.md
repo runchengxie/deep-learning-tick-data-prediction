@@ -15,13 +15,15 @@
 
 ## 当前结论
 
-截至 2026-08-16，已经落地的主要结论如下：
+截至 2026-08-17，已经落地的主要结论如下：
 
 - 分钟 HGB 在 2022 至 2025 四个历史滚动样本外年份的每日 Rank IC 均为正，约为 0.02 至 0.035。2021 年上半年委托源缺少沪市记录，这组结果保留为带数据限制的历史基线。信号强度不足以覆盖现实交易成本
 - 分钟 TCN 的验证集排序能力高于 HGB，优势未延续到测试集
 - 原始盘口 Top-100 的三 seed 受控矩阵已经完成。`1M/raw-200` 的验证 Rank IC 为 `0.03748 ± 0.00096`，是四格中最稳的候选。扩大到 100M 参数或把窗口增至 raw-1000 都没有形成稳定增益
-- L2 事件流最近折已完成 2025 年 8 月至 12 月的 103 个交易日打包和 A100 输入基准，正式训练尚未开始，因此目前只有工程结论
+- L2 事件流 100M 最近折三 seed 已完成。H5 validation Rank IC 均值为 0.07259，2025 年 12 月 OOS 均值为 0.04300，三组结果均为正，已经通过预设信号门槛
 - AgentX 研究闭环的 M0 至 M3 已完成。M3 v2 使用 2021 年 7 月至 2025 年 12 月的完整沪深分钟特征，2025 年下半年 Rank IC 为 0.06994。正式 64 组 Top-K 成本矩阵没有找到可覆盖单边 10bp 成本并跑赢 Top-400 等权基准的组合
+
+冻结事件流 embedding 的最近折对照已经完成。三组 100M checkpoint 分别生成 960 维尾盘表示，再将分钟特征、embedding、二者组合交给同口径的 HGB 和 LambdaMART。HGB 组合输入的三 seed 预测均值在 2025 年 11 月和 12 月都提高了 Rank IC，12 月从 0.04010 提高到 0.05701。成本后主动收益仍为负，LambdaMART 的增量也缺少跨月稳定性。下一步补充风险暴露，并运行小规模联合端到端实验。150M 容量消融继续暂缓。
 
 各模型的输入、运行原理、优点、限制和研究状态见[模型清单](docs/model-catalog.md)。完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
 
@@ -63,7 +65,7 @@ ticknet-nextday-predict \
 
 输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易使用同一天全部股票的分数排序。
 
-分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train` 和 `ticknet-eventstream-export-predictions`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
+分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train`、`ticknet-eventstream-close-cache` 和 `ticknet-eventstream-export-embeddings`。冻结表征对照使用 `ticknet-embedding-compare`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
 
 ## 项目结构
 

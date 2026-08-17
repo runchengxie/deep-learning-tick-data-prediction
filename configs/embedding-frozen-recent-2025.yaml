@@ -1,0 +1,19 @@
+# 100M 事件流冻结表征最近折。2025 已用于研究开发，2026 保持 locked。
+
+train_start: "2025-08-01"
+train_end: "2025-10-31"
+validation_start: "2025-11-01"
+validation_end: "2025-11-30"
+oos_start: "2025-12-01"
+oos_end: "2025-12-31"
+
+downstream_seed: 0
+min_symbols_per_day: 350
+relevance_levels: 5
+top_ks: [50, 100]
+cost_bps: 10.0
+sell_stamp_tax_bps: 5.0
+
+hgb_max_iter: 500
+lambdamart_estimators: 500
+lambdamart_early_stopping_rounds: 50
