@@ -1,6 +1,6 @@
 # L2 逐笔事件流主线
 
-这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-16，数据打包和输入基准已经完成，正式模型训练尚未开始。
+这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-17，100M 最近折三 seed 已完成，当前进入冻结 embedding 的下游增量检验。
 
 ## 数据契约
 
@@ -88,15 +88,23 @@ python scripts/run_colab_nextday.py \
 
 按 120,000 个训练样本和 20 个 epoch 外推，每个 epoch 约 13.39 分钟，每个 seed 上限约 4.46 小时，三个 seed 串行上限约 13.39 小时。这个估算不含 validation 和 checkpoint I/O，正式耗时以训练日志和早停结果为准。
 
-## 正式训练与扩容门槛
+## 正式训练结果与扩容门槛
 
-截至 2026-08-16，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，当前约使用 98.1 GiB，剩余约 100.5 GiB。远端只上传了 2025 年 8 月的 68.58 GB benchmark pack，完整五个月 pack 约为 313.11 GiB。三个训练月与验证月展开后约为 245.39 GiB，无法同时放入现有 Drive 或 Colab 临时盘。
+截至 2026-08-17，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，剩余约 21.4 GiB。完整五个月 pack 约为 313.11 GiB，无法同时放入现有 Drive 或 Colab 临时盘。
 
 正式训练改用固定窗口物化方案。训练窗口在本地按 seed 一次性确定，保存模型实际读取的 80 维特征、下一事件目标、日级标签和有效位置。物化清单绑定五个月源清单、源码 revision、日期、seed、采样参数和每个张量文件的 SHA-256。训练前逐文件复核，内容漂移、错误 seed、错误日期或错误源码 revision 都会停止运行。
 
 `eventstream-recent-train` 工作流会下载单个 seed 的物化训练集，恢复已有 checkpoint，核对允许访问的文件，再启动 100M 训练。训练成功或失败都会回传 best、last、history、result、预检报告和运行摘要。短恢复验证只下载 train、validation 和 H3 validation 分片，训练一个 epoch，OOS 文件不会进入运行环境。随后使用相同源码 revision 恢复到正式 epoch 上限，此时才下载并评估 OOS。
 
-当前代码和合成数据已经覆盖物化前后逐张量一致、篡改拒绝和 1 至 2 epoch 恢复。真实 seed 0 仍需完成源清单、物化、上传和远端短恢复验证，完成前不记为正式训练结果。
+当前代码和合成数据覆盖物化前后逐张量一致、篡改拒绝和 1 至 2 epoch 恢复。真实 seed 0、1、2 均已完成源清单核对、固定窗口物化、远端训练、checkpoint 回传和 OOS 评估。
+
+| seed | 最佳 epoch | H5 validation Rank IC | H5 OOS Rank IC | 训练时间 |
+|---:|---:|---:|---:|---:|
+| 0 | 4 | 0.04345 | 0.05879 | 82.9 分钟 |
+| 1 | 6 | 0.09403 | 0.03730 | 116.3 分钟 |
+| 2 | 5 | 0.08029 | 0.03291 | 102.7 分钟 |
+
+validation 均值为 0.07259，OOS 均值为 0.04300。三组结果的方向全部为正，100M 信号门槛已经通过。H3 监控的 validation 与 OOS 也全部为正。2026 数据没有进入训练或评估。
 
 ### 存储清单与预检
 
@@ -151,15 +159,15 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 上述完整 pack 命令用于审计和 benchmark，正式 100M 训练使用下文的固定窗口缓存。物化器按月原子落盘并支持恢复，正式训练工作流会串联缓存清单核对、checkpoint 恢复、训练和产物回传。
 
-基础设施门槛通过后运行最近折正式 seed 0。H5 用于选择 checkpoint，H3 只作监控。seed 0 需要同时满足以下条件，随后才补 seed 1 和 2：
+最近折以 H5 选择 checkpoint，H3 只作监控。三 seed 已经满足以下门槛：
 
 - validation 与 OOS 的 H5 每日 Rank IC 均为正
 - 数据指纹、训练历史、best 与 last checkpoint、validation 和 OOS 评估产物完整
 - 训练与评估没有读取 2026，OOS 结果不用于修改本轮配置
 
-完成三 seed 后，validation 与 OOS 的 H5 平均 Rank IC 均为正，且至少两个 seed 的方向一致，视为 100M 信号门槛通过。通过门槛的 checkpoint 会冻结为每日 embedding，并接入 AgentX M4 的 HGB 与最佳 ranker。分钟特征、股票池、标签、日期切分和评估口径保持一致，以验证 embedding 的增量。
+冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
-`probe150m` 当前只是代码中的模型预设。100M 信号门槛或冻结 embedding 迁移门槛通过后，才补充正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+`probe150m` 当前只是代码中的模型预设。先完成冻结 embedding 的配对增量和交易价值检查，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
 
 ### 固定窗口物化与正式训练
 
@@ -203,6 +211,64 @@ python scripts/run_colab_nextday.py \
   --keep-on-failure \
   --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
 ```
+
+### 冻结 embedding 与下游对照
+
+三组 checkpoint 共用一份尾盘窗口缓存。缓存按股票日保存收盘前最后 512 个事件，只包含模型输入和股票日键。它不保存随机训练窗口，也不随 seed 改变：
+
+```bash
+ticknet-eventstream-close-cache build \
+  --storage-manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
+  --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1 \
+  --output artifacts/eventstream-h5-recent-fold/daily-close-cache \
+  --seq-len 512 \
+  --min-events 256 \
+  --source-revision "$(git rev-parse HEAD)"
+
+ticknet-eventstream-close-cache verify \
+  --root artifacts/eventstream-h5-recent-fold/daily-close-cache
+```
+
+缓存预计约 6.5 GiB，只需上传和核对一次。远端对每个 seed 分别载入对应训练缓存 manifest 和 checkpoint，导出 960 维向量。完整导出会读取已经批准评估的 2025 年 12 月 OOS，因此调度器会保留显式 OOS 授权。每次只处理一个 seed：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-export-embeddings \
+  --session ticknet-eventstream-embedding-seed0 \
+  --gpu A100 \
+  --seeds 0 \
+  --embedding-batch-size 16 \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/embeddings/seed0
+```
+
+调度器只下载共享尾盘缓存、对应 seed 的训练 manifest 和 best checkpoint。任务完成后会回传 embedding、manifest、运行摘要和 Colab 执行记录，并核对 seed、源码 revision、OOS 状态和 2026 隔离状态。直接在已有 CUDA 环境执行时可使用底层入口：
+
+```bash
+ticknet-eventstream-export-embeddings \
+  --close-cache artifacts/eventstream-h5-recent-fold/daily-close-cache \
+  --checkpoint artifacts/eventstream-h5-recent-fold/training/seed0/eventstream-top400-h5-capacity100m-recent.seed0.best.pt \
+  --training-manifest-root artifacts/eventstream-h5-recent-fold/materialized/seed0 \
+  --model capacity100m \
+  --device cuda \
+  --allow-oos \
+  --output artifacts/eventstream-h5-recent-fold/embeddings/seed0 \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+重复执行 seed 1 和 2 后，运行下游对照：
+
+```bash
+ticknet-embedding-compare \
+  --minute-config configs/nextday-minute-formal-2025-v2.yaml \
+  --minute-features results/m3-formal-minute-features-v2-202107 \
+  --comparison-config configs/embedding-frozen-recent-2025.yaml \
+  --embedding artifacts/eventstream-h5-recent-fold/embeddings/seed0 \
+  --embedding artifacts/eventstream-h5-recent-fold/embeddings/seed1 \
+  --embedding artifacts/eventstream-h5-recent-fold/embeddings/seed2 \
+  --output results/embedding-frozen-recent-2025
+```
+
+结果包含 HGB 与 LambdaMART 的分钟特征、embedding、组合特征三组对照。主要指标为 Rank IC、`NDCG@50/100`、`Precision@50/100`、Top-K 成本后收益、换手率和月度稳定性。风险暴露诊断需要额外提供含 `trading_date`、`symbol`、`industry`、`size`、`liquidity`、`volatility` 的 Parquet。缺少该文件时结果会明确记录 `unavailable`。
 
 短任务通过后使用相同 revision 恢复正式训练，并在训练结束后评估 2025 年 12 月 OOS：
 

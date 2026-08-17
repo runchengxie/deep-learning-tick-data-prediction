@@ -20,6 +20,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
     }
 )
 EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
+EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -100,6 +101,38 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
         env=env,
         exclude=excluded_partitions,
     )
+    if workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS:
+        training_manifest_root = Path(str(spec["training_manifest_local"]))
+        training_manifest_root.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "rclone",
+                "copyto",
+                _drive_path(
+                    remote,
+                    f"{spec['training_manifest_remote']}/manifest.json",
+                ),
+                str(training_manifest_root / "manifest.json"),
+            ],
+            env=env,
+        )
+        checkpoint_root = Path(str(spec["checkpoint_local"]))
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        seed = int(spec["seeds"][0])
+        checkpoint_name = f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+        _run(
+            [
+                "rclone",
+                "copyto",
+                _drive_path(
+                    remote,
+                    f"{spec['checkpoint_remote']}/{checkpoint_name}",
+                ),
+                str(checkpoint_root / checkpoint_name),
+            ],
+            env=env,
+        )
+        return
     if workflow in {"multi-horizon-validation", "h5-train"}:
         _rclone_copy(
             _drive_path(remote, str(spec["target_remote"])),
@@ -249,6 +282,41 @@ def _train_eventstream(spec: dict[str, Any]) -> None:
         if spec.get("training_epochs") is not None:
             command.extend(("--epochs", str(int(spec["training_epochs"]))))
         _run(command)
+
+
+def _export_eventstream_embeddings(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    seed = int(spec["seeds"][0])
+    checkpoint = (
+        Path(str(spec["checkpoint_local"])) / f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+    )
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.embedding",
+            "--close-cache",
+            str(spec["feature_local"]),
+            "--checkpoint",
+            str(checkpoint),
+            "--training-manifest-root",
+            str(spec["training_manifest_local"]),
+            "--model",
+            "capacity100m",
+            "--output",
+            str(output_dir),
+            "--device",
+            "cuda",
+            "--batch-size",
+            str(int(spec["embedding_batch_size"])),
+            "--num-workers",
+            str(min(max(int(value) for value in spec["num_workers"]), 4)),
+            "--allow-oos",
+            "--source-revision",
+            str(spec["source_revision"]),
+        ]
+    )
 
 
 def _benchmark_capacity(spec: dict[str, Any]) -> None:
@@ -428,7 +496,10 @@ def _write_summary(
         "test_status": "locked_not_accessed",
         "oos_status": (
             "evaluated"
-            if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"]
+            if (
+                spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
+                or (spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"])
+            )
             else "not_evaluated"
         ),
     }
@@ -468,6 +539,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
     elif spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
         _verify_eventstream_materialized(spec)
         _train_eventstream(spec)
+    elif spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS:
+        _export_eventstream_embeddings(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
 
@@ -497,6 +570,7 @@ def main() -> None:
                 "eventstream-recent-batch-size-sweep",
                 "eventstream-recent-input-profile",
                 "eventstream-recent-train",
+                "eventstream-recent-export-embeddings",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
@@ -516,7 +590,13 @@ def main() -> None:
                     "test_status": "locked_not_accessed",
                     "oos_status": (
                         "evaluated"
-                        if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"]
+                        if (
+                            spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
+                            or (
+                                spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS
+                                and spec["evaluate_test"]
+                            )
+                        )
                         else "not_evaluated"
                     ),
                 },

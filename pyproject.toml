@@ -9,6 +9,7 @@ description = "PyTorch DeepLOB 模型与 A 股次日横截面方向预测"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "lightgbm>=4.5,<5",
     "matplotlib>=3.8",
     "numpy>=1.24",
     "pyarrow>=15",
@@ -46,9 +47,12 @@ ticknet-eventstream-pack = "ticknet.eventstream.pack:main"
 ticknet-eventstream-prepare-horizon-labels = "ticknet.eventstream.horizon_labels:main"
 ticknet-eventstream-storage-readiness = "ticknet.eventstream.storage_readiness:main"
 ticknet-eventstream-materialize = "ticknet.eventstream.materialized:main"
+ticknet-eventstream-close-cache = "ticknet.eventstream.close_cache:main"
+ticknet-eventstream-export-embeddings = "ticknet.eventstream.embedding:main"
 ticknet-eventstream-benchmark = "ticknet.eventstream.benchmark:main"
 ticknet-eventstream-train = "ticknet.eventstream.train:main"
 ticknet-eventstream-export-predictions = "ticknet.eventstream.export:main"
+ticknet-embedding-compare = "ticknet.nextday.embedding_comparison:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]

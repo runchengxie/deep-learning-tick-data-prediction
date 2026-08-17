@@ -47,6 +47,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
     }
 )
 EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
+EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -72,6 +73,7 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-recent-batch-size-sweep",
             "eventstream-recent-input-profile",
             "eventstream-recent-train",
+            "eventstream-recent-export-embeddings",
         ),
         default="multi-horizon-validation",
     )
@@ -94,6 +96,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--horizons", nargs="+", type=int, default=[1, 3, 5])
     parser.add_argument("--inference-batch-size", type=int, default=128)
+    parser.add_argument("--embedding-batch-size", type=int, default=16)
     parser.add_argument("--benchmark-batches", type=int, default=100)
     parser.add_argument("--warmup-batches", type=int, default=5)
     parser.add_argument("--batch-sizes", nargs="+", type=int, default=[2, 4, 8, 16, 32])
@@ -168,6 +171,8 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--benchmark-batches 应为正整数，--warmup-batches 不能为负数")
     if arguments.effective_batch_size < 1:
         raise ValueError("--effective-batch-size 应为正整数")
+    if arguments.embedding_batch_size < 1:
+        raise ValueError("--embedding-batch-size 应为正整数")
     if not arguments.batch_sizes or len(set(arguments.batch_sizes)) != len(arguments.batch_sizes):
         raise ValueError("--batch-sizes 不能为空且不能重复")
     if any(
@@ -181,8 +186,13 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--num-workers 不能为负数")
     if arguments.training_epochs is not None and arguments.training_epochs < 1:
         raise ValueError("--training-epochs 应为正整数")
-    if arguments.workflow in EVENTSTREAM_TRAIN_WORKFLOWS and len(arguments.seeds) != 1:
-        raise ValueError("事件流正式训练每次只接受一个 seed")
+    if (
+        arguments.workflow in EVENTSTREAM_TRAIN_WORKFLOWS | EVENTSTREAM_EMBEDDING_WORKFLOWS
+        and len(arguments.seeds) != 1
+    ):
+        raise ValueError("事件流正式训练和 embedding 导出每次只接受一个 seed")
+    if arguments.workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS and not arguments.evaluate_test:
+        raise ValueError("完整 embedding 导出必须显式保留 OOS 读取授权")
 
 
 def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
@@ -199,6 +209,7 @@ def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
         "eventstream-recent-batch-size-sweep": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
         "eventstream-recent-input-profile": (DEFAULT_EVENTSTREAM_RECENT_BENCHMARK_CONFIG),
         "eventstream-recent-train": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
+        "eventstream-recent-export-embeddings": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
     }[workflow]
 
 
@@ -377,19 +388,34 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         feature_local = "/content/ticknet-eventstream/materialized/recent"
         output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
         output_local = f"/content/ticknet-results/{run_name}/training"
+    elif workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS:
+        seed = int(arguments.seeds[0])
+        run_name = "eventstream-top400-h5-capacity100m-recent"
+        checkpoint_name = "eventstream-top400-h5-capacity100m-recent"
+        feature_remote = f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-close-cache"
+        feature_local = "/content/ticknet-eventstream/close-cache/recent"
+        training_manifest_remote = (
+            f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-materialized/seed{seed}"
+        )
+        training_manifest_local = "/content/ticknet-eventstream/materialized/recent"
+        checkpoint_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        checkpoint_local = "/content/ticknet-eventstream/checkpoint"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/embeddings/seed{seed}"
+        output_local = f"/content/ticknet-results/{run_name}/embeddings/seed{seed}"
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
-    checkpoint_remote = (
-        output_remote
-        if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
-        else run_root
-    )
-    checkpoint_local = (
-        output_local
-        if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
-        else f"/content/drive/MyDrive/{run_root}"
-    )
+    if workflow not in EVENTSTREAM_EMBEDDING_WORKFLOWS:
+        checkpoint_remote = (
+            output_remote
+            if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
+            else run_root
+        )
+        checkpoint_local = (
+            output_local
+            if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
+            else f"/content/drive/MyDrive/{run_root}"
+        )
     return {
         "workflow": workflow,
         "rclone_remote": arguments.rclone_remote.rstrip(":"),
@@ -401,6 +427,12 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "feature_local": feature_local,
         "target_local": "/content/nextday-raw-200-targets-v1",
         "checkpoint_local": checkpoint_local,
+        "training_manifest_remote": (
+            training_manifest_remote if workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS else None
+        ),
+        "training_manifest_local": (
+            training_manifest_local if workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS else None
+        ),
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
         "matrix_cell": arguments.matrix_cell if workflow == "capacity-matrix-train" else None,
@@ -409,6 +441,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "seeds": list(arguments.seeds),
         "horizons": list(arguments.horizons),
         "inference_batch_size": arguments.inference_batch_size,
+        "embedding_batch_size": arguments.embedding_batch_size,
         "benchmark_batches": arguments.benchmark_batches,
         "warmup_batches": arguments.warmup_batches,
         "batch_sizes": list(arguments.batch_sizes),
@@ -420,7 +453,10 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             1_033_383
             if workflow == "capacity-matrix-train" and arguments.matrix_cell.startswith("1m-")
             else 100_604_180
-            if workflow in EVENTSTREAM_BENCHMARK_WORKFLOWS | EVENTSTREAM_TRAIN_WORKFLOWS
+            if workflow
+            in EVENTSTREAM_BENCHMARK_WORKFLOWS
+            | EVENTSTREAM_TRAIN_WORKFLOWS
+            | EVENTSTREAM_EMBEDDING_WORKFLOWS
             else 100_817_575
         ),
         "projected_train_samples": (
@@ -430,6 +466,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
                 "eventstream-recent-batch-size-sweep",
                 "eventstream-recent-input-profile",
                 "eventstream-recent-train",
+                "eventstream-recent-export-embeddings",
             }
             else 42_000
             if workflow == "eventstream-recent-capacity-benchmark"
@@ -460,12 +497,16 @@ def _validate_downloaded_summary(
             raise RuntimeError(
                 f"Colab job {field} 不匹配：{summary.get(field)!r} != {spec[field]!r}"
             )
-    if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
+    if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS | EVENTSTREAM_EMBEDDING_WORKFLOWS:
         if summary.get("seeds") != spec["seeds"]:
-            raise RuntimeError("Colab 事件流训练 seed 与请求不一致")
+            raise RuntimeError("Colab 事件流任务 seed 与请求不一致")
         if summary.get("test_status") != "locked_not_accessed":
-            raise RuntimeError("Colab 事件流训练没有确认 2026 locked 保持隔离")
-        expected_oos = "evaluated" if spec["evaluate_test"] else "not_evaluated"
+            raise RuntimeError("Colab 事件流任务没有确认 2026 locked 保持隔离")
+        expected_oos = (
+            "evaluated"
+            if spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS or spec["evaluate_test"]
+            else "not_evaluated"
+        )
         if summary.get("oos_status") != expected_oos:
             raise RuntimeError("Colab 事件流训练的 OOS 状态与请求不一致")
     if summary.get("status") != "complete":
