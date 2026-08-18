@@ -35,6 +35,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         matrix_cell="1m-raw200",
         drive_root="deep-learning-tick-data-prediction",
         rclone_remote="gdrive",
+        eventstream_fold_id=None,
         seeds=[0, 1, 2],
         horizons=[1, 3, 5],
         inference_batch_size=128,
@@ -207,6 +208,47 @@ def test_eventstream_recent_training_uses_one_materialized_seed(tmp_path: Path) 
     assert spec["projected_train_samples"] == 120_000
     assert spec["training_epochs"] == 1
     assert spec["evaluate_test"] is False
+
+
+def test_eventstream_rolling_training_uses_fold_scoped_paths(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-rolling-train"
+    arguments.eventstream_fold_id = "fold-54-oos-202511"
+    arguments.gpu = "A100"
+    arguments.seeds = [2]
+    arguments.training_epochs = 1
+    arguments.evaluate_test = False
+
+    spec = build_job_spec(arguments, "abc1234")
+
+    assert spec["feature_remote"].endswith(
+        "eventstream-top400-h5-rolling/fold-54-oos-202511/materialized/seed2"
+    )
+    assert spec["feature_local"].endswith("materialized/fold-54-oos-202511")
+    assert spec["checkpoint_name"] == ("eventstream-top400-h5-capacity100m-fold-54-oos-202511")
+    assert spec["checkpoint_remote"] == spec["output_remote"]
+    assert spec["eventstream_fold_id"] == "fold-54-oos-202511"
+    assert spec["projected_train_samples"] == 120_000
+    assert _default_config(
+        arguments.workflow,
+        eventstream_fold_id=arguments.eventstream_fold_id,
+    ).name == ("eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml")
+
+
+def test_eventstream_rolling_training_requires_safe_fold_id(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-rolling-train"
+    arguments.seeds = [0]
+
+    with pytest.raises(ValueError, match="fold-NN-oos-YYYYMM"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.eventstream_fold_id = "../fold-54"
+    with pytest.raises(ValueError, match="fold-NN-oos-YYYYMM"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.eventstream_fold_id = "fold-54-oos-202511"
+    _validate_lifecycle_arguments(arguments)
 
 
 def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Path) -> None:
@@ -446,6 +488,44 @@ def test_eventstream_summary_confirms_seed_locked_and_oos_status(tmp_path: Path)
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="OOS 状态"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_rolling_summary_must_confirm_fold_identity(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-rolling-train",
+        "source_revision": "abc1234",
+        "eventstream_fold_id": "fold-54-oos-202511",
+        "seeds": [0],
+        "evaluate_test": True,
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _validate_downloaded_summary(tmp_path, spec)
+
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "eventstream_fold_id": "fold-53-oos-202510",
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="eventstream_fold_id 不匹配"):
         _validate_downloaded_summary(tmp_path, spec)
 
 

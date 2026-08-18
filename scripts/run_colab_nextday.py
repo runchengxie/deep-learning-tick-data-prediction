@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -54,9 +55,10 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
-EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
+EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
+EVENTSTREAM_FOLD_PATTERN = re.compile(r"^fold-\d{2}-oos-\d{6}$")
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
 REMOTE_CONFIG = "/content/ticknet-nextday-config.yaml"
@@ -82,6 +84,7 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-recent-batch-size-sweep",
             "eventstream-recent-input-profile",
             "eventstream-recent-train",
+            "eventstream-rolling-train",
             "eventstream-recent-export-embeddings",
             "eventstream-recent-joint-finetune",
         ),
@@ -102,6 +105,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rclone-remote", default="gdrive")
     parser.add_argument("--drive-root", default="deep-learning-tick-data-prediction")
+    parser.add_argument(
+        "--eventstream-fold-id",
+        help="滚动事件流训练的折标识，例如 fold-54-oos-202511",
+    )
     parser.add_argument("--local-output-dir", type=Path, required=True)
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--horizons", nargs="+", type=int, default=[1, 3, 5])
@@ -215,11 +222,33 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
     ):
         supported = sorted(EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED)
         raise ValueError(f"联合微调 seed 应为 {supported} 之一")
+    fold_id = arguments.eventstream_fold_id
+    if arguments.workflow == "eventstream-rolling-train":
+        _validate_eventstream_fold_id(fold_id)
+    elif fold_id is not None:
+        raise ValueError("--eventstream-fold-id 只用于 eventstream-rolling-train")
 
 
-def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
+def _validate_eventstream_fold_id(value: str | None) -> str:
+    if value is None or EVENTSTREAM_FOLD_PATTERN.fullmatch(value) is None:
+        raise ValueError("--eventstream-fold-id 应使用 fold-NN-oos-YYYYMM 格式")
+    return value
+
+
+def _default_config(
+    workflow: str,
+    matrix_cell: str = "1m-raw200",
+    eventstream_fold_id: str | None = None,
+) -> Path:
     if workflow == "capacity-matrix-train":
         return CAPACITY_MATRIX_CONFIGS[matrix_cell]
+    if workflow == "eventstream-rolling-train":
+        fold_id = _validate_eventstream_fold_id(eventstream_fold_id)
+        return (
+            REPOSITORY_ROOT
+            / "configs"
+            / f"eventstream-h5-{fold_id}-capacity100m-materialized-colab.yaml"
+        )
     return {
         "multi-horizon-validation": DEFAULT_CONFIG,
         "h5-train": DEFAULT_H5_CONFIG,
@@ -332,6 +361,28 @@ def _build_committed_wheel(
     return wheels[0]
 
 
+def _eventstream_training_paths(
+    arguments: argparse.Namespace,
+    drive_root: str,
+) -> tuple[str, str, str, str]:
+    seed = int(arguments.seeds[0])
+    if arguments.workflow == "eventstream-rolling-train":
+        fold_id = _validate_eventstream_fold_id(arguments.eventstream_fold_id)
+        run_name = f"eventstream-top400-h5-capacity100m-{fold_id}"
+        feature_remote = (
+            f"{drive_root}/ticknet-data/eventstream-top400-h5-rolling/"
+            f"{fold_id}/materialized/seed{seed}"
+        )
+        feature_local = f"/content/ticknet-eventstream/materialized/{fold_id}"
+        return run_name, run_name, feature_remote, feature_local
+    run_name = "eventstream-top400-h5-capacity100m-recent"
+    feature_remote = (
+        f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-materialized/seed{seed}"
+    )
+    feature_local = "/content/ticknet-eventstream/materialized/recent"
+    return run_name, run_name, feature_remote, feature_local
+
+
 def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[str, Any]:
     drive_root = arguments.drive_root.strip("/")
     workflow = arguments.workflow
@@ -402,13 +453,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
     elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS:
-        seed = int(arguments.seeds[0])
-        run_name = "eventstream-top400-h5-capacity100m-recent"
-        checkpoint_name = "eventstream-top400-h5-capacity100m-recent"
-        feature_remote = (
-            f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-materialized/seed{seed}"
+        run_name, checkpoint_name, feature_remote, feature_local = _eventstream_training_paths(
+            arguments, drive_root
         )
-        feature_local = "/content/ticknet-eventstream/materialized/recent"
         output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
         output_local = f"/content/ticknet-results/{run_name}/training"
     elif workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS:
@@ -483,6 +530,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         ),
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
+        "eventstream_fold_id": (
+            arguments.eventstream_fold_id if workflow == "eventstream-rolling-train" else None
+        ),
         "matrix_cell": arguments.matrix_cell if workflow == "capacity-matrix-train" else None,
         "training_config": REMOTE_CONFIG,
         "wheel": REMOTE_WHEEL,
@@ -514,10 +564,10 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             in {
                 "eventstream-recent-batch-size-sweep",
                 "eventstream-recent-input-profile",
-                "eventstream-recent-train",
                 "eventstream-recent-export-embeddings",
                 "eventstream-recent-joint-finetune",
             }
+            | EVENTSTREAM_TRAIN_WORKFLOWS
             else 42_000
             if workflow == "eventstream-recent-capacity-benchmark"
             else 40_000
@@ -542,6 +592,8 @@ def _validate_downloaded_summary(
     fields = ["workflow", "source_revision"]
     if spec.get("matrix_cell") is not None:
         fields.append("matrix_cell")
+    if spec.get("eventstream_fold_id") is not None:
+        fields.append("eventstream_fold_id")
     for field in fields:
         if summary.get(field) != spec[field]:
             raise RuntimeError(
@@ -634,7 +686,11 @@ def run(arguments: argparse.Namespace) -> None:
     _validate_lifecycle_arguments(arguments)
     repository_root = REPOSITORY_ROOT.resolve()
     if arguments.config is None:
-        arguments.config = _default_config(arguments.workflow, arguments.matrix_cell)
+        arguments.config = _default_config(
+            arguments.workflow,
+            arguments.matrix_cell,
+            arguments.eventstream_fold_id,
+        )
     arguments.config = arguments.config.expanduser().resolve()
     arguments.rclone_config = arguments.rclone_config.expanduser().resolve()
     arguments.local_output_dir = arguments.local_output_dir.expanduser().resolve()

@@ -19,7 +19,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
-EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
+EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 
@@ -565,6 +565,8 @@ def _write_summary(
     }
     if spec.get("matrix_cell") is not None:
         summary["matrix_cell"] = spec["matrix_cell"]
+    if spec.get("eventstream_fold_id") is not None:
+        summary["eventstream_fold_id"] = spec["eventstream_fold_id"]
     if error is not None:
         summary["error"] = error
     (output_dir / "colab-run-summary.json").write_text(
@@ -632,6 +634,7 @@ def main() -> None:
                 "eventstream-recent-batch-size-sweep",
                 "eventstream-recent-input-profile",
                 "eventstream-recent-train",
+                "eventstream-rolling-train",
                 "eventstream-recent-export-embeddings",
                 "eventstream-recent-joint-finetune",
             }:

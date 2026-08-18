@@ -48,6 +48,8 @@ locked      2026 起
 
 2025 年 8 月至 12 月共 103 个交易日，已经全部打包，产物约为 313.11 GiB。目录中没有遗留的 partial 文件。2026 保持锁定，配置和标签均不读取该区间。
 
+第一个相邻滚动折为 `fold-54-oos-202511`，使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。本地配置为 `configs/eventstream-h5-fold-54-oos-202511-capacity100m.yaml`，远端固定窗口配置为 `configs/eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml`。滚动折的远端数据、checkpoint 和结果都按折标识隔离。
+
 ## 输入基准
 
 A100 容量基准完成后，使用同一个 2025 年 8 月 pack 扫描物理 batch 8、16、32 和 64。有效 batch 固定为 64：
@@ -90,11 +92,11 @@ python scripts/run_colab_nextday.py \
 
 ## 正式训练结果与扩容门槛
 
-截至 2026-08-17，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，剩余约 21.4 GiB。完整五个月 pack 约为 313.11 GiB，无法同时放入现有 Drive 或 Colab 临时盘。
+截至 2026-08-18，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，清理六个已完成训练的 last checkpoint 和旧 benchmark pack 后，剩余约 80.90 GiB。完整五个月 pack 约为 313.11 GiB，无法放入现有 Drive 或 Colab 临时盘。
 
 正式训练改用固定窗口物化方案。训练窗口在本地按 seed 一次性确定，保存模型实际读取的 80 维特征、下一事件目标、日级标签和有效位置。物化清单绑定五个月源清单、源码 revision、日期、seed、采样参数和每个张量文件的 SHA-256。训练前逐文件复核，内容漂移、错误 seed、错误日期或错误源码 revision 都会停止运行。
 
-`eventstream-recent-train` 工作流会下载单个 seed 的物化训练集，恢复已有 checkpoint，核对允许访问的文件，再启动 100M 训练。训练成功或失败都会回传 best、last、history、result、预检报告和运行摘要。短恢复验证只下载 train、validation 和 H3 validation 分片，训练一个 epoch，OOS 文件不会进入运行环境。随后使用相同源码 revision 恢复到正式 epoch 上限，此时才下载并评估 OOS。
+`eventstream-recent-train` 负责最近折，`eventstream-rolling-train` 负责额外滚动折。滚动任务必须提供形如 `fold-54-oos-202511` 的 `--eventstream-fold-id`，远端路径和运行摘要都会绑定该标识。两种工作流都只下载一个 seed 的物化训练集，恢复已有 checkpoint，核对允许访问的文件，再启动 100M 训练。训练成功或失败都会回传 best、last、history、result、预检报告和运行摘要。短恢复验证只下载 train、validation 和 H3 validation 分片，训练一个 epoch，OOS 文件不会进入运行环境。随后使用相同源码 revision 恢复到正式 epoch 上限，此时才下载并评估 OOS。
 
 当前代码和合成数据覆盖物化前后逐张量一致、篡改拒绝和 1 至 2 epoch 恢复。真实 seed 0、1、2 均已完成源清单核对、固定窗口物化、远端训练、checkpoint 回传和 OOS 评估。
 
