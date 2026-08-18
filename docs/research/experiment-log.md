@@ -313,3 +313,25 @@ LambdaMART E2 的单 seed OOS Rank IC 增量为 -0.01399、0.01387、0.02864，v
 训练源码 revision 为 `da01954b22a1a1506c9e91f8558fcd80bf8184e8`。best checkpoint SHA-256 为 `585321c251e664982f8e1066d8dfff50d97d15b42cbabfe07d1cb91261b91106`，last checkpoint 为 `7f2f188ddb81bfe83e03a233db4ec6c519848eec3a091b488e2d6767bf9e2c19`，结果 JSON 为 `a3d38beef87e47a25e85dd64141de2ebe1ce37305049074100650e1020004a82`。Drive 上 7 个最终文件与本机副本核对一致。2026 locked 数据没有进入训练或评估。
 
 本次决策为 `EXTEND`。保留联合模型作为候选，下一步补齐 seed 1、2、风险暴露和额外时间窗口。交易目标优化优先于 150M 容量扩张，可以在重复实验后评估小规模横截面排序损失或成本感知选模。`probe150m` 继续暂缓。
+
+## 2026-08-18：联合端到端三 seed 复核
+
+PR #82 为联合训练固定 seed 0、1、2 各自的预训练 checkpoint 文件名和 SHA-256，并将 seed 显式传给远端训练入口。未知 seed 会在申请 GPU 前被拒绝。改动通过 Python 3.10、Python 3.12 和依赖安全审计后合并，正式源码 revision 为 `92426f67060e7ebb24cb3400ada6aa8af38ae804`。
+
+seed 1 首次创建的 A100 会话在远端脚本开始前断开 kernel 连接，当时尚未复制缓存或运行训练。调度器保存执行历史、删除远端 rclone 配置并保留会话。复用同一会话后任务正常完成。seed 2 使用新会话一次完成。两个会话都已停止。
+
+三组预测的股票、日期、标签和行数完全一致，validation 为 6,963 行，OOS 为 8,125 行。seed 1、2 分别载入 SHA-256 为 `edc423d89bbd2a681383d04ec1c3ae22961b2c944c449f0572f5416f31de19ed` 和 `013e2bd1281830100bbf15f673bd8b1cb8ff08951ea48eae9f81922b1eebd4f6` 的预训练 checkpoint。
+
+| seed | 最佳 epoch | validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 日均成本前主动收益 | OOS Top-100 日均成本后主动收益 | OOS 日均单边换手 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 2 | 0.05784 | 0.06296 | 0.54452 | 0.24762 | 3.10bp | -9.26bp | 49.91% |
+| 1 | 1 | 0.07694 | 0.05492 | 0.53985 | 0.21667 | -0.33bp | -14.40bp | 56.74% |
+| 2 | 1 | 0.04272 | 0.07407 | 0.55083 | 0.25333 | 5.19bp | -5.34bp | 42.56% |
+| 均值 |  | 0.05917 | 0.06398 | 0.54507 | 0.23921 | 2.65bp | -9.67bp | 49.74% |
+| 总体标准差 |  | 0.01400 | 0.00785 | 0.00450 | 0.01611 | 2.28bp | 3.71bp | 5.79% |
+
+三个 seed 的 OOS Rank IC 均为正，均值高于冻结 HGB 三 seed 预测均值的 0.05701。OOS `NDCG@100` 与冻结预测均值的 0.54450 接近。联合训练的 `Precision@100` 更低，三个 seed 的成本后主动收益也全部为负。当前证据确认了全截面排序信号的重复性，交易门槛仍未通过。
+
+seed 1 的 best、last 和结果 JSON SHA-256 分别为 `35853b3ff263454c92617c6dfe9f569eb158ec0387f43f63275ef9137ca18290`、`c9324cf6e5d88b85ee4bf6f93c98ddc291471904566cc3aa207959e3016edc4b` 和 `cde7c2eed3f25d82ef3619c9634b24bf00e1f3842a95e7e234b0dfc772e9dcf0`。seed 2 对应为 `5703ee8f52f0a77a607679673064fbbbfd3dc5d4995ebc9686d06efa1c1aadd0`、`b2cfb6fecfadf6d49144b451082532cfcbffddd65ec45bb8d3c65af36f6d0604` 和 `704ae634d4c0a80d5f87e156d837b352994c9e46fc3c96c6da99d4febe07a756`。每个 seed 的 Drive 目录与本机 7 个正式文件逐项核对一致。2026 locked 数据没有进入训练或评估。
+
+本次决策继续为 `EXTEND`。下一步补风险暴露和额外时间窗口，再评估小规模横截面排序损失或成本感知选模。`probe150m` 继续暂缓。
