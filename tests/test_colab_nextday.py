@@ -241,6 +241,9 @@ def test_eventstream_joint_spec_reuses_shared_cache_and_seed0_checkpoint(
     assert spec["joint_cache_remote"].endswith("eventstream-top400-h5-recent-joint-cache-v1")
     assert spec["checkpoint_remote"].endswith("capacity100m-recent/training")
     assert spec["output_remote"].endswith("capacity100m-recent/joint-finetune/seed0")
+    assert spec["expected_pretrained_sha256"] == (
+        "8632e62bdf4f27383e299c3ff676876d8a1969f6d69ec66a7ce43da24f5255e9"
+    )
     assert spec["expected_pretrained_sha256"] == colab_runner.EVENTSTREAM_SEED0_CHECKPOINT_SHA256
     assert _default_config(arguments.workflow).name == (
         "eventstream-joint-recent-capacity100m.yaml"
