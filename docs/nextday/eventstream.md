@@ -1,6 +1,6 @@
 # L2 逐笔事件流主线
 
-这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-17，100M 最近折三 seed 已完成，当前进入冻结 embedding 的下游增量检验。
+这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-18，100M 最近折三 seed 和冻结 embedding 下游对照已完成，联合端到端实验基础设施已经就绪。
 
 ## 数据契约
 
@@ -168,6 +168,39 @@ ticknet-eventstream-storage-readiness verify-staged \
 冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
 `probe150m` 当前只是代码中的模型预设。冻结 embedding 已经出现 HGB Rank IC 增量，成本后主动收益和跨窗口稳定性仍待确认。下一步先补风险暴露和联合端到端小实验，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+
+### 联合端到端实验
+
+`ticknet-eventstream-joint-cache` 从 frozen E2 的股票日交集中生成轻量缓存。缓存保存 120 维分钟特征、三分类标签、排序收益、组合评估目标，以及共享尾盘缓存的相对分片和行号。事件数组继续留在原有 6.17 GiB 尾盘缓存中，不产生第二份副本。manifest 绑定分钟物化指纹、尾盘缓存指纹、日期和评估配置，每个 Parquet 都记录 SHA-256。
+
+`ticknet-eventstream-joint-train` 加载 seed 0 的 `capacity100m` best checkpoint。模型从尾盘窗口取最后一个有效事件的隐藏状态，经分钟特征塔编码 120 维聚合特征，再拼接两路表示并输出三类概率。排序分数为上涨概率减下跌概率。默认第一轮只训练新增层，后续以 `backbone_lr` 联合更新 Transformer，以 `head_lr` 更新分钟塔和分类头。
+
+本地生成正式轻量缓存：
+
+```bash
+ticknet-eventstream-joint-cache build \
+  --minute-config configs/nextday-minute-formal-2025-v2.yaml \
+  --minute-features results/m3-formal-minute-features-v2-202107 \
+  --comparison-config configs/embedding-frozen-recent-2025.yaml \
+  --close-cache artifacts/eventstream-h5-recent-fold/daily-close-cache \
+  --output artifacts/eventstream-h5-recent-fold/joint-feature-cache \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+远端训练使用一个 seed，并显式允许读取已经批准的 2025 年 12 月 OOS：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-joint-finetune \
+  --session ticknet-eventstream-joint-seed0 \
+  --gpu A100 \
+  --seeds 0 \
+  --timeout 14400 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/joint-finetune/seed0
+```
+
+远端工作流下载共享尾盘缓存、轻量联合缓存和 seed 0 checkpoint。已有输出会在运行前恢复，用于继续未完成的 epoch。结果包含 validation 与 OOS 的逐日 Rank IC、NDCG、Precision、Top-K 成本后收益、换手率、预测 Parquet、checkpoint 和运行摘要。2026 数据继续隔离。
 
 ### 固定窗口物化与正式训练
 

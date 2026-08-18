@@ -227,6 +227,26 @@ def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Pat
     assert spec["expected_parameter_count"] == 100_604_180
 
 
+def test_eventstream_joint_spec_reuses_shared_cache_and_seed0_checkpoint(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-joint-finetune"
+    arguments.gpu = "A100"
+    arguments.seeds = [0]
+
+    spec = build_job_spec(arguments, "abc1234")
+
+    assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-close-cache")
+    assert spec["joint_cache_remote"].endswith("eventstream-top400-h5-recent-joint-cache-v1")
+    assert spec["checkpoint_remote"].endswith("capacity100m-recent/training")
+    assert spec["output_remote"].endswith("capacity100m-recent/joint-finetune/seed0")
+    assert spec["expected_pretrained_sha256"] == colab_runner.EVENTSTREAM_SEED0_CHECKPOINT_SHA256
+    assert _default_config(arguments.workflow).name == (
+        "eventstream-joint-recent-capacity100m.yaml"
+    )
+
+
 def test_eventstream_training_requires_one_seed(tmp_path: Path) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-train"
@@ -773,6 +793,50 @@ def test_eventstream_embedding_stages_shared_cache_manifest_and_checkpoint(
     ]
 
 
+def test_eventstream_joint_stages_two_caches_checkpoint_and_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str]] = []
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **_kwargs: copies.append((source, destination)),
+    )
+    monkeypatch.setattr(colab_job, "_run", lambda command, **_kwargs: commands.append(command))
+    monkeypatch.setattr(colab_job, "_remote_directory_exists", lambda *_args, **_kwargs: True)
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "eventstream-recent-joint-finetune",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/close-cache",
+            "feature_local": "/content/close-cache",
+            "joint_cache_remote": "project/data/joint-cache",
+            "joint_cache_local": "/content/joint-cache",
+            "checkpoint_remote": "project/runs/eventstream/training",
+            "checkpoint_local": str(tmp_path / "checkpoint"),
+            "checkpoint_name": "eventstream-recent",
+            "output_remote": "project/runs/eventstream/joint/seed0",
+            "output_local": str(tmp_path / "output"),
+            "seeds": [0],
+            "evaluate_test": True,
+        },
+        {},
+    )
+
+    assert copies == [
+        ("gdrive:project/data/close-cache", "/content/close-cache"),
+        ("gdrive:project/data/joint-cache", "/content/joint-cache"),
+        ("gdrive:project/runs/eventstream/joint/seed0", str(tmp_path / "output")),
+    ]
+    assert commands[0][-2:] == [
+        "gdrive:project/runs/eventstream/training/eventstream-recent.seed0.best.pt",
+        str(tmp_path / "checkpoint" / "eventstream-recent.seed0.best.pt"),
+    ]
+
+
 def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -839,6 +903,39 @@ def test_eventstream_embedding_executes_with_explicit_oos_authorization(
     assert command[command.index("--checkpoint") + 1].endswith("eventstream-recent.seed2.best.pt")
     assert command[command.index("--batch-size") + 1] == "8"
     assert command[command.index("--num-workers") + 1] == "4"
+    assert "--allow-oos" in command
+
+
+def test_eventstream_joint_executes_with_strict_checkpoint_and_oos(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+    spec = {
+        "workflow": "eventstream-recent-joint-finetune",
+        "feature_local": "/content/close-cache",
+        "joint_cache_local": "/content/joint-cache",
+        "checkpoint_local": "/content/checkpoint",
+        "checkpoint_name": "eventstream-recent",
+        "expected_pretrained_sha256": "a" * 64,
+        "output_local": str(tmp_path / "output"),
+        "training_config": "/content/config.yaml",
+        "seeds": [0],
+        "source_revision": "abc1234",
+        "training_epochs": 2,
+    }
+
+    colab_job._execute_workflow(spec)
+
+    command = captured[0]
+    assert "ticknet.eventstream.joint" in command
+    assert command[command.index("--expected-pretrained-sha256") + 1] == "a" * 64
+    assert command[command.index("--epochs") + 1] == "2"
     assert "--allow-oos" in command
 
 

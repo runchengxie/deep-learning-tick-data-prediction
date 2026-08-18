@@ -15,7 +15,7 @@
 
 ## 当前结论
 
-截至 2026-08-17，已经落地的主要结论如下：
+截至 2026-08-18，已经落地的主要结论如下：
 
 - 分钟 HGB 在 2022 至 2025 四个历史滚动样本外年份的每日 Rank IC 均为正，约为 0.02 至 0.035。2021 年上半年委托源缺少沪市记录，这组结果保留为带数据限制的历史基线。信号强度不足以覆盖现实交易成本
 - 分钟 TCN 的验证集排序能力高于 HGB，优势未延续到测试集
@@ -65,7 +65,7 @@ ticknet-nextday-predict \
 
 输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易使用同一天全部股票的分数排序。
 
-分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train`、`ticknet-eventstream-close-cache` 和 `ticknet-eventstream-export-embeddings`。冻结表征对照使用 `ticknet-embedding-compare`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
+分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train`、`ticknet-eventstream-close-cache` 和 `ticknet-eventstream-export-embeddings`。冻结表征对照使用 `ticknet-embedding-compare`。联合端到端实验使用 `ticknet-eventstream-joint-cache` 和 `ticknet-eventstream-joint-train`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
 
 ## 项目结构
 

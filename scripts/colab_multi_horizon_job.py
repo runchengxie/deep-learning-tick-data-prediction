@@ -21,6 +21,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
 )
 EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train"})
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
+EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -101,6 +102,29 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
         env=env,
         exclude=excluded_partitions,
     )
+    if workflow in EVENTSTREAM_JOINT_WORKFLOWS:
+        _rclone_copy(
+            _drive_path(remote, str(spec["joint_cache_remote"])),
+            str(spec["joint_cache_local"]),
+            env=env,
+        )
+        checkpoint_root = Path(str(spec["checkpoint_local"]))
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        seed = int(spec["seeds"][0])
+        checkpoint_name = f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+        _run(
+            [
+                "rclone",
+                "copyto",
+                _drive_path(remote, f"{spec['checkpoint_remote']}/{checkpoint_name}"),
+                str(checkpoint_root / checkpoint_name),
+            ],
+            env=env,
+        )
+        output_remote = _drive_path(remote, str(spec["output_remote"]))
+        if _remote_directory_exists(output_remote, env=env):
+            _rclone_copy(output_remote, str(spec["output_local"]), env=env)
+        return
     if workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS:
         training_manifest_root = Path(str(spec["training_manifest_local"]))
         training_manifest_root.mkdir(parents=True, exist_ok=True)
@@ -183,6 +207,7 @@ def _install_project(spec: dict[str, Any]) -> None:
             "pyarrow>=15",
             "pyyaml>=6",
             "polars>=1.0",
+            "scikit-learn>=1.3",
         ]
     )
     _run(
@@ -317,6 +342,38 @@ def _export_eventstream_embeddings(spec: dict[str, Any]) -> None:
             str(spec["source_revision"]),
         ]
     )
+
+
+def _train_eventstream_joint(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    seed = int(spec["seeds"][0])
+    checkpoint = (
+        Path(str(spec["checkpoint_local"])) / f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+    )
+    command = [
+        sys.executable,
+        "-m",
+        "ticknet.eventstream.joint",
+        "--config",
+        str(spec["training_config"]),
+        "--cache",
+        str(spec["joint_cache_local"]),
+        "--close-cache",
+        str(spec["feature_local"]),
+        "--pretrained-checkpoint",
+        str(checkpoint),
+        "--expected-pretrained-sha256",
+        str(spec["expected_pretrained_sha256"]),
+        "--output",
+        str(output_dir),
+        "--source-revision",
+        str(spec["source_revision"]),
+        "--allow-oos",
+    ]
+    if spec.get("training_epochs") is not None:
+        command.extend(("--epochs", str(int(spec["training_epochs"]))))
+    _run(command)
 
 
 def _benchmark_capacity(spec: dict[str, Any]) -> None:
@@ -498,6 +555,7 @@ def _write_summary(
             "evaluated"
             if (
                 spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
+                or spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS
                 or (spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"])
             )
             else "not_evaluated"
@@ -541,6 +599,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _train_eventstream(spec)
     elif spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS:
         _export_eventstream_embeddings(spec)
+    elif spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS:
+        _train_eventstream_joint(spec)
     else:
         raise ValueError(f"未知 workflow：{spec['workflow']}")
 
@@ -571,6 +631,7 @@ def main() -> None:
                 "eventstream-recent-input-profile",
                 "eventstream-recent-train",
                 "eventstream-recent-export-embeddings",
+                "eventstream-recent-joint-finetune",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
@@ -592,6 +653,7 @@ def main() -> None:
                         "evaluated"
                         if (
                             spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
+                            or spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS
                             or (
                                 spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS
                                 and spec["evaluate_test"]
