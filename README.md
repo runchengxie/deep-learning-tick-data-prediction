@@ -25,7 +25,7 @@
 
 冻结事件流 embedding 的最近折对照已经完成。三组 100M checkpoint 分别生成 960 维尾盘表示，再将分钟特征、embedding、二者组合交给同口径的 HGB 和 LambdaMART。HGB 组合输入的三 seed 预测均值在 2025 年 11 月和 12 月都提高了 Rank IC，12 月从 0.04010 提高到 0.05701。
 
-100M 事件流与分钟特征的联合端到端 seed 0 也已完成。最佳模型出现在第 2 个 epoch，validation Rank IC 为 0.05784，12 月 OOS Rank IC 为 0.06296。OOS `NDCG@100` 为 0.54452，与冻结 HGB 三 seed 预测均值接近。`Precision@100` 降至 0.24762，Top-100 日均成本后主动收益为 -9.26bp。当前结果支持继续验证联合训练的多 seed 和跨窗口稳定性，交易目标仍需优化。150M 容量消融继续暂缓。
+100M 事件流与分钟特征的联合端到端三 seed 也已完成。validation Rank IC 为 `0.05917 ± 0.01400`，12 月 OOS Rank IC 为 `0.06398 ± 0.00785`，三组 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，`Precision@100` 为 `0.23921 ± 0.01611`。Top-100 日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均未覆盖交易成本。当前优先补充跨窗口、风险暴露和交易目标优化，150M 容量消融继续暂缓。
 
 各模型的输入、运行原理、优点、限制和研究状态见[模型清单](docs/model-catalog.md)。完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
 
