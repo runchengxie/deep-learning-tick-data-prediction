@@ -31,6 +31,8 @@ dev = [
 ]
 
 [project.scripts]
+ticknet-eventstream-joint-cache = "ticknet.eventstream.joint_cache:main"
+ticknet-eventstream-joint-train = "ticknet.eventstream.joint:main"
 ticknet-fi2010-train = "legacy.fi2010_train:main"
 ticknet-nextday-train = "ticknet.nextday.train:main"
 ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"

@@ -1,0 +1,22 @@
+model: capacity100m
+seed: 0
+epochs: 5
+batch_size: 8
+backbone_lr: 0.00001
+head_lr: 0.0003
+weight_decay: 0.01
+patience: 2
+freeze_backbone_epochs: 1
+minute_hidden: 128
+fusion_hidden: 256
+dropout: 0.1
+num_workers: 4
+device: cuda
+amp: true
+gradient_accumulation_steps: 1
+min_symbols_per_day: 350
+relevance_levels: 5
+top_ks: [50, 100]
+cost_bps: 10.0
+sell_stamp_tax_bps: 5.0
+resume: true
