@@ -41,9 +41,11 @@ DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG = (
 DEFAULT_EVENTSTREAM_JOINT_CONFIG = (
     REPOSITORY_ROOT / "configs" / "eventstream-joint-recent-capacity100m.yaml"
 )
-EVENTSTREAM_SEED0_CHECKPOINT_SHA256 = (
-    "8632e62bdf4f27383e299c3ff676876d8a1969f6d69ec66a7ce43da24f5255e9"
-)
+EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED = {
+    0: "8632e62bdf4f27383e299c3ff676876d8a1969f6d69ec66a7ce43da24f5255e9",
+    1: "edc423d89bbd2a681383d04ec1c3ae22961b2c944c449f0572f5416f31de19ed",
+    2: "013e2bd1281830100bbf15f673bd8b1cb8ff08951ea48eae9f81922b1eebd4f6",
+}
 EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
     {
         "eventstream-capacity-benchmark",
@@ -207,6 +209,12 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         and not arguments.evaluate_test
     ):
         raise ValueError("完整 embedding 导出和联合微调必须显式保留 OOS 读取授权")
+    if (
+        arguments.workflow in EVENTSTREAM_JOINT_WORKFLOWS
+        and arguments.seeds[0] not in EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED
+    ):
+        supported = sorted(EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED)
+        raise ValueError(f"联合微调 seed 应为 {supported} 之一")
 
 
 def _default_config(workflow: str, matrix_cell: str = "1m-raw200") -> Path:
@@ -469,7 +477,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             joint_cache_local if workflow in EVENTSTREAM_JOINT_WORKFLOWS else None
         ),
         "expected_pretrained_sha256": (
-            EVENTSTREAM_SEED0_CHECKPOINT_SHA256 if workflow in EVENTSTREAM_JOINT_WORKFLOWS else None
+            EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED[seed]
+            if workflow in EVENTSTREAM_JOINT_WORKFLOWS
+            else None
         ),
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,

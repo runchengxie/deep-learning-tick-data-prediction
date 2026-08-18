@@ -538,7 +538,7 @@ def train_joint(
     source_revision: str,
     allow_oos: bool,
 ) -> dict[str, Any]:
-    """用 seed 0 预训练主干运行最近折联合端到端实验。"""
+    """用同 seed 的预训练主干运行最近折联合端到端实验。"""
     started = time.perf_counter()
     config.validate()
     if not allow_oos:
@@ -744,11 +744,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", default="")
     parser.add_argument("--allow-oos", action="store_true")
+    parser.add_argument("--seed", type=int)
     parser.add_argument("--epochs", type=int)
     arguments = parser.parse_args(argv)
     config = load_joint_config(arguments.config)
-    if arguments.epochs is not None:
-        config = JointConfig(**{**asdict(config), "epochs": arguments.epochs})
+    overrides = {
+        name: value
+        for name, value in (("seed", arguments.seed), ("epochs", arguments.epochs))
+        if value is not None
+    }
+    if overrides:
+        config = JointConfig(**{**asdict(config), **overrides})
     train_joint(
         config,
         cache_root=arguments.cache.expanduser().resolve(),

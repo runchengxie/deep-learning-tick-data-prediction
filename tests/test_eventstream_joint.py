@@ -229,6 +229,53 @@ def test_joint_checkpoint_and_config_contract(tmp_path: Path) -> None:
         )
 
 
+def test_joint_cli_overrides_seed_and_epochs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "joint.yaml"
+    config_path.write_text(
+        "model: smoke\nseed: 0\nepochs: 5\nmin_symbols_per_day: 2\ntop_ks: [1]\ndevice: cpu\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def capture(config: JointConfig, **kwargs: object) -> dict[str, object]:
+        captured["config"] = config
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(joint_module, "train_joint", capture)
+    joint_module.main(
+        [
+            "--config",
+            str(config_path),
+            "--cache",
+            str(tmp_path / "cache"),
+            "--close-cache",
+            str(tmp_path / "close-cache"),
+            "--pretrained-checkpoint",
+            str(tmp_path / "pretrained.pt"),
+            "--expected-pretrained-sha256",
+            "a" * 64,
+            "--output",
+            str(tmp_path / "output"),
+            "--source-revision",
+            "abcdef123456",
+            "--allow-oos",
+            "--seed",
+            "2",
+            "--epochs",
+            "3",
+        ]
+    )
+
+    config = captured["config"]
+    assert isinstance(config, JointConfig)
+    assert config.seed == 2
+    assert config.epochs == 3
+
+
 def test_joint_training_runs_and_resumes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
