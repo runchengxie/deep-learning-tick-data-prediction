@@ -227,24 +227,25 @@ def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Pat
     assert spec["expected_parameter_count"] == 100_604_180
 
 
-def test_eventstream_joint_spec_reuses_shared_cache_and_seed0_checkpoint(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("seed", "sha256"),
+    sorted(colab_runner.EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED.items()),
+)
+def test_eventstream_joint_spec_reuses_shared_cache_and_matching_checkpoint(
+    tmp_path: Path, seed: int, sha256: str
 ) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-joint-finetune"
     arguments.gpu = "A100"
-    arguments.seeds = [0]
+    arguments.seeds = [seed]
 
     spec = build_job_spec(arguments, "abc1234")
 
     assert spec["feature_remote"].endswith("eventstream-top400-h5-recent-close-cache")
     assert spec["joint_cache_remote"].endswith("eventstream-top400-h5-recent-joint-cache-v1")
     assert spec["checkpoint_remote"].endswith("capacity100m-recent/training")
-    assert spec["output_remote"].endswith("capacity100m-recent/joint-finetune/seed0")
-    assert spec["expected_pretrained_sha256"] == (
-        "8632e62bdf4f27383e299c3ff676876d8a1969f6d69ec66a7ce43da24f5255e9"
-    )
-    assert spec["expected_pretrained_sha256"] == colab_runner.EVENTSTREAM_SEED0_CHECKPOINT_SHA256
+    assert spec["output_remote"].endswith(f"capacity100m-recent/joint-finetune/seed{seed}")
+    assert spec["expected_pretrained_sha256"] == sha256
     assert _default_config(arguments.workflow).name == (
         "eventstream-joint-recent-capacity100m.yaml"
     )
@@ -268,6 +269,15 @@ def test_eventstream_embedding_requires_one_seed_and_oos_authorization(tmp_path:
     arguments.seeds = [0]
     arguments.evaluate_test = False
     with pytest.raises(ValueError, match="OOS"):
+        _validate_lifecycle_arguments(arguments)
+
+
+def test_eventstream_joint_rejects_seed_without_checkpoint_identity(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-joint-finetune"
+    arguments.seeds = [3]
+
+    with pytest.raises(ValueError, match="seed 应为"):
         _validate_lifecycle_arguments(arguments)
 
 
@@ -928,7 +938,7 @@ def test_eventstream_joint_executes_with_strict_checkpoint_and_oos(
         "expected_pretrained_sha256": "a" * 64,
         "output_local": str(tmp_path / "output"),
         "training_config": "/content/config.yaml",
-        "seeds": [0],
+        "seeds": [2],
         "source_revision": "abc1234",
         "training_epochs": 2,
     }
@@ -938,6 +948,7 @@ def test_eventstream_joint_executes_with_strict_checkpoint_and_oos(
     command = captured[0]
     assert "ticknet.eventstream.joint" in command
     assert command[command.index("--expected-pretrained-sha256") + 1] == "a" * 64
+    assert command[command.index("--seed") + 1] == "2"
     assert command[command.index("--epochs") + 1] == "2"
     assert "--allow-oos" in command
 

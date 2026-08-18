@@ -365,6 +365,8 @@ def _train_eventstream_joint(spec: dict[str, Any]) -> None:
         str(checkpoint),
         "--expected-pretrained-sha256",
         str(spec["expected_pretrained_sha256"]),
+        "--seed",
+        str(seed),
         "--output",
         str(output_dir),
         "--source-revision",
