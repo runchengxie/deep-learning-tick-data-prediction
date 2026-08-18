@@ -150,6 +150,24 @@ python scripts/run_colab_nextday.py \
 
 工作流在训练前核对物化清单和允许访问分片的全部 SHA-256，从 Drive 恢复同一 seed 的 checkpoint。短任务会排除 OOS 和 H3 OOS 分片。成功或失败都会回传 checkpoint、history、result、物化预检和 `colab-run-summary.json`。短任务通过后把 `--training-epochs` 改为 `20`，使用新的 session 名并加 `--evaluate-test`。
 
+额外滚动折使用独立路径，并把折标识写入运行摘要。下面的命令启动 `fold-54-oos-202511` 的 seed 0 短恢复验证：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-rolling-train \
+  --eventstream-fold-id fold-54-oos-202511 \
+  --session ticknet-eventstream-fold54-seed0-a100 \
+  --gpu A100 \
+  --seeds 0 \
+  --training-epochs 1 \
+  --no-evaluate-test \
+  --timeout 7200 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-fold54/training/seed0
+```
+
+默认配置按折标识解析。新折需要先提交对应的固定日期配置，Runner 会拒绝路径分隔符和不符合 `fold-NN-oos-YYYYMM` 格式的标识。
+
 如果 batch sweep 的吞吐没有随物理 batch 增长，可以使用相同的 2025 年 8 月 pack 分别测量 DataLoader 和 GPU，并扫描 worker 数：
 
     python scripts/run_colab_nextday.py \

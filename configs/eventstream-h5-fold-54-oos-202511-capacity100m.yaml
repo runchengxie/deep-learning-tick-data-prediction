@@ -1,0 +1,35 @@
+# 相邻滚动折 100M 正式训练。训练使用 2025 年 7 月至 9 月，11 月只作 OOS。
+
+pack_root: /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1
+label_path: artifacts/eventstream-h5-fold54/fold-labels/h5.parquet
+monitor_label_path: artifacts/eventstream-h5-fold54/fold-labels/h3.parquet
+monitor_name: h3
+train_start: 20250701
+train_end: 20250930
+val_start: 20251001
+val_end: 20251031
+test_start: 20251101
+test_end: 20251130
+
+model: capacity100m
+seq_len: 512
+min_events: 256
+samples_per_day: 2000
+eval_tickers: 0
+
+epochs: 20
+batch_size: 8
+lr: 0.0003
+weight_decay: 0.1
+patience: 4
+seed: 0
+num_workers: 8
+device: cuda
+amp: true
+gradient_accumulation_steps: 1
+resume: true
+
+checkpoint_dir: artifacts/eventstream-h5-fold54/training
+checkpoint_name: eventstream-top400-h5-capacity100m-fold-54-oos-202511
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 100
