@@ -23,7 +23,9 @@
 - L2 事件流 100M 最近折三 seed 已完成。H5 validation Rank IC 均值为 0.07259，2025 年 12 月 OOS 均值为 0.04300，三组结果均为正，已经通过预设信号门槛
 - AgentX 研究闭环的 M0 至 M3 已完成。M3 v2 使用 2021 年 7 月至 2025 年 12 月的完整沪深分钟特征，2025 年下半年 Rank IC 为 0.06994。正式 64 组 Top-K 成本矩阵没有找到可覆盖单边 10bp 成本并跑赢 Top-400 等权基准的组合
 
-冻结事件流 embedding 的最近折对照已经完成。三组 100M checkpoint 分别生成 960 维尾盘表示，再将分钟特征、embedding、二者组合交给同口径的 HGB 和 LambdaMART。HGB 组合输入的三 seed 预测均值在 2025 年 11 月和 12 月都提高了 Rank IC，12 月从 0.04010 提高到 0.05701。成本后主动收益仍为负，LambdaMART 的增量也缺少跨月稳定性。下一步补充风险暴露，并运行小规模联合端到端实验。150M 容量消融继续暂缓。
+冻结事件流 embedding 的最近折对照已经完成。三组 100M checkpoint 分别生成 960 维尾盘表示，再将分钟特征、embedding、二者组合交给同口径的 HGB 和 LambdaMART。HGB 组合输入的三 seed 预测均值在 2025 年 11 月和 12 月都提高了 Rank IC，12 月从 0.04010 提高到 0.05701。
+
+100M 事件流与分钟特征的联合端到端 seed 0 也已完成。最佳模型出现在第 2 个 epoch，validation Rank IC 为 0.05784，12 月 OOS Rank IC 为 0.06296。OOS `NDCG@100` 为 0.54452，与冻结 HGB 三 seed 预测均值接近。`Precision@100` 降至 0.24762，Top-100 日均成本后主动收益为 -9.26bp。当前结果支持继续验证联合训练的多 seed 和跨窗口稳定性，交易目标仍需优化。150M 容量消融继续暂缓。
 
 各模型的输入、运行原理、优点、限制和研究状态见[模型清单](docs/model-catalog.md)。完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
 

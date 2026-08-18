@@ -1,6 +1,6 @@
 # L2 逐笔事件流主线
 
-这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-18，100M 最近折三 seed 和冻结 embedding 下游对照已完成，联合端到端实验基础设施已经就绪。
+这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-18，100M 最近折三 seed、冻结 embedding 下游对照和联合端到端 seed 0 均已完成。
 
 ## 数据契约
 
@@ -167,7 +167,7 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
-`probe150m` 当前只是代码中的模型预设。冻结 embedding 已经出现 HGB Rank IC 增量，成本后主动收益和跨窗口稳定性仍待确认。下一步先补风险暴露和联合端到端小实验，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合 seed 0 都出现了 Rank IC 增量，头部命中率、成本后主动收益和跨窗口稳定性仍待确认。下一步先补风险暴露、联合 seed 1 和 2，并在额外时间窗口复核。完成这些检查后，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
 
 ### 联合端到端实验
 
@@ -183,7 +183,7 @@ ticknet-eventstream-joint-cache build \
   --minute-features results/m3-formal-minute-features-v2-202107 \
   --comparison-config configs/embedding-frozen-recent-2025.yaml \
   --close-cache artifacts/eventstream-h5-recent-fold/daily-close-cache \
-  --output artifacts/eventstream-h5-recent-fold/joint-feature-cache \
+  --output artifacts/eventstream-h5-recent-fold/joint-feature-cache-v1 \
   --source-revision "$(git rev-parse HEAD)"
 ```
 
@@ -201,6 +201,21 @@ python scripts/run_colab_nextday.py \
 ```
 
 远端工作流下载共享尾盘缓存、轻量联合缓存和 seed 0 checkpoint。已有输出会在运行前恢复，用于继续未完成的 epoch。结果包含 validation 与 OOS 的逐日 Rank IC、NDCG、Precision、Top-K 成本后收益、换手率、预测 Parquet、checkpoint 和运行摘要。2026 数据继续隔离。
+
+### 联合端到端正式结果
+
+正式轻量缓存使用 22,409 个训练样本、6,963 个 validation 样本和 8,125 个 OOS 样本，共 17,948,094 字节。它与 frozen E2 使用完全相同的股票日交集、标签和评估配置。数据指纹为 `e4f54a62e4be3f36ac0693db59ebcdb120cd753d2dc36415b8686adaa13c1bb6`，本地 5 个文件与 Drive 副本核对一致。
+
+seed 0 最多训练 5 个 epoch，早停耐心值为 2。第 1 个 epoch 固定 Transformer，validation Rank IC 为 0.04430。第 2 个 epoch 解冻主干后提高到 0.05784。第 3、4 个 epoch 分别为 0.01457 和 0.03628，随后提前停止。最终评估加载第 2 个 epoch 的 best checkpoint。
+
+| 方案 | validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 日均成本后主动收益 | OOS 日均单边换手 |
+|---|---:|---:|---:|---:|---:|---:|
+| HGB E0 分钟特征 | 0.01808 | 0.04010 | 0.53424 | 0.26810 | -11.51bp | 62.89% |
+| HGB frozen E2 seed 0 | 0.02462 | 0.04333 | 0.53277 | 0.27048 | -7.39bp | 64.99% |
+| HGB frozen E2 三 seed 预测均值 | 0.02833 | 0.05701 | 0.54450 | 0.26667 | -4.80bp | 60.91% |
+| 联合端到端 seed 0 | 0.05784 | 0.06296 | 0.54452 | 0.24762 | -9.26bp | 49.91% |
+
+联合 seed 0 相对同 seed 的 frozen E2，validation Rank IC 提高 0.03323，OOS 提高 0.01963。相对冻结三 seed 预测均值，OOS Rank IC 提高 0.00595，`NDCG@100` 基本持平，日均单边换手下降约 11 个百分点。`Precision@100` 和成本后主动收益回落，说明新增相关性尚未稳定集中到 Top-100 头部。当前决策为继续补 seed 1、2、风险暴露和额外窗口，并评估小规模排序目标优化。150M 继续等待。
 
 ### 固定窗口物化与正式训练
 
@@ -328,7 +343,7 @@ HGB E2 的单 seed OOS Rank IC 为 0.04333、0.05644、0.05912，全部高于 E0
 
 LambdaMART E2 在三个 seed 和两个月之间波动较大。E1 在 OOS 的成本后主动收益为正，validation 为 -15.34bp，暂时只保留为待复核线索。风险暴露输入尚未提供，行业、规模、波动率和流动性诊断均记录为 `unavailable`。结果文件为 `results/embedding-frozen-recent-2025/comparison.json`，数据指纹为 `56a7689048e539963a217c92221e8cddf1ce472526115411d5478a4a6d18dc00`。
 
-当前决策保留 frozen E2 和 HGB 作为候选，允许一个 seed 的联合端到端小实验。该小实验需要固定相同股票日、标签和评估口径，并以当前 E2 为直接对照。最近折只有一个 validation 月和一个 OOS 月，联合实验完成后仍需额外时间窗口复核。150M 继续等待这些结果。
+当前决策保留 frozen E2、HGB 和联合 seed 0 作为候选。联合实验已经固定相同股票日、标签和评估口径，并以当前 E2 为直接对照。最近折只有一个 validation 月和一个 OOS 月，后续补充联合 seed 1、2 和额外时间窗口。150M 继续等待这些结果。
 
 正式训练使用相同 revision 恢复 checkpoint，并在训练结束后评估 2025 年 12 月 OOS。以下命令保留为复现实验入口：
 
