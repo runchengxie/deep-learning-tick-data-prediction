@@ -29,18 +29,18 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 | `materialize_minute_features.py` | 按月原子物化正式分钟聚合特征 |
 | `evaluate_cost_adjusted.py` | Top-K long-only 成本评估薄入口，兼容历史分位数多空诊断 |
 
-## Notebook 边界
+## Colab 与 notebook 边界
 
-顶层 `notebooks/` 目前包含两个现行 Colab 入口，还不能整体移入 `legacy/`。`nextday_multi_horizon_validation_colab.ipynb` 由 `scripts/build_multi_horizon_notebook.py` 生成，并由 `tests/test_multi_horizon_notebook.py` 检查日期权限、代码语法和无输出状态。`nextday_end_to_end_colab.ipynb` 仍被当前次日数据文档引用。
+现行 Colab 任务全部使用 Python 入口。顶层 `notebooks/` 已移除，两个旧 notebook 保存在 `legacy/notebooks/`，只用于追溯早期交互流程。
 
-后续重构按以下顺序进行：
+| 旧 notebook 能力 | 现行 Python 入口 |
+|---|---|
+| 次日模型训练、恢复和锁定评估 | `ticknet.nextday.train`、`ticknet-nextday-train`、`ticknet-nextday-evaluate` |
+| 多周期 validation 评估 | `ticknet.nextday.horizon_cli`、`ticknet-nextday-evaluate-horizons` |
+| Colab 会话、数据暂存和产物回传 | `scripts/run_colab_nextday.py` |
+| Colab 远端任务执行 | `scripts/colab_multi_horizon_job.py` |
 
-1. 把 notebook 中仍可复用的数据检查、训练和评估逻辑移到 `src/ticknet/` 或薄脚本
-2. notebook 只保留 Drive 挂载、环境安装、配置选择和 Python 入口调用
-3. 为薄入口补充生成测试或结构测试
-4. 当前文档和自动化不再依赖旧 notebook 后，再把旧版本移入 `legacy/notebooks/`
-
-这种方式可以保留 Colab 的交互入口，同时让主要逻辑接受 Ruff、ty、pytest 和覆盖率门禁。
+旧 notebook 的生成脚本和专属结构测试已经删除。现行入口继续由 CLI 契约测试、`tests/test_horizon_cli.py` 和 `tests/test_colab_nextday.py` 覆盖。主代码和文档不得重新依赖 `legacy/notebooks/`。
 
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
 

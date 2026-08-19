@@ -21,7 +21,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "nbformat>=5.10,<6",
     "pre-commit>=4.0,<5",
     "pytest>=8.0,<10",
     "pytest-cov>=5.0,<8",
@@ -101,7 +100,7 @@ show_missing = true
 skip_covered = true
 
 [[tool.ty.overrides]]
-include = ["notebooks/**", "legacy/notebooks/**"]
+include = ["legacy/notebooks/**"]
 rules = { unresolved-import = "ignore" }
 
 [[tool.ty.overrides]]
