@@ -96,7 +96,7 @@ GPU 算子、PyTorch 版本和硬件可能带来少量数值差异。项目设�
 
 ## 参考依据
 
-- 仓库内 `references/1808.03668v6.pdf`
-- 仓库内 `references/deeplob-paper-notes.md`
+- 仓库内 `docs/references/1808.03668v6.pdf`
+- 仓库内 `docs/references/deeplob-paper-notes.md`
 - [作者公开 PyTorch 实现](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
 - [FI-2010 数据集页面](https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649)

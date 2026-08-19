@@ -1,6 +1,6 @@
 # 深度学习 tick 数据预测
 
-本项目用 A 股逐笔行情研究下一交易日的横截面排序信号。项目从 DeepLOB 论文复现起步，现在主要维护真实数据训练、成本评估和受控实验研究三类能力。FI-2010 复现已归档到 `legacy/`，论文和阅读笔记放在 `references/`。
+本项目用 A 股逐笔行情研究下一交易日的横截面排序信号。项目从 DeepLOB 论文复现起步，现在主要维护真实数据训练、成本评估和受控实验研究三类能力。FI-2010 复现已归档到 `legacy/`，论文和阅读笔记放在 `docs/references/`。
 
 ## 这个项目做什么
 
@@ -56,9 +56,9 @@ scripts/                数据准备、基线和本地检查入口
 tests/                  不依赖真实行情的主链路自动化测试
 configs/                本地与 Colab 配置
 docs/                   当前说明、路线图和实验记录
-references/             论文与阅读笔记
+docs/references/        论文与阅读笔记归档
 legacy/                 FI-2010 复现归档
-notebooks/              Colab 入口笔记本
+legacy/notebooks/       历史 Colab notebook
 ```
 
 维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。

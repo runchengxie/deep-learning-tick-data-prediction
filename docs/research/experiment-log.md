@@ -100,7 +100,7 @@ TCN 3 seed 锁定测试聚合：
 
 ## 2026-08-08：AgentX 式自动量化研究闭环落地
 
-参考 [references/agentx-paper-notes.md](../../references/agentx-paper-notes.md)，把项目从人工研究升级为实验系统先机器可调用、再加 Agent。代码结构如下：
+参考 [AgentX 论文笔记](../references/agentx-paper-notes.md)，把项目从人工研究升级为实验系统先机器可调用、再加 Agent。代码结构如下：
 
 ```
 src/ticknet/research/

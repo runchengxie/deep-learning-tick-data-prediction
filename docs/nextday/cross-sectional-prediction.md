@@ -223,7 +223,7 @@ python scripts/run_nextday_baseline.py `
 
 使用 float16 时，400 只股票、五年约 1,250 个交易日、每股票日 200 个事件的纯特征约 8 GB，同样范围的 500 和 1,000 个事件约为 20 GB 和 40 GB。分片方案让 Colab 可以逐批读取，但不会让原始数据自动变小。
 
-建议把原始逐笔和完整盘口保存在移动硬盘、NAS 或对象存储，只生成当前研究需要的紧凑分片。Colab 运行时把当前实验所需分片顺序复制到 `/content`，Drive 保存工作集、checkpoint 和结果。不要通过 Drive 挂载点直接随机训练。可运行入口见 [`notebooks/nextday_end_to_end_colab.ipynb`](../../notebooks/nextday_end_to_end_colab.ipynb)。
+建议把原始逐笔和完整盘口保存在移动硬盘、NAS 或对象存储，只生成当前研究需要的紧凑分片。Colab 运行时把当前实验所需分片顺序复制到 `/content`，Drive 保存工作集、checkpoint 和结果。不要通过 Drive 挂载点直接随机训练。现行运行入口见[Colab CLI 自动化](../dev/colab-cli-automation.md)。
 
 12 个交易日适合验证工程链路。初步横截面研究仍建议至少 120 至 250 个交易日，正式样本外实验建议覆盖两至三年和多个市场状态。
 

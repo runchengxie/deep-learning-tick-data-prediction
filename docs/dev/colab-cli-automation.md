@@ -1,6 +1,6 @@
 # Colab CLI 无人值守运行
 
-Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临时 GPU 算力。正式入口是 Python CLI，notebook 只保留为历史实验快照和人工查看入口。
+Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临时 GPU 算力。正式入口是 Python CLI。旧 notebook 已归档到 `legacy/notebooks/`，只用于追溯早期交互流程。
 
 ## 边界
 

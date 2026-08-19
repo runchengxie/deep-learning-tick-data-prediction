@@ -341,7 +341,7 @@ RQ3（可测线上增益）：10 个 LR 带来主信息流累计用户消费时�
 - 严格时间外切分 + 锁定测试集 + 多 seed，对应权威奖励信号。
 - `AGENTS.md` 要求代码 agent 修改后跑 ruff、ty、pytest、smoke，对应 Developing Agent 的 harness。
 - 统一 Rank IC、成本后评估、dataset fingerprint、实验配置记录，对应结构化评估。
-- 论文复现纪律：[docs/reproduction-audit.md](../docs/reproduction-audit.md) 区分工程事实、论文事实、真实训练结果。
+- 论文复现纪律：[复现核对](../reproduction-audit.md) 区分工程事实、论文事实、真实训练结果。
 
 ### 需要警惕的关键差异
 
