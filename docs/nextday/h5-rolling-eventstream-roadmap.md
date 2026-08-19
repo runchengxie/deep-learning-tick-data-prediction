@@ -50,11 +50,13 @@ H5 purge 要求 `trading_date`、`entry_date` 和 `return_end_date` 全部位于
 
 preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstream-h5-recent-fold/`。H3 在 train、validation 和 OOS 分别保留 22,058、6,578 和 7,732 条标签。H5 分别保留 21,266、5,807 和 6,966 条标签。跨 split 的收益标签已经清除。
 
-五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 benchmark pack 已完成审计，远端副本在 2026-08-18 清理，本地完整来源继续保存在 6TB 数据盘。截至同日，Google Drive 总额为 200 GiB，已用约 117.69 GiB，剩余约 80.90 GiB。完整五个月 pack 仍然无法放入 Drive 或 Colab 临时盘。
+五个月 Top-400 pack 已经完整生成，共 412 个文件、313.11 GiB，103 个日索引覆盖 2025-08-01 至 2025-12-31，没有遗留的 partial 文件。2025 年 8 月 benchmark pack 已完成审计，远端副本在 2026-08-18 清理，本地完整来源继续保存在 6TB 数据盘。2026-08-19 通过 `rclone about gdrive:` 核对，Google Drive 总额为 200 GiB，已用 145.292 GiB，剩余 53.305 GiB。完整五个月 pack 仍然无法放入 Drive 或 Colab 临时盘。
 
 正式训练改用固定窗口缓存。它在本地按配置和 seed 提前抽取训练、validation、OOS 与监控窗口，保留 float32 特征和原始标签，不降低数值精度。每个 seed 预计约 25 GiB，可以放入现有 Drive。缓存 manifest 绑定源文件清单、日期、配置、seed、数组规格和逐文件 SHA-256，上传后可以完整核对。`run_colab_nextday.py` 已增加正式训练工作流，支持训练前预检、checkpoint 恢复、失败产物回传和 OOS 访问控制。
 
-第一个额外窗口选用 `fold-54-oos-202511`。它使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。现有 pack 已覆盖 8 月至 11 月，只需新增 7 月。2025 年 7 月三路原始数据包含 23 个交易日，共 92,573,146,416 字节。动态股票池每天 389 至 397 只，H3 和 H5 标签已经完成 split purge。新增 pack 和固定窗口缓存尚未生成。
+第一个额外窗口选用 `fold-54-oos-202511`。它使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。2025 年 7 月三路原始数据包含 23 个交易日，共 92,573,146,416 字节。动态股票池每天 389 至 397 只，H3 和 H5 标签已经完成 split purge。7 月 pack、固定窗口缓存、远端核对、短恢复测试和 seed 0 正式训练均已完成。
+
+seed 0 使用 100,604,180 参数配置，在第 11 个 epoch 取得最佳 H5 validation Rank IC 0.08735，训练到第 15 个 epoch 后按耐心值停止。H5 OOS Rank IC 为 0.03305，H3 validation 与 OOS 分别为 0.04840 和 0.04231。H5 极端组收益差从 validation 的 0.01780 变为 OOS 的 -0.00512，后续优先检查信号衰减、错峰持有和头部组合规则。数据指纹为 `596daa34cfe2a44ad94f884db95d9ce164fd6aff38e05fad61ce1869cc8e9403`，2026 锁定区没有被读取。
 
 ## 分阶段进度
 
@@ -72,8 +74,8 @@ preflight、逐日股票池、rolling plan 和标签位于 `artifacts/eventstrea
 | T0 | 完成 | 最近折 seed 0 已完成正式训练和 OOS 评估 |
 | T1 | 完成 | seed 1 和 2 已完成，三 seed 的 validation 与 OOS Rank IC 均为正 |
 | E0 | 完成 | 三 seed 冻结 embedding、HGB 和 LambdaMART 对照以及联合训练已经完成 |
-| R1 | 准备中 | `fold-54-oos-202511` 的 7 月源审计、股票池和 H3/H5 标签已完成，等待 pack、物化和 seed 0 |
-| C0 | 暂缓 | 等待额外窗口、低换手交易规则和风险暴露证据，再决定是否运行 `probe150m` |
+| R1 | seed 0 完成 | `fold-54-oos-202511` 的 pack、物化、远端核对和正式训练已完成，H5 validation 与 OOS Rank IC 均为正 |
+| C0 | 暂缓 | 等待半衰期、错峰持有、头部组合和风险暴露证据，再决定是否运行 `probe150m` |
 | L0 | 封存 | 2026 达到协议门槛并获批后一次性评估，不据此回调本轮模型 |
 
 ## 可复现命令

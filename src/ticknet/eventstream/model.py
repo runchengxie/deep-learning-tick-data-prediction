@@ -4,7 +4,7 @@
     - stream：下一事件流类型（0 pad, 1 snap, 2 order, 3 trade）
     - otype：下一订单类型（vocab）
     - reg：下一事件 price_bps / dt_log / qty_log（Smooth L1）
-    - day：日级信号（Barra 风格中性残差收益 z 值，每个有效位置监督同一标量）
+    - day：外部标签表提供的日级连续信号（每个有效位置监督同一标量）
 
 尺寸：
     probe25m : d=512,  12 层  -> ~25M 主干参数

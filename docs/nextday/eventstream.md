@@ -92,7 +92,7 @@ python scripts/run_colab_nextday.py \
 
 ## 正式训练结果与扩容门槛
 
-截至 2026-08-18，本机没有可用 CUDA GPU。Google Drive 总额为 200 GiB，清理六个已完成训练的 last checkpoint 和旧 benchmark pack 后，剩余约 80.90 GiB。完整五个月 pack 约为 313.11 GiB，无法放入现有 Drive 或 Colab 临时盘。
+截至 2026-08-19，本机没有可用 CUDA GPU。通过 `rclone about gdrive:` 核对，Google Drive 总额为 200 GiB，已用 145.292 GiB，剩余 53.305 GiB。完整五个月 pack 约为 313.11 GiB，无法放入现有 Drive 或 Colab 临时盘。
 
 正式训练改用固定窗口物化方案。训练窗口在本地按 seed 一次性确定，保存模型实际读取的 80 维特征、下一事件目标、日级标签和有效位置。物化清单绑定五个月源清单、源码 revision、日期、seed、采样参数和每个张量文件的 SHA-256。训练前逐文件复核，内容漂移、错误 seed、错误日期或错误源码 revision 都会停止运行。
 
@@ -169,7 +169,7 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
-`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛，跨窗口稳定性也待确认。下一步先补风险暴露并在额外时间窗口复核。完成这些检查后，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。相邻滚动折 seed 0 的 H5 validation 与 OOS Rank IC 继续为正，OOS 极端组收益差为负。下一步先检查信号半衰期、H5 错峰持有、排名平滑、开仓门槛和风险暴露。完成这些检查后，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
 
 ### 联合端到端实验
 
