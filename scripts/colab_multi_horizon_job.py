@@ -22,6 +22,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
 EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
+EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -91,11 +92,16 @@ def _remote_directory_exists(source: str, *, env: dict[str, str]) -> bool:
 def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
     remote = str(spec["rclone_remote"])
     workflow = str(spec["workflow"])
-    excluded_partitions = (
-        ("shards/oos-*/**", "shards/monitor_oos-*/**")
-        if workflow in EVENTSTREAM_TRAIN_WORKFLOWS and not spec["evaluate_test"]
-        else ()
-    )
+    if workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
+        excluded_partitions = (
+            "shards/train-*/**",
+            "shards/monitor_validation-*/**",
+            "shards/monitor_oos-*/**",
+        )
+    elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS and not spec["evaluate_test"]:
+        excluded_partitions = ("shards/oos-*/**", "shards/monitor_oos-*/**")
+    else:
+        excluded_partitions = ()
     _rclone_copy(
         _drive_path(remote, str(spec["feature_remote"])),
         str(spec["feature_local"]),
@@ -152,6 +158,21 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
                     remote,
                     f"{spec['checkpoint_remote']}/{checkpoint_name}",
                 ),
+                str(checkpoint_root / checkpoint_name),
+            ],
+            env=env,
+        )
+        return
+    if workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
+        checkpoint_root = Path(str(spec["checkpoint_local"]))
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        seed = int(spec["seeds"][0])
+        checkpoint_name = f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+        _run(
+            [
+                "rclone",
+                "copyto",
+                _drive_path(remote, f"{spec['checkpoint_remote']}/{checkpoint_name}"),
                 str(checkpoint_root / checkpoint_name),
             ],
             env=env,
@@ -337,6 +358,46 @@ def _export_eventstream_embeddings(spec: dict[str, Any]) -> None:
             str(int(spec["embedding_batch_size"])),
             "--num-workers",
             str(min(max(int(value) for value in spec["num_workers"]), 4)),
+            "--allow-oos",
+            "--source-revision",
+            str(spec["source_revision"]),
+        ]
+    )
+
+
+def _export_eventstream_materialized_predictions(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    seed = int(spec["seeds"][0])
+    checkpoint = (
+        Path(str(spec["checkpoint_local"])) / f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+    )
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.materialized_predictions",
+            "score",
+            "--checkpoint",
+            str(checkpoint),
+            "--materialized-root",
+            str(spec["feature_local"]),
+            "--model",
+            "capacity100m",
+            "--output",
+            str(output_dir),
+            "--device",
+            "cuda",
+            "--batch-size",
+            str(int(spec["embedding_batch_size"])),
+            "--num-workers",
+            str(min(max(int(value) for value in spec["num_workers"]), 4)),
+            "--partition",
+            "validation",
+            "--partition",
+            "oos",
             "--allow-oos",
             "--source-revision",
             str(spec["source_revision"]),
@@ -558,6 +619,7 @@ def _write_summary(
             if (
                 spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
                 or spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS
+                or spec["workflow"] in EVENTSTREAM_PREDICTION_WORKFLOWS
                 or (spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS and spec["evaluate_test"])
             )
             else "not_evaluated"
@@ -603,6 +665,14 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
         _train_eventstream(spec)
     elif spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS:
         _export_eventstream_embeddings(spec)
+    elif spec["workflow"] in EVENTSTREAM_PREDICTION_WORKFLOWS:
+        from ticknet.eventstream.materialized import verify_materialized_dataset
+
+        verify_materialized_dataset(
+            Path(str(spec["feature_local"])),
+            partitions=("validation", "oos"),
+        )
+        _export_eventstream_materialized_predictions(spec)
     elif spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS:
         _train_eventstream_joint(spec)
     else:
@@ -637,6 +707,7 @@ def main() -> None:
                 "eventstream-rolling-train",
                 "eventstream-recent-export-embeddings",
                 "eventstream-recent-joint-finetune",
+                "eventstream-rolling-export-predictions",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
@@ -659,6 +730,7 @@ def main() -> None:
                         if (
                             spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS
                             or spec["workflow"] in EVENTSTREAM_JOINT_WORKFLOWS
+                            or spec["workflow"] in EVENTSTREAM_PREDICTION_WORKFLOWS
                             or (
                                 spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS
                                 and spec["evaluate_test"]
