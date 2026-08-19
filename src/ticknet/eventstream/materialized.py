@@ -404,7 +404,11 @@ def _record_existing_shard(
     }
 
 
-def _dataset_partitions(config: Any, splits: dict[str, list[int]]) -> dict[str, L2WindowDataset]:
+def build_source_datasets(
+    config: Any,
+    splits: dict[str, list[int]],
+) -> dict[str, L2WindowDataset]:
+    """按正式物化合同重建各分区的确定性源数据集。"""
     primary_label = Path(config.label_path)
     monitor_label = Path(config.monitor_label_path)
 
@@ -536,7 +540,7 @@ def build_materialized_dataset(
         manifest = _empty_manifest(contract)
         _atomic_json(manifest_path, manifest)
 
-    datasets = _dataset_partitions(config, storage["contract"]["splits"])
+    datasets = build_source_datasets(config, storage["contract"]["splits"])
     estimated_bytes = _required_bytes(datasets, config.seq_len)
     remaining_bytes = max(0, estimated_bytes - int(manifest["totals"]["bytes"]))
     required_free = math.ceil(remaining_bytes * 1.05) + 2**30

@@ -251,6 +251,34 @@ def test_eventstream_rolling_training_requires_safe_fold_id(tmp_path: Path) -> N
     _validate_lifecycle_arguments(arguments)
 
 
+def test_eventstream_rolling_prediction_export_uses_evaluation_partitions(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-rolling-export-predictions"
+    arguments.eventstream_fold_id = "fold-54-oos-202511"
+    arguments.gpu = "A100"
+    arguments.seeds = [0]
+
+    spec = build_job_spec(arguments, "abc1234")
+
+    assert spec["feature_remote"].endswith(
+        "eventstream-top400-h5-rolling/fold-54-oos-202511/materialized/seed0"
+    )
+    assert spec["checkpoint_remote"].endswith(
+        "eventstream-top400-h5-capacity100m-fold-54-oos-202511/training"
+    )
+    assert spec["output_remote"].endswith(
+        "eventstream-top400-h5-capacity100m-fold-54-oos-202511/predictions/seed0"
+    )
+    assert spec["eventstream_fold_id"] == "fold-54-oos-202511"
+    assert spec["evaluate_test"] is True
+
+    arguments.evaluate_test = False
+    with pytest.raises(ValueError, match="OOS"):
+        _validate_lifecycle_arguments(arguments)
+
+
 def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Path) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-export-embeddings"
@@ -534,6 +562,30 @@ def test_embedding_summary_requires_evaluated_oos(tmp_path: Path) -> None:
         "workflow": "eventstream-recent-export-embeddings",
         "source_revision": "abc1234",
         "seeds": [1],
+        "evaluate_test": True,
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_rolling_prediction_summary_requires_evaluated_oos(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-rolling-export-predictions",
+        "source_revision": "abc1234",
+        "eventstream_fold_id": "fold-54-oos-202511",
+        "seeds": [0],
         "evaluate_test": True,
     }
     summary_path = tmp_path / "colab-run-summary.json"

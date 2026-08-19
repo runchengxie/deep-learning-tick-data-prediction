@@ -72,6 +72,8 @@ class PortfolioPolicy:
     top_k: int
     exit_buffer: int = 0
     min_score_gap: float = 0.0
+    min_position_score: float | None = None
+    allow_cash: bool = False
     min_symbols_per_day: int = 50
     annualization_days: int = 244
     missing_holding_policy: MissingHoldingPolicy = "liquidate"
@@ -85,6 +87,10 @@ class PortfolioPolicy:
             raise ValueError("exit_buffer 不能为负数")
         if self.min_score_gap < 0:
             raise ValueError("min_score_gap 不能为负数")
+        if self.min_position_score is not None and not math.isfinite(self.min_position_score):
+            raise ValueError("min_position_score 必须为有限值")
+        if self.min_position_score is not None and not self.allow_cash:
+            raise ValueError("使用 min_position_score 时必须允许现金仓位")
         if self.min_symbols_per_day < self.top_k:
             raise ValueError("min_symbols_per_day 不能小于 top_k")
         if self.annualization_days <= 0:
@@ -183,11 +189,17 @@ def _select_symbols(
     previous_symbols: set[str],
     policy: PortfolioPolicy,
 ) -> tuple[list[str], dict[str, str], dict[str, int]]:
-    ranked = sorted(
+    all_ranked = sorted(
         (row for row in day.values() if row.in_universe),
         key=lambda row: (-row.score, row.symbol),
     )
-    rank_by_symbol = {row.symbol: rank for rank, row in enumerate(ranked, start=1)}
+    rank_by_symbol = {row.symbol: rank for rank, row in enumerate(all_ranked, start=1)}
+    ranked = [
+        row
+        for row in all_ranked
+        if policy.min_position_score is None or row.score >= policy.min_position_score
+    ]
+    eligible_symbols = {row.symbol for row in ranked}
     present_previous = previous_symbols & set(day)
     missing_previous = previous_symbols - set(day)
     if missing_previous and policy.missing_holding_policy == "error":
@@ -199,7 +211,11 @@ def _select_symbols(
     buffered = {
         symbol
         for symbol in present_previous
-        if day[symbol].in_universe and rank_by_symbol[symbol] <= policy.top_k + policy.exit_buffer
+        if (
+            day[symbol].in_universe
+            and symbol in eligible_symbols
+            and rank_by_symbol[symbol] <= policy.top_k + policy.exit_buffer
+        )
     }
     selected = forced | buffered
     reasons = {
@@ -208,7 +224,11 @@ def _select_symbols(
     }
 
     replaceable = sorted(
-        {symbol for symbol in present_previous - selected if day[symbol].in_universe},
+        {
+            symbol
+            for symbol in present_previous - selected
+            if day[symbol].in_universe and symbol in eligible_symbols
+        },
         key=lambda symbol: (-day[symbol].score, symbol),
     )
     entries = [row.symbol for row in ranked if row.symbol not in previous_symbols and row.can_buy]
@@ -233,7 +253,7 @@ def _select_symbols(
         selected.add(chosen)
         slots -= 1
 
-    status_rank = len(ranked) + 1
+    status_rank = len(all_ranked) + 1
     rank_by_symbol.update(
         {symbol: status_rank for symbol in selected if symbol not in rank_by_symbol}
     )
@@ -259,6 +279,8 @@ def _bounded_equal_weights(
     selected: list[str],
     old_weights: dict[str, float],
     day: dict[str, PortfolioPrediction],
+    *,
+    target_exposure: float = 1.0,
 ) -> dict[str, float]:
     """尽量等权，同时不对不可买/不可卖旧持仓做隐式反向成交。"""
     lower = {
@@ -277,12 +299,15 @@ def _bounded_equal_weights(
         )
         for symbol in selected
     }
-    if sum(lower.values()) > 1.0 + 1e-12 or sum(upper.values()) < 1.0 - 1e-12:
-        raise ValueError("不可交易持仓约束下无法构造满仓组合")
+    minimum = sum(lower.values())
+    maximum = sum(upper.values())
+    target_exposure = max(target_exposure, minimum)
+    if target_exposure > 1.0 + 1e-12 or maximum < target_exposure - 1e-12:
+        raise ValueError("不可交易持仓约束下无法构造目标仓位")
 
     weights: dict[str, float] = {}
     free = set(selected)
-    remaining = 1.0
+    remaining = target_exposure
     while free:
         target = remaining / len(free)
         below = {symbol for symbol in free if lower[symbol] > target + 1e-15}
@@ -513,9 +538,13 @@ def evaluate_topk_portfolio(
             raise ValueError(f"同一 label_date 对应多个 trading_date: {label_date}")
         day = {row.symbol: row for row in rows}
         selected, reasons, ranks = _select_symbols(day, set(old_weights), policy)
-        if not selected:
-            raise ValueError(f"{label_date} 没有可买入股票")
-        new_weights = _bounded_equal_weights(selected, old_weights, day)
+        target_exposure = len(selected) / policy.top_k if policy.allow_cash else 1.0
+        new_weights = _bounded_equal_weights(
+            selected,
+            old_weights,
+            day,
+            target_exposure=target_exposure,
+        )
         selected = [symbol for symbol in selected if symbol in new_weights]
         day_trades, buy_turnover, sell_turnover, transaction_cost = _build_trades(
             label_date=label_date,
@@ -552,7 +581,7 @@ def evaluate_topk_portfolio(
                 key=lambda row: (-row.target_return, row.symbol),
             )[: min(policy.top_k, len(finite_universe))]
         }
-        overlap = len(set(selected) & realized_top) / len(selected)
+        overlap = len(set(selected) & realized_top) / len(selected) if selected else 0.0
         selected_ic = _rank_correlation(selected_scores, selected_returns)
         one_way_turnover = (buy_turnover + sell_turnover) / 2.0
 
@@ -575,7 +604,8 @@ def evaluate_topk_portfolio(
                 "selected_rank_ic": selected_ic,
                 "gross_exposure": float(np.sum(np.abs(weights))),
                 "net_exposure": float(np.sum(weights)),
-                "max_weight": float(np.max(weights)),
+                "cash_weight": float(1.0 - np.sum(weights)),
+                "max_weight": float(np.max(weights)) if weights.size else 0.0,
                 "concentration_hhi": float(np.sum(np.square(weights))),
             }
         )
@@ -622,6 +652,8 @@ def evaluate_topk_portfolio(
             "top_k": policy.top_k,
             "exit_buffer": policy.exit_buffer,
             "min_score_gap": policy.min_score_gap,
+            "min_position_score": policy.min_position_score,
+            "allow_cash": policy.allow_cash,
             "min_symbols_per_day": policy.min_symbols_per_day,
             "annualization_days": policy.annualization_days,
             "missing_holding_policy": policy.missing_holding_policy,
@@ -661,6 +693,7 @@ def evaluate_topk_portfolio(
             "mean_positions": float(np.mean([row["positions"] for row in daily_rows])),
             "mean_gross_exposure": float(np.mean([row["gross_exposure"] for row in daily_rows])),
             "mean_net_exposure": float(np.mean([row["net_exposure"] for row in daily_rows])),
+            "mean_cash_weight": float(np.mean([row["cash_weight"] for row in daily_rows])),
             "mean_max_weight": float(np.mean([row["max_weight"] for row in daily_rows])),
             "mean_concentration_hhi": float(
                 np.mean([row["concentration_hhi"] for row in daily_rows])

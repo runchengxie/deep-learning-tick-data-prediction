@@ -58,6 +58,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
 EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
+EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
 EVENTSTREAM_FOLD_PATTERN = re.compile(r"^fold-\d{2}-oos-\d{6}$")
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
@@ -85,6 +86,7 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-recent-input-profile",
             "eventstream-recent-train",
             "eventstream-rolling-train",
+            "eventstream-rolling-export-predictions",
             "eventstream-recent-export-embeddings",
             "eventstream-recent-joint-finetune",
         ),
@@ -208,14 +210,18 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         in EVENTSTREAM_TRAIN_WORKFLOWS
         | EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
+        | EVENTSTREAM_PREDICTION_WORKFLOWS
         and len(arguments.seeds) != 1
     ):
         raise ValueError("事件流正式训练和 embedding 导出每次只接受一个 seed")
     if (
-        arguments.workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS | EVENTSTREAM_JOINT_WORKFLOWS
+        arguments.workflow
+        in EVENTSTREAM_EMBEDDING_WORKFLOWS
+        | EVENTSTREAM_JOINT_WORKFLOWS
+        | EVENTSTREAM_PREDICTION_WORKFLOWS
         and not arguments.evaluate_test
     ):
-        raise ValueError("完整 embedding 导出和联合微调必须显式保留 OOS 读取授权")
+        raise ValueError("完整 embedding、联合微调和预测导出必须显式保留 OOS 读取授权")
     if (
         arguments.workflow in EVENTSTREAM_JOINT_WORKFLOWS
         and arguments.seeds[0] not in EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED
@@ -223,10 +229,13 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         supported = sorted(EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED)
         raise ValueError(f"联合微调 seed 应为 {supported} 之一")
     fold_id = arguments.eventstream_fold_id
-    if arguments.workflow == "eventstream-rolling-train":
+    if arguments.workflow in {
+        "eventstream-rolling-train",
+        "eventstream-rolling-export-predictions",
+    }:
         _validate_eventstream_fold_id(fold_id)
     elif fold_id is not None:
-        raise ValueError("--eventstream-fold-id 只用于 eventstream-rolling-train")
+        raise ValueError("--eventstream-fold-id 只用于事件流滚动训练或预测导出")
 
 
 def _validate_eventstream_fold_id(value: str | None) -> str:
@@ -242,7 +251,7 @@ def _default_config(
 ) -> Path:
     if workflow == "capacity-matrix-train":
         return CAPACITY_MATRIX_CONFIGS[matrix_cell]
-    if workflow == "eventstream-rolling-train":
+    if workflow in {"eventstream-rolling-train", "eventstream-rolling-export-predictions"}:
         fold_id = _validate_eventstream_fold_id(eventstream_fold_id)
         return (
             REPOSITORY_ROOT
@@ -366,7 +375,10 @@ def _eventstream_training_paths(
     drive_root: str,
 ) -> tuple[str, str, str, str]:
     seed = int(arguments.seeds[0])
-    if arguments.workflow == "eventstream-rolling-train":
+    if arguments.workflow in {
+        "eventstream-rolling-train",
+        "eventstream-rolling-export-predictions",
+    }:
         fold_id = _validate_eventstream_fold_id(arguments.eventstream_fold_id)
         run_name = f"eventstream-top400-h5-capacity100m-{fold_id}"
         feature_remote = (
@@ -381,6 +393,36 @@ def _eventstream_training_paths(
     )
     feature_local = "/content/ticknet-eventstream/materialized/recent"
     return run_name, run_name, feature_remote, feature_local
+
+
+def _eventstream_job_paths(
+    arguments: argparse.Namespace,
+    drive_root: str,
+) -> tuple[str, str, str, str, str, str, str, str]:
+    run_name, checkpoint_name, feature_remote, feature_local = _eventstream_training_paths(
+        arguments, drive_root
+    )
+    if arguments.workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
+        seed = int(arguments.seeds[0])
+        checkpoint_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        checkpoint_local = "/content/ticknet-eventstream/checkpoint"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/predictions/seed{seed}"
+        output_local = f"/content/ticknet-results/{run_name}/predictions/seed{seed}"
+    else:
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        output_local = f"/content/ticknet-results/{run_name}/training"
+        checkpoint_remote = output_remote
+        checkpoint_local = output_local
+    return (
+        run_name,
+        checkpoint_name,
+        feature_remote,
+        feature_local,
+        checkpoint_remote,
+        checkpoint_local,
+        output_remote,
+        output_local,
+    )
 
 
 def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[str, Any]:
@@ -452,12 +494,20 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         else:
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
-    elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS:
-        run_name, checkpoint_name, feature_remote, feature_local = _eventstream_training_paths(
-            arguments, drive_root
+    elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS | EVENTSTREAM_PREDICTION_WORKFLOWS:
+        (
+            run_name,
+            checkpoint_name,
+            feature_remote,
+            feature_local,
+            checkpoint_remote,
+            checkpoint_local,
+            output_remote,
+            output_local,
+        ) = _eventstream_job_paths(
+            arguments,
+            drive_root,
         )
-        output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
-        output_local = f"/content/ticknet-results/{run_name}/training"
     elif workflow in EVENTSTREAM_EMBEDDING_WORKFLOWS:
         seed = int(arguments.seeds[0])
         run_name = "eventstream-top400-h5-capacity100m-recent"
@@ -489,7 +539,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
     else:
         raise ValueError(f"未知 workflow：{workflow}")
     run_root = f"{drive_root}/ticknet-runs/{run_name}"
-    if workflow not in EVENTSTREAM_EMBEDDING_WORKFLOWS | EVENTSTREAM_JOINT_WORKFLOWS:
+    if workflow not in (
+        EVENTSTREAM_EMBEDDING_WORKFLOWS
+        | EVENTSTREAM_JOINT_WORKFLOWS
+        | EVENTSTREAM_PREDICTION_WORKFLOWS
+    ):
         checkpoint_remote = (
             output_remote
             if workflow in {"raw1000-train", "capacity-matrix-train"} | EVENTSTREAM_TRAIN_WORKFLOWS
@@ -531,7 +585,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
         "eventstream_fold_id": (
-            arguments.eventstream_fold_id if workflow == "eventstream-rolling-train" else None
+            arguments.eventstream_fold_id
+            if workflow in {"eventstream-rolling-train", "eventstream-rolling-export-predictions"}
+            else None
         ),
         "matrix_cell": arguments.matrix_cell if workflow == "capacity-matrix-train" else None,
         "training_config": REMOTE_CONFIG,
@@ -556,6 +612,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             | EVENTSTREAM_TRAIN_WORKFLOWS
             | EVENTSTREAM_EMBEDDING_WORKFLOWS
             | EVENTSTREAM_JOINT_WORKFLOWS
+            | EVENTSTREAM_PREDICTION_WORKFLOWS
             else 100_817_575
         ),
         "projected_train_samples": (
@@ -566,6 +623,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
                 "eventstream-recent-input-profile",
                 "eventstream-recent-export-embeddings",
                 "eventstream-recent-joint-finetune",
+                "eventstream-rolling-export-predictions",
             }
             | EVENTSTREAM_TRAIN_WORKFLOWS
             else 42_000
@@ -604,6 +662,7 @@ def _validate_downloaded_summary(
         in EVENTSTREAM_TRAIN_WORKFLOWS
         | EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
+        | EVENTSTREAM_PREDICTION_WORKFLOWS
     ):
         if summary.get("seeds") != spec["seeds"]:
             raise RuntimeError("Colab 事件流任务 seed 与请求不一致")
@@ -611,7 +670,10 @@ def _validate_downloaded_summary(
             raise RuntimeError("Colab 事件流任务没有确认 2026 locked 保持隔离")
         expected_oos = (
             "evaluated"
-            if spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS | EVENTSTREAM_JOINT_WORKFLOWS
+            if spec["workflow"]
+            in EVENTSTREAM_EMBEDDING_WORKFLOWS
+            | EVENTSTREAM_JOINT_WORKFLOWS
+            | EVENTSTREAM_PREDICTION_WORKFLOWS
             or spec["evaluate_test"]
             else "not_evaluated"
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from ticknet.eventstream.materialized import (
     build_materialized_dataset,
     verify_materialized_dataset,
 )
+from ticknet.eventstream.materialized_predictions import (
+    export_materialized_predictions,
+    export_materialized_sample_keys,
+)
+from ticknet.eventstream.model import build_eventstream_model
 from ticknet.eventstream.storage_readiness import build_storage_manifest
 from ticknet.eventstream.train import EventstreamConfig, train
 
@@ -255,6 +261,95 @@ def test_materialization_supports_multiple_workers(
 
     assert manifest["status"] == "complete"
     assert manifest["totals"]["samples"] == 8
+
+
+def test_materialized_prediction_export_recovers_symbols_and_scores(
+    materialized_fixture: tuple[EventstreamConfig, Path],
+    tmp_path: Path,
+) -> None:
+    config, output = materialized_fixture
+    with pytest.raises(ValueError, match="显式"):
+        export_materialized_sample_keys(
+            config=config,
+            storage_manifest_path=tmp_path / "storage-manifest.json",
+            materialized_root=output,
+            output_dir=tmp_path / "keys-rejected",
+        )
+
+    key_report = export_materialized_sample_keys(
+        config=config,
+        storage_manifest_path=tmp_path / "storage-manifest.json",
+        materialized_root=output,
+        output_dir=tmp_path / "keys",
+        allow_oos=True,
+    )
+    keys = pq.read_table(tmp_path / "keys" / "sample-keys.parquet").to_pylist()
+    assert key_report["artifact"]["rows_by_partition"] == {"validation": 1, "oos": 1}
+    assert [(row["partition"], row["trading_day"], row["symbol"]) for row in keys] == [
+        ("validation", DAYS[2], "600000"),
+        ("oos", DAYS[3], "600000"),
+    ]
+
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    checkpoint = tmp_path / "smoke.best.pt"
+    torch.save(
+        {
+            "epoch": 1,
+            "model": build_eventstream_model("smoke").state_dict(),
+            "experiment": {
+                "model": "smoke",
+                "source_revision": SOURCE_REVISION,
+                "dataset_fingerprint": manifest["dataset_fingerprint"],
+            },
+        },
+        checkpoint,
+    )
+    prediction_report = export_materialized_predictions(
+        checkpoint_path=checkpoint,
+        materialized_root=output,
+        model_name="smoke",
+        output_dir=tmp_path / "predictions",
+        batch_size=2,
+        partitions=("validation", "oos"),
+        allow_oos=True,
+        source_revision="fedcba9876543210",
+    )
+    assert prediction_report["totals"]["rows"] == 2
+    for partition, expected_day in (("validation", DAYS[2]), ("oos", DAYS[3])):
+        rows = pq.read_table(tmp_path / "predictions" / f"{partition}.parquet").to_pylist()
+        assert len(rows) == 1
+        assert rows[0]["row_index"] == 0
+        assert rows[0]["trading_day"] == expected_day
+        assert math.isfinite(rows[0]["score"])
+
+
+def test_materialized_prediction_export_rejects_checkpoint_fingerprint(
+    materialized_fixture: tuple[EventstreamConfig, Path],
+    tmp_path: Path,
+) -> None:
+    _config, output = materialized_fixture
+    checkpoint = tmp_path / "wrong.best.pt"
+    torch.save(
+        {
+            "epoch": 1,
+            "model": build_eventstream_model("smoke").state_dict(),
+            "experiment": {
+                "model": "smoke",
+                "source_revision": SOURCE_REVISION,
+                "dataset_fingerprint": "wrong",
+            },
+        },
+        checkpoint,
+    )
+    with pytest.raises(ValueError, match="数据指纹"):
+        export_materialized_predictions(
+            checkpoint_path=checkpoint,
+            materialized_root=output,
+            model_name="smoke",
+            output_dir=tmp_path / "predictions",
+            partitions=("validation",),
+            source_revision="fedcba9876543210",
+        )
 
 
 def test_training_reads_materialized_windows_without_oos(

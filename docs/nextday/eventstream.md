@@ -220,7 +220,9 @@ seed 0 最多训练 5 个 epoch，早停耐心值为 2。第 1 个 epoch 固定 
 | 联合端到端 seed 2 | 0.04272 | 0.07407 | 0.55083 | 0.25333 | -5.34bp | 42.56% |
 | 联合端到端三 seed 均值 | 0.05917 | 0.06398 | 0.54507 | 0.23921 | -9.67bp | 49.74% |
 
-联合三 seed 的 validation Rank IC 为 `0.05917 ± 0.01400`，OOS Rank IC 为 `0.06398 ± 0.00785`，三个 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，日均单边换手为 `49.74% ± 5.79%`。`Precision@100` 为 `0.23921 ± 0.01611`，日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均为负。新增相关性没有稳定集中到 Top-100 头部，当前决策为补充风险暴露和额外窗口，并评估小规模排序目标优化。150M 继续等待。
+联合三 seed 的 validation Rank IC 为 `0.05917 ± 0.01400`，OOS Rank IC 为 `0.06398 ± 0.00785`，三个 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，日均单边换手为 `49.74% ± 5.79%`。`Precision@100` 为 `0.23921 ± 0.01611`，日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均为负。
+
+后续半衰期、额外窗口、H5 错峰持有、排名平滑和已知风险暴露已经完成。EMA 和换仓收益差门槛降低了换手，两个连续 OOS 的成本后主动收益方向没有重复。当前决定为 `HOLD`，训练机制消融排在下一步，150M 继续等待。完整结果见[事件流信号半衰期与交易转换诊断](../research/eventstream-signal-trading-diagnostics.md)。
 
 ### 固定窗口物化与正式训练
 
@@ -264,6 +266,28 @@ python scripts/run_colab_nextday.py \
   --keep-on-failure \
   --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
 ```
+
+滚动折只有物化数组时，可以在本地恢复股票身份，在远端只运行 checkpoint 推理。两个 manifest 会共同绑定物化数据指纹、源数据指纹和 2026 锁定边界：
+
+```bash
+ticknet-eventstream-materialized-predictions keys \
+  --config configs/eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml \
+  --storage-manifest artifacts/eventstream-fold-54/storage-manifest.json \
+  --materialized-root artifacts/eventstream-fold-54/materialized/seed0 \
+  --output artifacts/eventstream-fold-54/sample-keys \
+  --allow-oos
+
+ticknet-eventstream-materialized-predictions score \
+  --checkpoint artifacts/eventstream-fold-54/training/seed0/best.pt \
+  --materialized-root artifacts/eventstream-fold-54/materialized/seed0 \
+  --model capacity100m \
+  --output artifacts/eventstream-fold-54/predictions/seed0 \
+  --device cuda \
+  --allow-oos \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+`ticknet-eventstream-signal-diagnostics` 连接股票身份、分数、H1 至 H10 标签侧车和日线数据，输出半衰期、27 组交易规则、H5 五组 cohort、动态成本与风险暴露。命令参数和最终产物见上面的研究诊断文档。
 
 ### 冻结 embedding 与下游对照
 
