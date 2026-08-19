@@ -135,6 +135,49 @@ def test_score_gap_blocks_marginal_replacement() -> None:
     assert reasons["B"] == "retained_score_gap"
 
 
+def test_calibrated_entry_threshold_keeps_unused_capital_in_cash() -> None:
+    predictions = _day(0, {"A": 0.04, "B": 0.03, "C": 0.01, "D": -0.01})
+    evaluation = evaluate_topk_portfolio(
+        predictions,
+        policy=PortfolioPolicy(
+            top_k=2,
+            min_position_score=0.035,
+            allow_cash=True,
+            min_symbols_per_day=4,
+        ),
+    )
+
+    assert evaluation.daily[0]["positions"] == 1
+    assert evaluation.daily[0]["gross_exposure"] == pytest.approx(0.5)
+    assert evaluation.daily[0]["cash_weight"] == pytest.approx(0.5)
+    assert evaluation.daily[0]["buy_turnover"] == pytest.approx(0.5)
+    assert evaluation.summary["policy"]["min_position_score"] == pytest.approx(0.035)
+
+
+def test_entry_threshold_can_hold_all_capital_in_cash() -> None:
+    predictions = _day(0, {"A": 0.04, "B": 0.03, "C": 0.01, "D": -0.01})
+    evaluation = evaluate_topk_portfolio(
+        predictions,
+        policy=PortfolioPolicy(
+            top_k=2,
+            min_position_score=0.05,
+            allow_cash=True,
+            min_symbols_per_day=4,
+        ),
+    )
+
+    assert evaluation.daily[0]["positions"] == 0
+    assert evaluation.daily[0]["gross_return"] == pytest.approx(0.0)
+    assert evaluation.daily[0]["cash_weight"] == pytest.approx(1.0)
+    assert evaluation.holdings == ()
+    assert evaluation.trades == ()
+
+
+def test_entry_threshold_requires_cash_mode() -> None:
+    with pytest.raises(ValueError, match="允许现金仓位"):
+        PortfolioPolicy(top_k=2, min_position_score=0.01, min_symbols_per_day=4)
+
+
 def test_dynamic_universe_exit_is_explicit_trade() -> None:
     predictions = _day(0, {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0})
     predictions += _day(1, {"C": 4.0, "A": 3.0, "D": 2.0, "E": 1.0})
