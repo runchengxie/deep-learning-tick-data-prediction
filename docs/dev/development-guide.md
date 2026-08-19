@@ -29,6 +29,19 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 | `materialize_minute_features.py` | 按月原子物化正式分钟聚合特征 |
 | `evaluate_cost_adjusted.py` | Top-K long-only 成本评估薄入口，兼容历史分位数多空诊断 |
 
+## Notebook 边界
+
+顶层 `notebooks/` 目前包含两个现行 Colab 入口，还不能整体移入 `legacy/`。`nextday_multi_horizon_validation_colab.ipynb` 由 `scripts/build_multi_horizon_notebook.py` 生成，并由 `tests/test_multi_horizon_notebook.py` 检查日期权限、代码语法和无输出状态。`nextday_end_to_end_colab.ipynb` 仍被当前次日数据文档引用。
+
+后续重构按以下顺序进行：
+
+1. 把 notebook 中仍可复用的数据检查、训练和评估逻辑移到 `src/ticknet/` 或薄脚本
+2. notebook 只保留 Drive 挂载、环境安装、配置选择和 Python 入口调用
+3. 为薄入口补充生成测试或结构测试
+4. 当前文档和自动化不再依赖旧 notebook 后，再把旧版本移入 `legacy/notebooks/`
+
+这种方式可以保留 Colab 的交互入口，同时让主要逻辑接受 Ruff、ty、pytest 和覆盖率门禁。
+
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
 
 ## 配置

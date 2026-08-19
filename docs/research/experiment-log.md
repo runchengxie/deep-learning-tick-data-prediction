@@ -335,3 +335,26 @@ seed 1 首次创建的 A100 会话在远端脚本开始前断开 kernel 连接�
 seed 1 的 best、last 和结果 JSON SHA-256 分别为 `35853b3ff263454c92617c6dfe9f569eb158ec0387f43f63275ef9137ca18290`、`c9324cf6e5d88b85ee4bf6f93c98ddc291471904566cc3aa207959e3016edc4b` 和 `cde7c2eed3f25d82ef3619c9634b24bf00e1f3842a95e7e234b0dfc772e9dcf0`。seed 2 对应为 `5703ee8f52f0a77a607679673064fbbbfd3dc5d4995ebc9686d06efa1c1aadd0`、`b2cfb6fecfadf6d49144b451082532cfcbffddd65ec45bb8d3c65af36f6d0604` 和 `704ae634d4c0a80d5f87e156d837b352994c9e46fc3c96c6da99d4febe07a756`。每个 seed 的 Drive 目录与本机 7 个正式文件逐项核对一致。2026 locked 数据没有进入训练或评估。
 
 本次决策继续为 `EXTEND`。下一步补风险暴露和额外时间窗口，再评估小规模横截面排序损失或成本感知选模。`probe150m` 继续暂缓。
+
+## 2026-08-19：相邻滚动折 100M seed 0
+
+`fold-54-oos-202511` 使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。100,604,180 参数的 `capacity100m` 从短恢复 checkpoint 继续正式训练，第 11 个 epoch 取得最佳 H5 validation Rank IC，第 15 个 epoch 后按耐心值 4 停止。恢复阶段耗时 11,168.5 秒。源码 revision 为 `222facb9f643006f0fa8647bb0cee8b7ab4b9306`，数据指纹为 `596daa34cfe2a44ad94f884db95d9ce164fd6aff38e05fad61ce1869cc8e9403`。
+
+| 目标 | validation Rank IC | validation IC IR | validation 极端组收益差 | OOS Rank IC | OOS IC IR | OOS 极端组收益差 |
+|---|---:|---:|---:|---:|---:|---:|
+| H5 | 0.08735 | 0.71629 | 0.01780 | 0.03305 | 0.29471 | -0.00512 |
+| H3 监控 | 0.04840 | 0.35953 | 0.00575 | 0.04231 | 0.36987 | -0.00259 |
+
+H5 validation 与 OOS 分别包含 4,683 和 5,807 个样本，H3 对应为 5,464 和 6,578 个样本。四个 Rank IC 方向均为正，两个 OOS 极端组收益差均为负。相邻窗口继续出现全截面排序信号，头部组合和持有方式需要单独检查。
+
+best、last、结果 JSON、训练历史、运行摘要和物化预检共 6 个文件已完成本地与 Drive 核对。best checkpoint SHA-256 为 `d753041016d71e668a46624585f7bc7fb68f67200fee3c5b463c28b26f1c11cd`，last checkpoint 为 `866c0be48277c0f97afaf5ceb87e691bf78e2c8522e15df88b6b5106fdcb8e03`，结果 JSON 为 `8f073c0c64fad23fb73bfe23baa169046a9184247f5f4909e0b683ed5f88bbf8`。2026 锁定区没有进入运行环境。
+
+本次决策继续为 `EXTEND`。先复用最近折和相邻滚动折的现有预测，检查信号半衰期、H5 五组错峰持有、排名平滑、开仓门槛和风险归因。完成这些低成本检查后，再决定是否补相邻折 seed 1、2。
+
+## 2026-08-19：外部 L2 项目对比核对
+
+外部对比稿提出标签标准化、风险残差化、多周期 IC、信号平滑、错峰持有、SWA、排序目标和预训练等方向。逐项核对代码与现有产物后，将内容整理为[外部 L2 研究项目对比](external-l2-research-comparison.md)。外部项目描述保留为来源自述，机制判断保留为待验证假设。
+
+本轮同时修正事件流模型注释。当前正式 H5 标签是个股收益减去中证全指同期收益的连续小数，每个有效事件位置监督同一日级标量。现有记录没有风险中性残差 z 标签。多任务损失标量也不足以判断共享主干上的任务强弱，后续使用梯度范数和梯度夹角核对。
+
+采纳的验证队列依次为 `EVT-HALFLIFE-001`、`TRD-STAGGERED-H5-001`、`TRD-RANK-EMA-001`、`RISK-ATTR-001`、`EVT-GRAD-AUDIT-001`、`EVT-LABEL-SCALE-001` 和 `EVT-SUPERVISION-POSITION-001`。前四项尽量复用已有预测，后三项每次只改变一个训练机制。`probe150m` 继续暂缓。

@@ -2,34 +2,26 @@
 
 本项目用 A 股逐笔行情研究下一交易日的横截面排序信号。项目从 DeepLOB 论文复现起步，现在主要维护真实数据训练、成本评估和受控实验研究三类能力。FI-2010 复现已归档到 `legacy/`，论文和阅读笔记放在 `references/`。
 
-## 项目能力
+## 这个项目做什么
 
-当前代码包含四条可以独立运行的链路：
+项目维护四条相互配合的链路：
 
-1. 原始盘口链路读取信号时点前最后 200 或 1,000 个十档快照，由分块 DeepLOB 和 GRU 编码，输出连续分数与三分类概率
-2. 分钟聚合链路提供 HGB、TCN 和 GRU，用较低成本检验分钟量价特征
-3. L2 事件流链路无损打包委托、成交和快照，由因果 Transformer 完成事件任务与日级信号输出
-4. 研究闭环用 ExperimentSpec、白名单执行器、Registry、预测审计和锁定测试审批管理实验
+1. 原始盘口模型读取信号时点前的十档快照
+2. 分钟模型用较低成本检验聚合量价特征
+3. 事件流 Transformer 直接编码委托、成交和快照
+4. 研究闭环管理实验身份、成本评估、审计和锁定数据访问
 
-这些链路共用按交易日切分、时间外评估和横截面排序的基本原则。不同研究阶段使用的锁定区间有所区别，开始实验前请查看[项目现状](docs/project-status.md)和[研究契约](docs/research/topk-agentx-m0-research-contract.md)。
+所有主线都按交易日切分，在时间外数据上比较股票的横截面顺序。项目同时检查换手和交易成本，Rank IC 为正只代表模型捕捉到排序信号，还不能直接说明策略可交易。
 
-## 当前结论
+## 当前判断
 
-截至 2026-08-18，已经落地的主要结论如下：
+截至 2026-08-19，100M 事件流模型已经在最近折三 seed 和第一个相邻滚动折 seed 0 中得到正的 H5 样本外 Rank IC。冻结 embedding 与分钟特征组合、联合端到端训练也得到正的排序增量。
 
-- 分钟 HGB 在 2022 至 2025 四个历史滚动样本外年份的每日 Rank IC 均为正，约为 0.02 至 0.035。2021 年上半年委托源缺少沪市记录，这组结果保留为带数据限制的历史基线。信号强度不足以覆盖现实交易成本
-- 分钟 TCN 的验证集排序能力高于 HGB，优势未延续到测试集
-- 原始盘口 Top-100 的三 seed 受控矩阵已经完成。`1M/raw-200` 的验证 Rank IC 为 `0.03748 ± 0.00096`，是四格中最稳的候选。扩大到 100M 参数或把窗口增至 raw-1000 都没有形成稳定增益
-- L2 事件流 100M 最近折三 seed 已完成。H5 validation Rank IC 均值为 0.07259，2025 年 12 月 OOS 均值为 0.04300，三组结果均为正，已经通过预设信号门槛
-- AgentX 研究闭环的 M0 至 M3 已完成。M3 v2 使用 2021 年 7 月至 2025 年 12 月的完整沪深分钟特征，2025 年下半年 Rank IC 为 0.06994。正式 64 组 Top-K 成本矩阵没有找到可覆盖单边 10bp 成本并跑赢 Top-400 等权基准的组合
+现有候选仍未稳定覆盖单边 10bp 交易成本，头部收益也会随月份变化。当前优先研究信号半衰期、H5 错峰持有、排名平滑、开仓门槛和风险暴露，再检查标签尺度与监督位置。150M 容量实验继续暂缓。
 
-冻结事件流 embedding 的最近折对照已经完成。三组 100M checkpoint 分别生成 960 维尾盘表示，再将分钟特征、embedding、二者组合交给同口径的 HGB 和 LambdaMART。HGB 组合输入的三 seed 预测均值在 2025 年 11 月和 12 月都提高了 Rank IC，12 月从 0.04010 提高到 0.05701。
+分钟模型、原始盘口模型和 AgentX 成本矩阵都已经形成阶段结论。完整数字、数据限制和下一步统一记录在[项目现状](docs/project-status.md)和[实验日志](docs/research/experiment-log.md)。模型原理与取舍见[模型清单](docs/model-catalog.md)，外部研究路线带来的改进计划见[外部 L2 研究项目对比](docs/research/external-l2-research-comparison.md)。
 
-100M 事件流与分钟特征的联合端到端三 seed 也已完成。validation Rank IC 为 `0.05917 ± 0.01400`，12 月 OOS Rank IC 为 `0.06398 ± 0.00785`，三组 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，`Precision@100` 为 `0.23921 ± 0.01611`。Top-100 日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均未覆盖交易成本。当前优先补充跨窗口、风险暴露和交易目标优化，150M 容量消融继续暂缓。
-
-各模型的输入、运行原理、优点、限制和研究状态见[模型清单](docs/model-catalog.md)。完整状态、数据权限和下一步见[项目现状](docs/project-status.md)。带日期和数字的研究记录见[实验日志](docs/research/experiment-log.md)。
-
-## 快速开始
+## 快速验证
 
 以下步骤不需要真实行情数据，支持 Python 3.10 及以上版本。
 
@@ -45,29 +37,13 @@ python scripts/check.py
 
 Windows PowerShell 使用 `.\.venv\Scripts\Activate.ps1` 激活环境。修改 `pyproject.toml` 中的命令入口后，需要重新执行可编辑安装，让 `.venv/bin/` 或 Windows 的 `.venv\Scripts\` 生成新入口。
 
-## 运行真实数据链路
+## 从哪里开始
 
-在已经准备好沪深月度快照 Parquet 的机器上，可以先生成分片，再启动训练：
-
-```bash
-ticknet-nextday-prepare-snapshot --config configs/nextday-raw.yaml
-ticknet-nextday-train --config configs/nextday.yaml
-```
-
-训练完成后，可以把单只股票的原始事件转成次日信号：
-
-```bash
-ticknet-nextday-predict \
-  --checkpoint checkpoints-nextday/raw-200-dual-head.seed0.best.pt \
-  --manifest data/nextday-raw-200/manifest.json \
-  --events-npy data/today-000001.npy \
-  --input-format raw \
-  --device cpu
-```
-
-输出包含连续分数、映射回收益尺度的预期超额收益、三类概率和方向编号。横截面交易使用同一天全部股票的分数排序。
-
-分钟模型使用 `ticknet-minute-gru-train` 和 `ticknet-minute-tcn-train`。事件流使用 `ticknet-eventstream-pack`、`ticknet-eventstream-storage-readiness`、`ticknet-eventstream-train`、`ticknet-eventstream-close-cache` 和 `ticknet-eventstream-export-embeddings`。冻结表征对照使用 `ticknet-embedding-compare`。联合端到端实验使用 `ticknet-eventstream-joint-cache` 和 `ticknet-eventstream-joint-train`。研究闭环统一从 `ticknet-research` 进入。完整命令见[文档索引](docs/README.md)。
+- 想了解项目全貌和当前进度，阅读[项目现状](docs/project-status.md)
+- 想选择模型，阅读[模型清单](docs/model-catalog.md)
+- 想准备真实数据或运行训练，阅读[次日横截面预测规范](docs/nextday/cross-sectional-prediction.md)和[事件流说明](docs/nextday/eventstream.md)
+- 想了解实验边界与后续计划，阅读[AgentX 研究路线](docs/research/topk-agentx-research-roadmap.md)
+- 想查找其他专题说明和命令，使用[文档索引](docs/README.md)
 
 ## 项目结构
 
