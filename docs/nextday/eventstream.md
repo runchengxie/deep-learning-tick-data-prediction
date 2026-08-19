@@ -169,7 +169,13 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
-`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。相邻滚动折 seed 0 的 H5 validation 与 OOS Rank IC 继续为正，OOS 极端组收益差为负。下一步先检查信号半衰期、H5 错峰持有、排名平滑、开仓门槛和风险暴露。完成这些检查后，再决定是否补充 150M 正式配置、参数量测试和预算。第一轮 150M 实验只改变模型容量，先完成 benchmark 和 seed 0，再决定是否增加重复实验。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。相邻滚动折 seed 0 的 H5 validation 与 OOS Rank IC 继续为正，OOS 极端组收益差为负。信号半衰期、H5 错峰持有、排名平滑、开仓门槛和已具备数据的风险暴露已经完成第一轮检查，交易门槛仍未通过。下一步先审计四项训练任务对共享主干的梯度强度和方向，再按审计结果选择标签尺度或监督位置实验。第一轮 150M 实验只改变模型容量，等待训练机制实验在两折形成稳定增量。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+
+### 多任务梯度审计
+
+`ticknet-eventstream-gradient-audit` 在固定 validation batch 上分别计算下一事件流类型、下一订单类型、连续值回归和 H5 日级收益对共享 Transformer 主干的梯度。审计比较 seed 0 初始化和 best checkpoint，记录损失、梯度范数、范数比例、两两余弦相似度和输入指纹。
+
+Colab 提供 `eventstream-recent-gradient-audit` 和 `eventstream-rolling-gradient-audit` 两个工作流。两者只下载 validation 分片和已登记 SHA-256 的 checkpoint，排除 train、OOS、监控分区和 2026 锁定区。完整合同、门槛和命令见[事件流多任务梯度审计](../research/eventstream-gradient-audit.md)。
 
 ### 联合端到端实验
 

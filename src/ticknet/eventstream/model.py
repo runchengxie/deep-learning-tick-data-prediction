@@ -23,6 +23,7 @@ import torch.nn.functional as F
 from ticknet.eventstream.dataset import N_FEATURES, N_ORDER_TYPES
 
 N_STREAMS = 4  # 0 pad, 1 snap, 2 order, 3 trade
+LOSS_WEIGHTS = {"stream": 1.0, "otype": 0.5, "reg": 1.0, "day": 1.0}
 
 
 @dataclass
@@ -161,7 +162,7 @@ class L2FoundationModel(nn.Module):
         }
 
 
-def compute_loss(
+def compute_loss_components(
     out: dict[str, torch.Tensor],
     tgt_sid: torch.Tensor,
     tgt_oid: torch.Tensor,
@@ -169,8 +170,8 @@ def compute_loss(
     tgt_day: torch.Tensor,
     day_valid: torch.Tensor,
     valid: torch.Tensor,
-) -> tuple[torch.Tensor, dict[str, float]]:
-    """多任务损失：stream CE + otype CE + reg SmoothL1 + day SmoothL1。
+) -> dict[str, torch.Tensor]:
+    """返回事件流训练的四项未加权损失，供训练和梯度审计共用。
 
     day 头在每个有效位置预测同一个 (ticker, day) 日级标签，day_valid 屏蔽无标签样本。
     """
@@ -195,13 +196,42 @@ def compute_loss(
     day_err = F.smooth_l1_loss(out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none")
     day_loss = (day_err * day_mask).sum() / day_mask.sum().clamp(min=1)
 
-    total = ce_stream + 0.5 * ce_otype + 1.0 * reg_loss + 1.0 * day_loss
+    return {
+        "stream": ce_stream,
+        "otype": ce_otype,
+        "reg": reg_loss,
+        "day": day_loss,
+    }
+
+
+def compute_loss(
+    out: dict[str, torch.Tensor],
+    tgt_sid: torch.Tensor,
+    tgt_oid: torch.Tensor,
+    tgt_reg: torch.Tensor,
+    tgt_day: torch.Tensor,
+    day_valid: torch.Tensor,
+    valid: torch.Tensor,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """多任务损失：stream CE + otype CE + reg SmoothL1 + day SmoothL1。"""
+    components = compute_loss_components(
+        out,
+        tgt_sid,
+        tgt_oid,
+        tgt_reg,
+        tgt_day,
+        day_valid,
+        valid,
+    )
+    total = components["stream"] * LOSS_WEIGHTS["stream"]
+    for name in ("otype", "reg", "day"):
+        total = total + components[name] * LOSS_WEIGHTS[name]
     return total, {
         "loss": float(total.detach()),
-        "ce_stream": float(ce_stream.detach()),
-        "ce_otype": float(ce_otype.detach()),
-        "reg": float(reg_loss.detach()),
-        "day": float(day_loss.detach()),
+        "ce_stream": float(components["stream"].detach()),
+        "ce_otype": float(components["otype"].detach()),
+        "reg": float(components["reg"].detach()),
+        "day": float(components["day"].detach()),
     }
 
 

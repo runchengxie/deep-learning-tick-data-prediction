@@ -23,6 +23,9 @@ EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstrea
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
+EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS = frozenset(
+    {"eventstream-recent-gradient-audit", "eventstream-rolling-gradient-audit"}
+)
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -92,7 +95,14 @@ def _remote_directory_exists(source: str, *, env: dict[str, str]) -> bool:
 def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
     remote = str(spec["rclone_remote"])
     workflow = str(spec["workflow"])
-    if workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
+    if workflow in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS:
+        excluded_partitions = (
+            "shards/train-*/**",
+            "shards/oos-*/**",
+            "shards/monitor_validation-*/**",
+            "shards/monitor_oos-*/**",
+        )
+    elif workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
         excluded_partitions = (
             "shards/train-*/**",
             "shards/monitor_validation-*/**",
@@ -163,7 +173,7 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
             env=env,
         )
         return
-    if workflow in EVENTSTREAM_PREDICTION_WORKFLOWS:
+    if workflow in EVENTSTREAM_PREDICTION_WORKFLOWS | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS:
         checkpoint_root = Path(str(spec["checkpoint_local"]))
         checkpoint_root.mkdir(parents=True, exist_ok=True)
         seed = int(spec["seeds"][0])
@@ -328,6 +338,45 @@ def _train_eventstream(spec: dict[str, Any]) -> None:
         if spec.get("training_epochs") is not None:
             command.extend(("--epochs", str(int(spec["training_epochs"]))))
         _run(command)
+
+
+def _audit_eventstream_gradients(spec: dict[str, Any]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    seed = int(spec["seeds"][0])
+    checkpoint = (
+        Path(str(spec["checkpoint_local"])) / f"{spec['checkpoint_name']}.seed{seed}.best.pt"
+    )
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "ticknet.eventstream.gradient_audit",
+            "run",
+            "--config",
+            str(spec["training_config"]),
+            "--materialized-root",
+            str(spec["feature_local"]),
+            "--checkpoint",
+            str(checkpoint),
+            "--expected-checkpoint-sha256",
+            str(spec["expected_gradient_checkpoint_sha256"]),
+            "--output",
+            str(output_dir / "gradient-audit.json"),
+            "--partition",
+            "validation",
+            "--batches",
+            str(int(spec["audit_batches"])),
+            "--batch-size",
+            "8",
+            "--device",
+            "cuda",
+            "--source-revision",
+            str(spec["source_revision"]),
+            "--expected-parameter-count",
+            str(int(spec["expected_parameter_count"])),
+        ]
+    )
 
 
 def _export_eventstream_embeddings(spec: dict[str, Any]) -> None:
@@ -663,6 +712,8 @@ def _execute_workflow(spec: dict[str, Any]) -> None:
     elif spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
         _verify_eventstream_materialized(spec)
         _train_eventstream(spec)
+    elif spec["workflow"] in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS:
+        _audit_eventstream_gradients(spec)
     elif spec["workflow"] in EVENTSTREAM_EMBEDDING_WORKFLOWS:
         _export_eventstream_embeddings(spec)
     elif spec["workflow"] in EVENTSTREAM_PREDICTION_WORKFLOWS:
@@ -708,6 +759,8 @@ def main() -> None:
                 "eventstream-recent-export-embeddings",
                 "eventstream-recent-joint-finetune",
                 "eventstream-rolling-export-predictions",
+                "eventstream-recent-gradient-audit",
+                "eventstream-rolling-gradient-audit",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:

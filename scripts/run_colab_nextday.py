@@ -59,6 +59,13 @@ EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstrea
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
+EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS = frozenset(
+    {"eventstream-recent-gradient-audit", "eventstream-rolling-gradient-audit"}
+)
+EVENTSTREAM_GRADIENT_AUDIT_CHECKPOINTS = {
+    ("recent", 0): EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED[0],
+    ("fold-54-oos-202511", 0): ("d753041016d71e668a46624585f7bc7fb68f67200fee3c5b463c28b26f1c11cd"),
+}
 EVENTSTREAM_FOLD_PATTERN = re.compile(r"^fold-\d{2}-oos-\d{6}$")
 JOB_SCRIPT = REPOSITORY_ROOT / "scripts" / "colab_multi_horizon_job.py"
 REMOTE_WHEEL = "/content/<wheel-filename>"
@@ -89,6 +96,8 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-rolling-export-predictions",
             "eventstream-recent-export-embeddings",
             "eventstream-recent-joint-finetune",
+            "eventstream-recent-gradient-audit",
+            "eventstream-rolling-gradient-audit",
         ),
         default="multi-horizon-validation",
     )
@@ -122,6 +131,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", nargs="+", type=int, default=[2, 4, 8, 16])
     parser.add_argument("--effective-batch-size", type=int, default=32)
     parser.add_argument("--training-epochs", type=int)
+    parser.add_argument("--audit-batches", type=int, default=16)
     parser.add_argument(
         "--evaluate-test",
         action=argparse.BooleanOptionalAction,
@@ -205,22 +215,46 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--num-workers 不能为负数")
     if arguments.training_epochs is not None and arguments.training_epochs < 1:
         raise ValueError("--training-epochs 应为正整数")
-    if (
-        arguments.workflow
-        in EVENTSTREAM_TRAIN_WORKFLOWS
+    if arguments.audit_batches < 8 or arguments.audit_batches > 16:
+        raise ValueError("--audit-batches 应在 8 至 16 之间")
+    _validate_eventstream_arguments(arguments)
+
+
+def _validate_eventstream_fold_id(value: str | None) -> str:
+    if value is None or EVENTSTREAM_FOLD_PATTERN.fullmatch(value) is None:
+        raise ValueError("--eventstream-fold-id 应使用 fold-NN-oos-YYYYMM 格式")
+    return value
+
+
+def _gradient_audit_checkpoint_sha256(arguments: argparse.Namespace) -> str:
+    fold_id = (
+        _validate_eventstream_fold_id(arguments.eventstream_fold_id)
+        if arguments.workflow == "eventstream-rolling-gradient-audit"
+        else "recent"
+    )
+    key = (fold_id, int(arguments.seeds[0]))
+    if key not in EVENTSTREAM_GRADIENT_AUDIT_CHECKPOINTS:
+        supported = sorted(EVENTSTREAM_GRADIENT_AUDIT_CHECKPOINTS)
+        raise ValueError(f"梯度审计 checkpoint 身份未登记：{key}，可用 {supported}")
+    return EVENTSTREAM_GRADIENT_AUDIT_CHECKPOINTS[key]
+
+
+def _validate_eventstream_arguments(arguments: argparse.Namespace) -> None:
+    single_seed_workflows = (
+        EVENTSTREAM_TRAIN_WORKFLOWS
         | EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
         | EVENTSTREAM_PREDICTION_WORKFLOWS
-        and len(arguments.seeds) != 1
-    ):
-        raise ValueError("事件流正式训练和 embedding 导出每次只接受一个 seed")
-    if (
-        arguments.workflow
-        in EVENTSTREAM_EMBEDDING_WORKFLOWS
+        | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
+    )
+    if arguments.workflow in single_seed_workflows and len(arguments.seeds) != 1:
+        raise ValueError("事件流正式任务每次只接受一个 seed")
+    oos_workflows = (
+        EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
         | EVENTSTREAM_PREDICTION_WORKFLOWS
-        and not arguments.evaluate_test
-    ):
+    )
+    if arguments.workflow in oos_workflows and not arguments.evaluate_test:
         raise ValueError("完整 embedding、联合微调和预测导出必须显式保留 OOS 读取授权")
     if (
         arguments.workflow in EVENTSTREAM_JOINT_WORKFLOWS
@@ -228,20 +262,19 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
     ):
         supported = sorted(EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED)
         raise ValueError(f"联合微调 seed 应为 {supported} 之一")
-    fold_id = arguments.eventstream_fold_id
-    if arguments.workflow in {
+    if arguments.workflow in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS:
+        if arguments.evaluate_test:
+            raise ValueError("梯度审计只读取 validation，请使用 --no-evaluate-test")
+        _gradient_audit_checkpoint_sha256(arguments)
+    rolling_workflows = {
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
-    }:
-        _validate_eventstream_fold_id(fold_id)
-    elif fold_id is not None:
-        raise ValueError("--eventstream-fold-id 只用于事件流滚动训练或预测导出")
-
-
-def _validate_eventstream_fold_id(value: str | None) -> str:
-    if value is None or EVENTSTREAM_FOLD_PATTERN.fullmatch(value) is None:
-        raise ValueError("--eventstream-fold-id 应使用 fold-NN-oos-YYYYMM 格式")
-    return value
+        "eventstream-rolling-gradient-audit",
+    }
+    if arguments.workflow in rolling_workflows:
+        _validate_eventstream_fold_id(arguments.eventstream_fold_id)
+    elif arguments.eventstream_fold_id is not None:
+        raise ValueError("--eventstream-fold-id 只用于事件流滚动训练、预测导出或梯度审计")
 
 
 def _default_config(
@@ -251,7 +284,11 @@ def _default_config(
 ) -> Path:
     if workflow == "capacity-matrix-train":
         return CAPACITY_MATRIX_CONFIGS[matrix_cell]
-    if workflow in {"eventstream-rolling-train", "eventstream-rolling-export-predictions"}:
+    if workflow in {
+        "eventstream-rolling-train",
+        "eventstream-rolling-export-predictions",
+        "eventstream-rolling-gradient-audit",
+    }:
         fold_id = _validate_eventstream_fold_id(eventstream_fold_id)
         return (
             REPOSITORY_ROOT
@@ -271,6 +308,7 @@ def _default_config(
         "eventstream-recent-train": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
         "eventstream-recent-export-embeddings": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
         "eventstream-recent-joint-finetune": DEFAULT_EVENTSTREAM_JOINT_CONFIG,
+        "eventstream-recent-gradient-audit": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
     }[workflow]
 
 
@@ -378,6 +416,7 @@ def _eventstream_training_paths(
     if arguments.workflow in {
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
+        "eventstream-rolling-gradient-audit",
     }:
         fold_id = _validate_eventstream_fold_id(arguments.eventstream_fold_id)
         run_name = f"eventstream-top400-h5-capacity100m-{fold_id}"
@@ -408,6 +447,12 @@ def _eventstream_job_paths(
         checkpoint_local = "/content/ticknet-eventstream/checkpoint"
         output_remote = f"{drive_root}/ticknet-runs/{run_name}/predictions/seed{seed}"
         output_local = f"/content/ticknet-results/{run_name}/predictions/seed{seed}"
+    elif arguments.workflow in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS:
+        seed = int(arguments.seeds[0])
+        checkpoint_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
+        checkpoint_local = "/content/ticknet-eventstream/checkpoint"
+        output_remote = f"{drive_root}/ticknet-runs/{run_name}/gradient-audit/seed{seed}"
+        output_local = f"/content/ticknet-results/{run_name}/gradient-audit/seed{seed}"
     else:
         output_remote = f"{drive_root}/ticknet-runs/{run_name}/training"
         output_local = f"/content/ticknet-results/{run_name}/training"
@@ -494,7 +539,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         else:
             output_remote = f"{drive_root}/ticknet-runs/{run_name}/benchmarks/{gpu_label}"
             output_local = f"/content/ticknet-results/{run_name}/{gpu_label}"
-    elif workflow in EVENTSTREAM_TRAIN_WORKFLOWS | EVENTSTREAM_PREDICTION_WORKFLOWS:
+    elif workflow in (
+        EVENTSTREAM_TRAIN_WORKFLOWS
+        | EVENTSTREAM_PREDICTION_WORKFLOWS
+        | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
+    ):
         (
             run_name,
             checkpoint_name,
@@ -543,6 +592,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
         | EVENTSTREAM_PREDICTION_WORKFLOWS
+        | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
     ):
         checkpoint_remote = (
             output_remote
@@ -582,11 +632,21 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             if workflow in EVENTSTREAM_JOINT_WORKFLOWS
             else None
         ),
+        "expected_gradient_checkpoint_sha256": (
+            _gradient_audit_checkpoint_sha256(arguments)
+            if workflow in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
+            else None
+        ),
         "output_local": output_local,
         "checkpoint_name": checkpoint_name,
         "eventstream_fold_id": (
             arguments.eventstream_fold_id
-            if workflow in {"eventstream-rolling-train", "eventstream-rolling-export-predictions"}
+            if workflow
+            in {
+                "eventstream-rolling-train",
+                "eventstream-rolling-export-predictions",
+                "eventstream-rolling-gradient-audit",
+            }
             else None
         ),
         "matrix_cell": arguments.matrix_cell if workflow == "capacity-matrix-train" else None,
@@ -602,6 +662,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "num_workers": list(arguments.num_workers),
         "effective_batch_size": arguments.effective_batch_size,
         "training_epochs": arguments.training_epochs,
+        "audit_batches": arguments.audit_batches,
         "evaluate_test": arguments.evaluate_test,
         "expected_parameter_count": (
             1_033_383
@@ -613,10 +674,13 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             | EVENTSTREAM_EMBEDDING_WORKFLOWS
             | EVENTSTREAM_JOINT_WORKFLOWS
             | EVENTSTREAM_PREDICTION_WORKFLOWS
+            | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
             else 100_817_575
         ),
         "projected_train_samples": (
-            120_000
+            arguments.audit_batches * 8
+            if workflow in EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
+            else 120_000
             if workflow
             in {
                 "eventstream-recent-batch-size-sweep",
@@ -663,6 +727,7 @@ def _validate_downloaded_summary(
         | EVENTSTREAM_EMBEDDING_WORKFLOWS
         | EVENTSTREAM_JOINT_WORKFLOWS
         | EVENTSTREAM_PREDICTION_WORKFLOWS
+        | EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS
     ):
         if summary.get("seeds") != spec["seeds"]:
             raise RuntimeError("Colab 事件流任务 seed 与请求不一致")
