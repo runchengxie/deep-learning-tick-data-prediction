@@ -7,6 +7,7 @@ import math
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -29,6 +30,11 @@ from ticknet.eventstream.materialized_predictions import (
 )
 from ticknet.eventstream.model import build_eventstream_model
 from ticknet.eventstream.storage_readiness import build_storage_manifest
+from ticknet.eventstream.target_overlay import (
+    build_target_overlay,
+    daily_winsorized_z,
+    load_target_overlay_manifest,
+)
 from ticknet.eventstream.train import EventstreamConfig, train
 from ticknet.train import set_seed
 
@@ -44,7 +50,15 @@ def _prepare_formal_fixture(packed_day: dict, root: Path) -> tuple[EventstreamCo
         for name, destination in day_pack_paths(day, pack_root).items():
             shutil.copy2(source_paths[name], destination)
 
-    labels = [{"value": day, "600000": float(index + 1)} for index, day in enumerate(DAYS)]
+    labels = [
+        {
+            "value": day,
+            "600000": float(index + 1),
+            "000001": float(index + 2),
+            "000002": float(index + 4),
+        }
+        for index, day in enumerate(DAYS)
+    ]
     h5 = root / "h5.parquet"
     h3 = root / "h3.parquet"
     pq.write_table(pa.Table.from_pylist(labels), h5)
@@ -157,6 +171,61 @@ def test_materialized_samples_match_canonical_windows(
     report = verify_materialized_dataset(output)
     assert report["samples"] == 8
     assert report["shards"] == 5
+
+
+def test_daily_target_overlay_reuses_windows_and_changes_only_train_target(
+    materialized_fixture: tuple[EventstreamConfig, Path],
+    tmp_path: Path,
+) -> None:
+    config, output = materialized_fixture
+    overlay_root = tmp_path / "target-overlay"
+    report = build_target_overlay(
+        config,
+        storage_manifest_path=tmp_path / "storage-manifest.json",
+        materialized_root=output,
+        output_root=overlay_root,
+        source_revision="labelscale123",
+    )
+
+    raw = MaterializedWindowDataset(output, "train")
+    transformed = MaterializedWindowDataset(
+        output,
+        "train",
+        target_overlay_root=overlay_root,
+    )
+    assert report["totals"] == {"files": 1, "samples": 4, "valid_samples": 4, "days": 2}
+    assert transformed.target_overlay_fingerprint == report["dataset_fingerprint"]
+    raw_sample = raw[0]
+    transformed_sample = transformed[0]
+    assert not torch.equal(raw_sample[6], transformed_sample[6])
+    assert all(
+        torch.equal(raw_value, transformed_value)
+        for index, (raw_value, transformed_value) in enumerate(
+            zip(raw_sample, transformed_sample, strict=True)
+        )
+        if index != 6
+    )
+    validation = MaterializedWindowDataset(output, "validation")
+    assert torch.equal(validation[0][6], torch.tensor(3.0))
+
+    target_path = next((overlay_root / "targets").glob("*.npy"))
+    with target_path.open("r+b") as file:
+        file.seek(-1, 2)
+        value = file.read(1)
+        file.seek(-1, 2)
+        file.write(bytes([value[0] ^ 1]))
+    with pytest.raises(ValueError, match="内容漂移"):
+        load_target_overlay_manifest(overlay_root)
+
+
+def test_daily_winsorized_z_has_unit_scale_and_rejects_degenerate_cross_section() -> None:
+    transformed, stats = daily_winsorized_z(np.array([-1.0, 0.0, 1.0, 100.0]))
+
+    assert float(transformed.mean()) == pytest.approx(0.0, abs=1e-7)
+    assert float(transformed.std(ddof=0)) == pytest.approx(1.0, abs=1e-7)
+    assert stats["clipped_symbols"] == 1
+    with pytest.raises(ValueError, match="MAD"):
+        daily_winsorized_z(np.array([1.0, 1.0, 1.0]))
 
 
 def test_gradient_audit_uses_fixed_validation_batches_and_checkpoint_identity(
@@ -436,8 +505,17 @@ def test_training_reads_materialized_windows_without_oos(
     tmp_path: Path,
 ) -> None:
     source, output = materialized_fixture
+    overlay_root = tmp_path / "training-target-overlay"
+    overlay = build_target_overlay(
+        source,
+        storage_manifest_path=tmp_path / "storage-manifest.json",
+        materialized_root=output,
+        output_root=overlay_root,
+        source_revision="labelscale123",
+    )
     config = EventstreamConfig(
         materialized_root=str(output),
+        target_overlay_root=str(overlay_root),
         monitor_name="h3",
         train_start=source.train_start,
         train_end=source.train_end,
@@ -475,6 +553,7 @@ def test_training_reads_materialized_windows_without_oos(
     assert result["parameter_count"] > 0
     assert result["samples"] == {"train": 4, "val": 1, "test": 0}
     assert result["dataset_fingerprint"]
+    assert result["target_overlay_fingerprint"] == overlay["dataset_fingerprint"]
 
     resumed_values = config.to_dict()
     resumed_values.update({"epochs": 2, "resume": True, "evaluate_test": True})

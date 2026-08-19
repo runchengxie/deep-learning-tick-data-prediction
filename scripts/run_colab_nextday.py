@@ -55,7 +55,13 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
-EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
+EVENTSTREAM_LABEL_SCALE_WORKFLOWS = frozenset(
+    {"eventstream-recent-label-scale-train", "eventstream-rolling-label-scale-train"}
+)
+EVENTSTREAM_TRAIN_WORKFLOWS = (
+    frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
+    | EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+)
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
@@ -98,6 +104,8 @@ def _parser() -> argparse.ArgumentParser:
             "eventstream-recent-joint-finetune",
             "eventstream-recent-gradient-audit",
             "eventstream-rolling-gradient-audit",
+            "eventstream-recent-label-scale-train",
+            "eventstream-rolling-label-scale-train",
         ),
         default="multi-horizon-validation",
     )
@@ -266,10 +274,13 @@ def _validate_eventstream_arguments(arguments: argparse.Namespace) -> None:
         if arguments.evaluate_test:
             raise ValueError("梯度审计只读取 validation，请使用 --no-evaluate-test")
         _gradient_audit_checkpoint_sha256(arguments)
+    if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS and arguments.seeds != [0]:
+        raise ValueError("标签尺度第一轮只允许运行 seed 0")
     rolling_workflows = {
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
         "eventstream-rolling-gradient-audit",
+        "eventstream-rolling-label-scale-train",
     }
     if arguments.workflow in rolling_workflows:
         _validate_eventstream_fold_id(arguments.eventstream_fold_id)
@@ -288,13 +299,15 @@ def _default_config(
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
         "eventstream-rolling-gradient-audit",
+        "eventstream-rolling-label-scale-train",
     }:
         fold_id = _validate_eventstream_fold_id(eventstream_fold_id)
-        return (
-            REPOSITORY_ROOT
-            / "configs"
-            / f"eventstream-h5-{fold_id}-capacity100m-materialized-colab.yaml"
+        suffix = (
+            "capacity100m-label-z-materialized-colab.yaml"
+            if workflow == "eventstream-rolling-label-scale-train"
+            else "capacity100m-materialized-colab.yaml"
         )
+        return REPOSITORY_ROOT / "configs" / f"eventstream-h5-{fold_id}-{suffix}"
     return {
         "multi-horizon-validation": DEFAULT_CONFIG,
         "h5-train": DEFAULT_H5_CONFIG,
@@ -309,6 +322,11 @@ def _default_config(
         "eventstream-recent-export-embeddings": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
         "eventstream-recent-joint-finetune": DEFAULT_EVENTSTREAM_JOINT_CONFIG,
         "eventstream-recent-gradient-audit": DEFAULT_EVENTSTREAM_RECENT_TRAIN_CONFIG,
+        "eventstream-recent-label-scale-train": (
+            REPOSITORY_ROOT
+            / "configs"
+            / "eventstream-h5-recent-capacity100m-label-z-materialized-colab.yaml"
+        ),
     }[workflow]
 
 
@@ -417,6 +435,7 @@ def _eventstream_training_paths(
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
         "eventstream-rolling-gradient-audit",
+        "eventstream-rolling-label-scale-train",
     }:
         fold_id = _validate_eventstream_fold_id(arguments.eventstream_fold_id)
         run_name = f"eventstream-top400-h5-capacity100m-{fold_id}"
@@ -425,13 +444,35 @@ def _eventstream_training_paths(
             f"{fold_id}/materialized/seed{seed}"
         )
         feature_local = f"/content/ticknet-eventstream/materialized/{fold_id}"
+        if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
+            run_name = f"{run_name}-label-z"
         return run_name, run_name, feature_remote, feature_local
     run_name = "eventstream-top400-h5-capacity100m-recent"
     feature_remote = (
         f"{drive_root}/ticknet-data/eventstream-top400-h5-recent-materialized/seed{seed}"
     )
     feature_local = "/content/ticknet-eventstream/materialized/recent"
+    if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
+        run_name = f"{run_name}-label-z"
     return run_name, run_name, feature_remote, feature_local
+
+
+def _eventstream_target_overlay_paths(
+    arguments: argparse.Namespace,
+    drive_root: str,
+) -> tuple[str, str]:
+    if arguments.workflow not in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
+        raise ValueError("当前工作流不使用日级标签覆盖层")
+    fold = (
+        _validate_eventstream_fold_id(arguments.eventstream_fold_id)
+        if arguments.workflow == "eventstream-rolling-label-scale-train"
+        else "recent"
+    )
+    seed = int(arguments.seeds[0])
+    return (
+        f"{drive_root}/ticknet-data/eventstream-top400-h5-target-overlays/{fold}/seed{seed}",
+        f"/content/ticknet-eventstream/target-overlay/{fold}/seed{seed}",
+    )
 
 
 def _eventstream_job_paths(
@@ -627,6 +668,16 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "joint_cache_local": (
             joint_cache_local if workflow in EVENTSTREAM_JOINT_WORKFLOWS else None
         ),
+        "target_overlay_remote": (
+            _eventstream_target_overlay_paths(arguments, drive_root)[0]
+            if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+            else None
+        ),
+        "target_overlay_local": (
+            _eventstream_target_overlay_paths(arguments, drive_root)[1]
+            if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+            else None
+        ),
         "expected_pretrained_sha256": (
             EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED[seed]
             if workflow in EVENTSTREAM_JOINT_WORKFLOWS
@@ -646,6 +697,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
                 "eventstream-rolling-train",
                 "eventstream-rolling-export-predictions",
                 "eventstream-rolling-gradient-audit",
+                "eventstream-rolling-label-scale-train",
             }
             else None
         ),

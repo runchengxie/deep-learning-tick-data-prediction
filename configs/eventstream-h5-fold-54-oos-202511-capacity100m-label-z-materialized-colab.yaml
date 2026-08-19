@@ -1,0 +1,36 @@
+# 相邻折标签尺度实验。训练标签使用每日截面去极值 z，评估继续使用原始 H5 收益。
+
+materialized_root: /content/ticknet-eventstream/materialized/fold-54-oos-202511
+materialized_source_revision: 222facb9f643006f0fa8647bb0cee8b7ab4b9306
+target_overlay_root: /content/ticknet-eventstream/target-overlay/fold-54-oos-202511/seed0
+monitor_name: h3
+train_start: 20250701
+train_end: 20250930
+val_start: 20251001
+val_end: 20251031
+test_start: 20251101
+test_end: 20251130
+
+model: capacity100m
+seq_len: 512
+min_events: 256
+samples_per_day: 2000
+eval_tickers: 0
+
+epochs: 20
+batch_size: 8
+lr: 0.0003
+weight_decay: 0.1
+patience: 4
+seed: 0
+num_workers: 8
+device: cuda
+amp: true
+gradient_accumulation_steps: 1
+resume: true
+evaluate_test: true
+
+checkpoint_dir: /content/ticknet-results/eventstream-top400-h5-capacity100m-fold-54-oos-202511-label-z/training
+checkpoint_name: eventstream-top400-h5-capacity100m-fold-54-oos-202511-label-z
+selection_metric: daily_rank_ic_mean
+min_symbols_per_day: 100

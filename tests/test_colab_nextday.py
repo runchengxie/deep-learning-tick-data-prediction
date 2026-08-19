@@ -343,6 +343,50 @@ def test_eventstream_gradient_audit_rejects_oos_and_unknown_identity(tmp_path: P
         _validate_lifecycle_arguments(arguments)
 
 
+def test_eventstream_label_scale_specs_reuse_features_and_isolate_outputs(
+    tmp_path: Path,
+) -> None:
+    recent = _arguments(tmp_path)
+    recent.workflow = "eventstream-recent-label-scale-train"
+    recent.gpu = "A100"
+    recent.seeds = [0]
+    rolling = _arguments(tmp_path)
+    rolling.workflow = "eventstream-rolling-label-scale-train"
+    rolling.eventstream_fold_id = "fold-54-oos-202511"
+    rolling.gpu = "A100"
+    rolling.seeds = [0]
+
+    recent_spec = build_job_spec(recent, "abc1234")
+    rolling_spec = build_job_spec(rolling, "abc1234")
+
+    assert recent_spec["feature_remote"].endswith("eventstream-top400-h5-recent-materialized/seed0")
+    assert recent_spec["target_overlay_remote"].endswith(
+        "eventstream-top400-h5-target-overlays/recent/seed0"
+    )
+    assert recent_spec["output_remote"].endswith(
+        "eventstream-top400-h5-capacity100m-recent-label-z/training"
+    )
+    assert rolling_spec["feature_remote"].endswith(
+        "eventstream-top400-h5-rolling/fold-54-oos-202511/materialized/seed0"
+    )
+    assert rolling_spec["target_overlay_remote"].endswith(
+        "eventstream-top400-h5-target-overlays/fold-54-oos-202511/seed0"
+    )
+    assert rolling_spec["output_remote"].endswith(
+        "eventstream-top400-h5-capacity100m-fold-54-oos-202511-label-z/training"
+    )
+    assert rolling_spec["eventstream_fold_id"] == "fold-54-oos-202511"
+    assert _default_config(recent.workflow).name.endswith("label-z-materialized-colab.yaml")
+    assert _default_config(
+        rolling.workflow,
+        eventstream_fold_id=rolling.eventstream_fold_id,
+    ).name.endswith("label-z-materialized-colab.yaml")
+
+    recent.seeds = [1]
+    with pytest.raises(ValueError, match="只允许运行 seed 0"):
+        _validate_lifecycle_arguments(recent)
+
+
 def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Path) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-export-embeddings"
@@ -975,6 +1019,53 @@ def test_eventstream_training_restores_materialized_data_and_checkpoint(
         (
             "gdrive:project/runs/eventstream/training",
             str(tmp_path / "checkpoints"),
+            (),
+        ),
+    ]
+
+
+def test_eventstream_label_scale_stages_overlay_before_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str, tuple[str, ...]]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **kwargs: copies.append(
+            (source, destination, tuple(kwargs.get("exclude", ())))
+        ),
+    )
+    monkeypatch.setattr(
+        colab_job,
+        "_remote_directory_exists",
+        lambda _source, **_kwargs: False,
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "eventstream-recent-label-scale-train",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/materialized/seed0",
+            "feature_local": "/content/materialized",
+            "target_overlay_remote": "project/data/target-overlay/seed0",
+            "target_overlay_local": "/content/target-overlay",
+            "checkpoint_remote": "project/runs/label-z/training",
+            "checkpoint_local": str(tmp_path / "checkpoints"),
+            "evaluate_test": False,
+        },
+        {},
+    )
+
+    assert copies == [
+        (
+            "gdrive:project/data/materialized/seed0",
+            "/content/materialized",
+            ("shards/oos-*/**", "shards/monitor_oos-*/**"),
+        ),
+        (
+            "gdrive:project/data/target-overlay/seed0",
+            "/content/target-overlay",
             (),
         ),
     ]

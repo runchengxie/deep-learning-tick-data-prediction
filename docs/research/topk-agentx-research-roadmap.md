@@ -635,9 +635,9 @@ next_action: ""
 
 M0 至 M3 已完成。M4 与 M5 的最近折冻结表征和联合训练三 seed 对照也已完成，当前优先级如下：
 
-1. 在最近折和相邻折运行 `EVT-GRAD-AUDIT-001`，核对四项任务对共享 Transformer 主干的梯度强度和两两夹角。
-2. 日级梯度明显偏弱时，运行 seed 0 的 `EVT-LABEL-SCALE-001`。梯度强度正常时，直接运行 `EVT-SUPERVISION-POSITION-001`。持续任务冲突还要复核任务权重。
-3. seed 0 在两折的 validation、OOS 和头部指标同时改善后，再补 seed 1、2、更多滚动窗口和横截面排序目标。
+1. `EVT-GRAD-AUDIT-001` 已完成。两折 best checkpoint 的日级梯度比值中位数为 0.01969 和 0.03927，正式决定进入 `EVT-LABEL-SCALE-001`。
+2. 在最近折和相邻折运行每日截面去极值 z 标签的 seed 0，对比原始 H5 标签基线的 validation、OOS 和极端组收益差。
+3. seed 0 在两折同时改善后，再补 seed 1、2。未形成跨折增量时进入 `EVT-SUPERVISION-POSITION-001`。
 4. 获得带日期的行业分类数据后补齐行业暴露归因。规模、流动性和波动率暴露已经完成第一轮核对。
 5. 跨窗口和成本后主动收益形成稳定增量后，再评估 `probe150m` 的预算和 seed 0 门槛。
 

@@ -19,7 +19,13 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
         "eventstream-recent-input-profile",
     }
 )
-EVENTSTREAM_TRAIN_WORKFLOWS = frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
+EVENTSTREAM_LABEL_SCALE_WORKFLOWS = frozenset(
+    {"eventstream-recent-label-scale-train", "eventstream-rolling-label-scale-train"}
+)
+EVENTSTREAM_TRAIN_WORKFLOWS = (
+    frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
+    | EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+)
 EVENTSTREAM_EMBEDDING_WORKFLOWS = frozenset({"eventstream-recent-export-embeddings"})
 EVENTSTREAM_JOINT_WORKFLOWS = frozenset({"eventstream-recent-joint-finetune"})
 EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predictions"})
@@ -118,6 +124,12 @@ def _stage_inputs(spec: dict[str, Any], env: dict[str, str]) -> None:
         env=env,
         exclude=excluded_partitions,
     )
+    if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
+        _rclone_copy(
+            _drive_path(remote, str(spec["target_overlay_remote"])),
+            str(spec["target_overlay_local"]),
+            env=env,
+        )
     if workflow in EVENTSTREAM_JOINT_WORKFLOWS:
         _rclone_copy(
             _drive_path(remote, str(spec["joint_cache_remote"])),
@@ -761,6 +773,8 @@ def main() -> None:
                 "eventstream-rolling-export-predictions",
                 "eventstream-recent-gradient-audit",
                 "eventstream-rolling-gradient-audit",
+                "eventstream-recent-label-scale-train",
+                "eventstream-rolling-label-scale-train",
             }:
                 _write_summary(spec, status="failed", error=str(error))
                 try:
