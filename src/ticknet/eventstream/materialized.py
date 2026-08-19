@@ -598,14 +598,21 @@ def assert_materialized_compatible(manifest: dict[str, Any], config: Any) -> Non
     for name, value in expected.items():
         if contract.get(name) != value:
             raise ValueError(f"物化训练集与配置的 {name} 不一致")
-    if config.source_revision and contract.get("source_revision") != config.source_revision:
+    expected_source_revision = config.materialized_source_revision or config.source_revision
+    if expected_source_revision and contract.get("source_revision") != expected_source_revision:
         raise ValueError("物化训练集与配置的源码 revision 不一致")
 
 
 class MaterializedWindowDataset(Dataset):
     """按需 mmap 物化分片，返回与 ``L2WindowDataset`` 相同的张量合同。"""
 
-    def __init__(self, root: Path, partition: str):
+    def __init__(
+        self,
+        root: Path,
+        partition: str,
+        *,
+        target_overlay_root: Path | None = None,
+    ):
         self.root = Path(root)
         self.manifest = load_materialized_manifest(self.root)
         if partition not in PARTITIONS:
@@ -618,6 +625,33 @@ class MaterializedWindowDataset(Dataset):
             raise ValueError(f"物化训练集缺少分区：{partition}")
         self.offsets = np.cumsum([0, *(int(record["samples"]) for record in self.records)])
         self._arrays: dict[int, dict[str, np.ndarray[Any, Any]]] = {}
+        self.target_overlay_root = (
+            Path(target_overlay_root).expanduser().resolve()
+            if target_overlay_root is not None
+            else None
+        )
+        self.target_overlay_fingerprint: str | None = None
+        self.target_overlay_records: list[dict[str, Any]] = []
+        self._target_overlay_arrays: dict[int, np.ndarray[Any, Any]] = {}
+        if self.target_overlay_root is not None:
+            from ticknet.eventstream.target_overlay import load_target_overlay_manifest
+
+            overlay = load_target_overlay_manifest(
+                self.target_overlay_root,
+                expected_materialized_fingerprint=str(self.manifest["dataset_fingerprint"]),
+                expected_partition=partition,
+            )
+            self.target_overlay_records = list(overlay["files"])
+            expected_rows = [
+                (str(record["month"]), int(record["samples"])) for record in self.records
+            ]
+            overlay_rows = [
+                (str(record["month"]), int(record["samples"]))
+                for record in self.target_overlay_records
+            ]
+            if overlay_rows != expected_rows:
+                raise ValueError("日级标签覆盖层与物化训练分片不一致")
+            self.target_overlay_fingerprint = str(overlay["dataset_fingerprint"])
 
     def __len__(self) -> int:
         return int(self.offsets[-1])
@@ -634,12 +668,27 @@ class MaterializedWindowDataset(Dataset):
             self._arrays[shard_index] = arrays
         return arrays
 
+    def _target_overlay_array(self, shard_index: int) -> np.ndarray[Any, Any] | None:
+        if self.target_overlay_root is None:
+            return None
+        values = self._target_overlay_arrays.get(shard_index)
+        if values is None:
+            record = self.target_overlay_records[shard_index]
+            values = np.load(
+                self.target_overlay_root / str(record["path"]),
+                mmap_mode="r",
+                allow_pickle=False,
+            )
+            self._target_overlay_arrays[shard_index] = values
+        return values
+
     def __getitem__(self, index: int) -> tuple[torch.Tensor, ...]:
         if not 0 <= index < len(self):
             raise IndexError(index)
         shard_index = int(np.searchsorted(self.offsets, index, side="right") - 1)
         row = index - int(self.offsets[shard_index])
         values = self._shard_arrays(shard_index)
+        target_overlay = self._target_overlay_array(shard_index)
 
         def copy(name: str, dtype: np.dtype[Any] | None = None) -> torch.Tensor:
             value = np.array(values[name][row], copy=True)
@@ -654,7 +703,11 @@ class MaterializedWindowDataset(Dataset):
             copy("tgt_sid", np.dtype(np.int64)),
             copy("tgt_oid", np.dtype(np.int64)),
             copy("tgt_reg"),
-            copy("tgt_day"),
+            (
+                torch.from_numpy(np.array(target_overlay[row], copy=True))
+                if target_overlay is not None
+                else copy("tgt_day")
+            ),
             copy("day_valid"),
             copy("valid"),
             copy("day"),

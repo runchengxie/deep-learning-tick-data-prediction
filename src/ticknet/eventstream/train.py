@@ -53,6 +53,7 @@ class EventstreamConfig:
         "label_path",
         "lr",
         "materialized_root",
+        "materialized_source_revision",
         "min_events",
         "min_symbols_per_day",
         "model",
@@ -67,6 +68,7 @@ class EventstreamConfig:
         "selection_metric",
         "seq_len",
         "source_revision",
+        "target_overlay_root",
         "test_end",
         "test_start",
         "train_end",
@@ -100,6 +102,8 @@ class EventstreamConfig:
         batch_size: int = 8,
         lr: float = 3e-4,
         materialized_root: str = "",
+        materialized_source_revision: str = "",
+        target_overlay_root: str = "",
         weight_decay: float = 0.1,
         patience: int = 4,
         seed: int = 0,
@@ -135,6 +139,8 @@ class EventstreamConfig:
         self.batch_size = batch_size
         self.lr = lr
         self.materialized_root = materialized_root
+        self.materialized_source_revision = materialized_source_revision
+        self.target_overlay_root = target_overlay_root
         self.weight_decay = weight_decay
         self.patience = patience
         self.seed = seed
@@ -168,6 +174,10 @@ class EventstreamConfig:
             raise ValueError("min_symbols_per_day 至少为 2")
         if self.monitor_label_path and not self.monitor_name:
             raise ValueError("提供 monitor_label_path 时必须提供 monitor_name")
+        if self.target_overlay_root and not self.materialized_root:
+            raise ValueError("target_overlay_root 只能与 materialized_root 一起使用")
+        if self.materialized_source_revision and not self.materialized_root:
+            raise ValueError("materialized_source_revision 只能与 materialized_root 一起使用")
         if self.monitor_name and (
             not self.monitor_name.isascii() or not self.monitor_name.replace("_", "").isalnum()
         ):
@@ -221,7 +231,13 @@ def make_dataloaders(
         root = Path(config.materialized_root)
         manifest = load_materialized_manifest(root)
         assert_materialized_compatible(manifest, config)
-        train_ds = MaterializedWindowDataset(root, "train")
+        train_ds = MaterializedWindowDataset(
+            root,
+            "train",
+            target_overlay_root=(
+                Path(config.target_overlay_root) if config.target_overlay_root else None
+            ),
+        )
         val_ds = MaterializedWindowDataset(root, "validation")
         test_ds = MaterializedWindowDataset(root, "oos") if config.evaluate_test else None
         train_loader = DataLoader(
@@ -530,6 +546,10 @@ def _experiment_signature(
     if not config.monitor_label_path and not config.materialized_root:
         signature.pop("monitor_label_path")
         signature.pop("monitor_name")
+    if not config.target_overlay_root:
+        signature.pop("target_overlay_root")
+    if not config.materialized_source_revision:
+        signature.pop("materialized_source_revision")
     signature["dataset_fingerprint"] = fingerprint
     if monitor_label_fingerprint is not None:
         signature["monitor_label_fingerprint"] = monitor_label_fingerprint
@@ -583,6 +603,16 @@ def train(
         else None
     )
     signature = _experiment_signature(config, fingerprint, monitor_label_fingerprint)
+    train_dataset = train_loader.dataset
+    if not isinstance(train_dataset, (L2WindowDataset, MaterializedWindowDataset)):
+        raise TypeError("训练数据集类型无效")
+    target_overlay_fingerprint = (
+        train_dataset.target_overlay_fingerprint
+        if isinstance(train_dataset, MaterializedWindowDataset)
+        else None
+    )
+    if target_overlay_fingerprint is not None:
+        signature["target_overlay_fingerprint"] = target_overlay_fingerprint
 
     model = build_eventstream_model(config.model).to(device)
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
@@ -727,10 +757,7 @@ def train(
         if config.evaluate_test
         else None
     )
-    train_dataset = train_loader.dataset
     dataset_types = (L2WindowDataset, MaterializedWindowDataset)
-    if not isinstance(train_dataset, dataset_types):
-        raise TypeError("训练数据集类型无效")
     val_count = 0
     if val_loader is not None:
         if not isinstance(val_loader.dataset, dataset_types):
@@ -749,6 +776,7 @@ def train(
         "environment": _environment(device),
         "duration_seconds": time.perf_counter() - started_at,
         "dataset_fingerprint": fingerprint,
+        "target_overlay_fingerprint": target_overlay_fingerprint,
         "monitor_label_fingerprint": monitor_label_fingerprint,
         "best_epoch": int(best["epoch"]),
         "best_selection_value": float(best["best_selection_value"]),

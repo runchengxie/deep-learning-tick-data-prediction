@@ -52,6 +52,25 @@
 
 标签尺度实验只运行 seed 0，对比原始 H5 收益与每日截面去极值 z 标签。最近折和相邻折使用相同合同。只有两折的 validation、OOS 和头部指标同时改善，才补 seed 1、2。
 
+## 正式结果
+
+两折均使用 16 个固定 batch，每个 batch 8 个样本。审计源码 revision 为 `3e28f04755a881cb72697db2fc50bba031c9f5b0`。2026 锁定区和两折 OOS 都没有进入运行环境。
+
+| 滚动折 | 初始化日级梯度比值中位数 | best checkpoint 日级梯度比值中位数 | best epoch | 持续负相关任务对 |
+|---|---:|---:|---:|---|
+| 最近折 | 0.61608 | 0.01969 | 4 | 无 |
+| `fold-54-oos-202511` | 0.65568 | 0.03927 | 11 | `reg__day`、`stream__day` |
+
+日级任务在初始化时与三个生成任务处于相近量级。训练到 best checkpoint 后，两折的日级梯度只剩生成任务中位数的约 2% 和 4%，都低于 0.1 门槛。相邻折的 `reg__day` 余弦中位数为 -0.34875，负值比例为 81.25%。`stream__day` 余弦中位数为 -0.10432，负值比例为 75%。最近折没有出现相同冲突，因此当前证据不支持先调整任务权重。
+
+最近折和相邻折结果指纹分别为 `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd` 和 `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`。跨折决策指纹为 `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`。正式决定为 `day_gradient_weak`，下一实验是 `EVT-LABEL-SCALE-001`。
+
+## 标签尺度实验合同
+
+`ticknet-eventstream-target-overlay` 为原物化缓存生成轻量 train 标签覆盖层。事件张量、采样窗口、validation、OOS 和 H3 监控标签保持不变。覆盖层只替换训练批次中的 H5 日级目标，validation 与 OOS 继续使用原始 H5 收益评估。
+
+每个有 H5 标签的训练日先按动态截面的全部有限标签计算中位数和原始 MAD，将标签裁剪到中位数加减 5 倍 MAD，再按裁剪后截面的均值和总体标准差转换成 z 标签。因分区边界而没有 H5 标签的样本继续由 `day_valid=0` 屏蔽。覆盖层绑定原物化数据指纹、H5 标签 SHA-256、逐日统计和每个月份文件的 SHA-256。最近折与相邻折分别使用独立覆盖层和训练输出目录。
+
 ## 正式运行
 
 运行前要求当前 worktree 已提交且保持干净。最近折命令如下：
@@ -96,4 +115,41 @@ ticknet-eventstream-gradient-audit decide \
   --output artifacts/eventstream-gradient-audit/decision.json
 ```
 
-正式数值和下一项实验会在两折审计完成后补入本页与[实验日志](experiment-log.md)。
+最近折标签覆盖层生成命令如下：
+
+```bash
+ticknet-eventstream-target-overlay build \
+  --config configs/eventstream-h5-recent-capacity100m.yaml \
+  --storage-manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
+  --materialized-root artifacts/eventstream-h5-recent-fold/materialized/seed0 \
+  --output artifacts/eventstream-label-scale/recent-seed0/target-overlay \
+  --source-revision "$(git rev-parse HEAD)"
+```
+
+通过核对后上传轻量覆盖层：
+
+```bash
+rclone --config ~/.config/rclone/rclone.conf copy \
+  artifacts/eventstream-label-scale/recent-seed0/target-overlay \
+  gdrive:deep-learning-tick-data-prediction/ticknet-data/eventstream-top400-h5-target-overlays/recent/seed0 \
+  --checksum
+```
+
+随后运行一个不读取 OOS 的短恢复检查：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-label-scale-train \
+  --session ticknet-label-scale-recent-seed0 \
+  --gpu A100 \
+  --seeds 0 \
+  --training-epochs 1 \
+  --no-evaluate-test \
+  --timeout 7200 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-label-scale/recent-seed0/training
+```
+
+短恢复检查通过后，将 `--training-epochs` 改为 `20` 并使用 `--evaluate-test`。相邻折改用 `eventstream-rolling-label-scale-train`，同时提供 `--eventstream-fold-id fold-54-oos-202511`。两个工作流使用独立 checkpoint 和结果目录。
+
+标签尺度训练完成后，将在本页与[实验日志](experiment-log.md)补充两折 validation、OOS 和极端组收益差，并按门槛决定是否补 seed 1、2。

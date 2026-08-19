@@ -72,6 +72,10 @@ class TestConfig:
                 days=(20210104,), monitor_label_path="h3.parquet", monitor_name=""
             ).validate()
 
+    def test_target_overlay_requires_materialized_dataset(self):
+        with pytest.raises(ValueError, match="materialized_root"):
+            EventstreamConfig(days=(20210104,), target_overlay_root="target-overlay").validate()
+
 
 class TestTrain:
     def test_smoke_train_writes_checkpoints(self, packed_day, tmp_path):
@@ -145,6 +149,8 @@ class TestFingerprint:
         assert sig["dataset_fingerprint"] == "fp-123"
         assert "monitor_label_path" not in sig
         assert "monitor_label_fingerprint" not in sig
+        assert "target_overlay_root" not in sig
+        assert "materialized_source_revision" not in sig
         assert "epochs" not in sig
         assert "device" not in sig
 
