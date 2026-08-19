@@ -6,7 +6,12 @@ import pytest
 import torch
 
 from ticknet.eventstream.dataset import N_FEATURES, N_ORDER_TYPES
-from ticknet.eventstream.model import build_eventstream_model, compute_loss
+from ticknet.eventstream.model import (
+    LOSS_WEIGHTS,
+    build_eventstream_model,
+    compute_loss,
+    compute_loss_components,
+)
 
 
 class TestModel:
@@ -38,8 +43,16 @@ class TestModel:
         day_valid = torch.ones(batch)
         valid = torch.ones(batch, length)
         out = model(x, sid, oid)
+        components = compute_loss_components(
+            out, tgt_sid, tgt_oid, tgt_reg, tgt_day, day_valid, valid
+        )
         loss, metrics = compute_loss(out, tgt_sid, tgt_oid, tgt_reg, tgt_day, day_valid, valid)
         assert loss.ndim == 0
+        assert set(components) == set(LOSS_WEIGHTS)
+        expected = components["stream"] * LOSS_WEIGHTS["stream"]
+        for name in ("otype", "reg", "day"):
+            expected = expected + components[name] * LOSS_WEIGHTS[name]
+        assert torch.equal(loss, expected)
         assert set(metrics) == {"loss", "ce_stream", "ce_otype", "reg", "day"}
         loss.backward()
         qkv = model.blocks[0].qkv

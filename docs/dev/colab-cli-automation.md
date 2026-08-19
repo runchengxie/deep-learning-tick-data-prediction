@@ -10,7 +10,7 @@ Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临�
 - rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
 - 早期原始盘口容量系列继续锁定 2025 test。当前事件流和 AgentX 系列把 2025 用作开发区，并由协议锁定 2026。自动化入口支持多周期评估、独立 H=5、容量矩阵和事件流基准。
 
-截至 2026-08-16，原始盘口四格三 seed 矩阵和事件流输入基准已经完成。本文保留对应命令用于复现。当前尚未执行的是事件流最近折正式训练。
+截至 2026-08-19，原始盘口四格三 seed 矩阵、事件流输入基准、最近折正式训练三 seed 和相邻折 seed 0 已经完成。本文保留对应命令用于复现。当前新增的正式工作流是两折多任务梯度审计。
 
 ## Linux 主机安装
 
@@ -167,6 +167,23 @@ python scripts/run_colab_nextday.py \
 ```
 
 默认配置按折标识解析。新折需要先提交对应的固定日期配置，Runner 会拒绝路径分隔符和不符合 `fold-NN-oos-YYYYMM` 格式的标识。
+
+多任务梯度审计只读取 validation。最近折和相邻折都固定使用 seed 0、16 个 batch 和已登记 SHA-256 的 best checkpoint。最近折命令如下：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-gradient-audit \
+  --session ticknet-gradient-audit-recent-seed0 \
+  --gpu A100 \
+  --seeds 0 \
+  --audit-batches 16 \
+  --no-evaluate-test \
+  --timeout 7200 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-gradient-audit/recent-seed0
+```
+
+相邻折把 workflow 改为 `eventstream-rolling-gradient-audit`，并增加 `--eventstream-fold-id fold-54-oos-202511`。工作流只暂存 validation 分片和一个 checkpoint，train、OOS、监控分区与 2026 锁定区不会进入 Colab。审计门槛见[事件流多任务梯度审计](../research/eventstream-gradient-audit.md)。
 
 如果 batch sweep 的吞吐没有随物理 batch 增长，可以使用相同的 2025 年 8 月 pack 分别测量 DataLoader 和 GPU，并扫描 worker 数：
 

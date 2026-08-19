@@ -52,6 +52,7 @@ ticknet-eventstream-materialized-predictions = "ticknet.eventstream.materialized
 ticknet-eventstream-signal-diagnostics = "ticknet.research.signal_diagnostics_cli:main"
 ticknet-eventstream-close-cache = "ticknet.eventstream.close_cache:main"
 ticknet-eventstream-export-embeddings = "ticknet.eventstream.embedding:main"
+ticknet-eventstream-gradient-audit = "ticknet.eventstream.gradient_audit:main"
 ticknet-eventstream-benchmark = "ticknet.eventstream.benchmark:main"
 ticknet-eventstream-train = "ticknet.eventstream.train:main"
 ticknet-eventstream-export-predictions = "ticknet.eventstream.export:main"

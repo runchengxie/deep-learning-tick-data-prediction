@@ -15,9 +15,12 @@ import yaml
 
 from ticknet.eventstream.config import day_pack_paths
 from ticknet.eventstream.dataset import L2WindowDataset
+from ticknet.eventstream.fingerprint import file_sha256
+from ticknet.eventstream.gradient_audit import TASKS, run_gradient_audit
 from ticknet.eventstream.materialized import (
     MaterializedWindowDataset,
     build_materialized_dataset,
+    load_materialized_manifest,
     verify_materialized_dataset,
 )
 from ticknet.eventstream.materialized_predictions import (
@@ -27,6 +30,7 @@ from ticknet.eventstream.materialized_predictions import (
 from ticknet.eventstream.model import build_eventstream_model
 from ticknet.eventstream.storage_readiness import build_storage_manifest
 from ticknet.eventstream.train import EventstreamConfig, train
+from ticknet.train import set_seed
 
 SOURCE_REVISION = "abcdef1234567890"
 DAYS = (20210104, 20210105, 20210106, 20210107)
@@ -153,6 +157,81 @@ def test_materialized_samples_match_canonical_windows(
     report = verify_materialized_dataset(output)
     assert report["samples"] == 8
     assert report["shards"] == 5
+
+
+def test_gradient_audit_uses_fixed_validation_batches_and_checkpoint_identity(
+    materialized_fixture: tuple[EventstreamConfig, Path],
+    tmp_path: Path,
+) -> None:
+    config, output = materialized_fixture
+    config.materialized_root = str(output)
+    config.batch_size = 2
+    config.device = "cpu"
+    config.amp = False
+    set_seed(config.seed)
+    model = build_eventstream_model(config.model)
+    checkpoint = tmp_path / "smoke.best.pt"
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "epoch": 1,
+            "experiment": {
+                "source_revision": SOURCE_REVISION,
+                "dataset_fingerprint": load_materialized_manifest(output)["dataset_fingerprint"],
+                "model": config.model,
+                "seed": config.seed,
+            },
+        },
+        checkpoint,
+    )
+    checkpoint_sha256 = file_sha256(checkpoint)
+
+    result = run_gradient_audit(
+        config,
+        checkpoint_path=checkpoint,
+        expected_checkpoint_sha256=checkpoint_sha256,
+        partition="validation",
+        batches=2,
+        batch_size=2,
+        source_revision="audit123",
+    )
+
+    assert result["status"] == "complete"
+    assert result["locked_status"] == "2026_not_accessed"
+    assert result["materialized"]["preflight"]["partitions"] == ["validation"]
+    assert len(result["materialized"]["batch_fingerprint"]) == 64
+    assert result["checkpoint"]["sha256"] == checkpoint_sha256
+    assert set(result["states"]) == {"initialization", "best_checkpoint"}
+    assert result["states"]["initialization"] == result["states"]["best_checkpoint"]
+    for state in result["states"].values():
+        assert set(state["summary"]["tasks"]) == set(TASKS)
+        assert state["summary"]["batches"] == 1
+
+    with pytest.raises(ValueError, match="SHA-256 不匹配"):
+        run_gradient_audit(
+            config,
+            checkpoint_path=checkpoint,
+            expected_checkpoint_sha256="0" * 64,
+            partition="validation",
+            batches=1,
+            batch_size=2,
+            source_revision="audit123",
+        )
+
+    wrong_identity = tmp_path / "wrong-identity.best.pt"
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    state["experiment"]["dataset_fingerprint"] = "0" * 64
+    torch.save(state, wrong_identity)
+    with pytest.raises(ValueError, match="实验身份不匹配"):
+        run_gradient_audit(
+            config,
+            checkpoint_path=wrong_identity,
+            expected_checkpoint_sha256=file_sha256(wrong_identity),
+            partition="validation",
+            batches=1,
+            batch_size=2,
+            source_revision="audit123",
+        )
 
 
 def test_materialization_resume_and_tamper_detection(

@@ -46,6 +46,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         num_workers=[2, 4, 8, 16],
         effective_batch_size=32,
         training_epochs=None,
+        audit_batches=16,
         evaluate_test=True,
         session="ticknet-test",
         gpu="T4",
@@ -276,6 +277,69 @@ def test_eventstream_rolling_prediction_export_uses_evaluation_partitions(
 
     arguments.evaluate_test = False
     with pytest.raises(ValueError, match="OOS"):
+        _validate_lifecycle_arguments(arguments)
+
+
+def test_eventstream_gradient_audit_specs_use_validation_and_registered_checkpoints(
+    tmp_path: Path,
+) -> None:
+    recent = _arguments(tmp_path)
+    recent.workflow = "eventstream-recent-gradient-audit"
+    recent.seeds = [0]
+    recent.gpu = "A100"
+    recent.evaluate_test = False
+    rolling = _arguments(tmp_path)
+    rolling.workflow = "eventstream-rolling-gradient-audit"
+    rolling.eventstream_fold_id = "fold-54-oos-202511"
+    rolling.seeds = [0]
+    rolling.gpu = "A100"
+    rolling.evaluate_test = False
+
+    recent_spec = build_job_spec(recent, "abc1234")
+    rolling_spec = build_job_spec(rolling, "abc1234")
+
+    assert recent_spec["feature_remote"].endswith("eventstream-top400-h5-recent-materialized/seed0")
+    assert recent_spec["output_remote"].endswith("capacity100m-recent/gradient-audit/seed0")
+    assert (
+        recent_spec["expected_gradient_checkpoint_sha256"]
+        == (colab_runner.EVENTSTREAM_CHECKPOINT_SHA256_BY_SEED[0])
+    )
+    assert rolling_spec["feature_remote"].endswith(
+        "eventstream-top400-h5-rolling/fold-54-oos-202511/materialized/seed0"
+    )
+    assert rolling_spec["output_remote"].endswith(
+        "capacity100m-fold-54-oos-202511/gradient-audit/seed0"
+    )
+    assert rolling_spec["expected_gradient_checkpoint_sha256"] == (
+        "d753041016d71e668a46624585f7bc7fb68f67200fee3c5b463c28b26f1c11cd"
+    )
+    assert rolling_spec["eventstream_fold_id"] == "fold-54-oos-202511"
+    assert rolling_spec["projected_train_samples"] == 128
+    assert (
+        _default_config(
+            rolling.workflow,
+            eventstream_fold_id=rolling.eventstream_fold_id,
+        ).name
+        == "eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml"
+    )
+
+
+def test_eventstream_gradient_audit_rejects_oos_and_unknown_identity(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-gradient-audit"
+    arguments.seeds = [0]
+
+    with pytest.raises(ValueError, match="只读取 validation"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.evaluate_test = False
+    arguments.seeds = [1]
+    with pytest.raises(ValueError, match="身份未登记"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.seeds = [0]
+    arguments.audit_batches = 17
+    with pytest.raises(ValueError, match="8 至 16"):
         _validate_lifecycle_arguments(arguments)
 
 
@@ -517,6 +581,29 @@ def test_eventstream_summary_confirms_seed_locked_and_oos_status(tmp_path: Path)
     )
     with pytest.raises(RuntimeError, match="OOS 状态"):
         _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_gradient_audit_summary_confirms_validation_only(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-recent-gradient-audit",
+        "source_revision": "abc1234",
+        "seeds": [0],
+        "evaluate_test": False,
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "not_evaluated",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _validate_downloaded_summary(tmp_path, spec)
 
 
 def test_rolling_summary_must_confirm_fold_identity(tmp_path: Path) -> None:
@@ -893,6 +980,58 @@ def test_eventstream_training_restores_materialized_data_and_checkpoint(
     ]
 
 
+def test_eventstream_gradient_audit_stages_validation_and_one_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    copies: list[tuple[str, str, tuple[str, ...]]] = []
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **kwargs: copies.append(
+            (source, destination, tuple(kwargs.get("exclude", ())))
+        ),
+    )
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+
+    colab_job._stage_inputs(
+        {
+            "workflow": "eventstream-recent-gradient-audit",
+            "rclone_remote": "gdrive",
+            "feature_remote": "project/data/materialized/seed0",
+            "feature_local": "/content/materialized",
+            "checkpoint_remote": "project/runs/eventstream/training",
+            "checkpoint_local": str(tmp_path / "checkpoint"),
+            "checkpoint_name": "eventstream-recent",
+            "seeds": [0],
+            "evaluate_test": False,
+        },
+        {},
+    )
+
+    assert copies == [
+        (
+            "gdrive:project/data/materialized/seed0",
+            "/content/materialized",
+            (
+                "shards/train-*/**",
+                "shards/oos-*/**",
+                "shards/monitor_validation-*/**",
+                "shards/monitor_oos-*/**",
+            ),
+        )
+    ]
+    assert commands[0][-2:] == [
+        "gdrive:project/runs/eventstream/training/eventstream-recent.seed0.best.pt",
+        str(tmp_path / "checkpoint" / "eventstream-recent.seed0.best.pt"),
+    ]
+
+
 def test_eventstream_embedding_stages_shared_cache_manifest_and_checkpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1016,6 +1155,41 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     assert train_command[train_command.index("--epochs") + 1] == "1"
     assert train_command[train_command.index("--expected-parameter-count") + 1] == "100604180"
     assert "--no-evaluate-test" in train_command
+
+
+def test_eventstream_gradient_audit_executes_registered_validation_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_run",
+        lambda command, **_kwargs: captured.append(command),
+    )
+    spec = {
+        "workflow": "eventstream-recent-gradient-audit",
+        "feature_local": "/content/materialized",
+        "checkpoint_local": "/content/checkpoint",
+        "checkpoint_name": "eventstream-recent",
+        "expected_gradient_checkpoint_sha256": "a" * 64,
+        "output_local": str(tmp_path / "output"),
+        "training_config": "/content/config.yaml",
+        "seeds": [0],
+        "source_revision": "abc1234",
+        "expected_parameter_count": 100_604_180,
+        "audit_batches": 16,
+    }
+
+    colab_job._execute_workflow(spec)
+
+    assert len(captured) == 1
+    command = captured[0]
+    assert "ticknet.eventstream.gradient_audit" in command
+    assert command[command.index("--partition") + 1] == "validation"
+    assert command[command.index("--batches") + 1] == "16"
+    assert command[command.index("--expected-checkpoint-sha256") + 1] == "a" * 64
+    assert "oos" not in command
 
 
 def test_eventstream_embedding_executes_with_explicit_oos_authorization(
