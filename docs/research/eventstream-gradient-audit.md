@@ -63,7 +63,7 @@
 
 日级任务在初始化时与三个生成任务处于相近量级。训练到 best checkpoint 后，两折的日级梯度只剩生成任务中位数的约 2% 和 4%，都低于 0.1 门槛。相邻折的 `reg__day` 余弦中位数为 -0.34875，负值比例为 81.25%。`stream__day` 余弦中位数为 -0.10432，负值比例为 75%。最近折没有出现相同冲突，因此当前证据不支持先调整任务权重。
 
-最近折和相邻折结果指纹分别为 `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd` 和 `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`。跨折决策指纹为 `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`。正式决定为 `day_gradient_weak`，下一实验是 `EVT-LABEL-SCALE-001`。
+最近折和相邻折结果指纹分别为 `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd` 和 `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`。跨折决策指纹为 `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`。正式决定为 `day_gradient_weak`，下一实验是 `EVT-LABEL-SCALE-001`。标签尺度实验已经完成，正式结果见[事件流标签尺度实验](eventstream-label-scale.md)。
 
 ## 标签尺度实验合同
 
@@ -152,4 +152,4 @@ python scripts/run_colab_nextday.py \
 
 短恢复检查通过后，将 `--training-epochs` 改为 `20` 并使用 `--evaluate-test`。相邻折改用 `eventstream-rolling-label-scale-train`，同时提供 `--eventstream-fold-id fold-54-oos-202511`。两个工作流使用独立 checkpoint 和结果目录。
 
-标签尺度训练完成后，将在本页与[实验日志](experiment-log.md)补充两折 validation、OOS 和极端组收益差，并按门槛决定是否补 seed 1、2。
+标签尺度训练在两折都提高了 validation 与 OOS Rank IC，最近折的 OOS 极端组收益差没有改善。预注册门槛没有完全通过，seed 1、2 暂停，下一步进入 `EVT-SUPERVISION-POSITION-001`。

@@ -387,3 +387,20 @@ best、last、结果 JSON、训练历史、运行摘要和物化预检共 6 个�
 最近折和相邻折结果指纹分别为 `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd` 和 `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`。跨折决策指纹为 `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`。审计源码 revision 为 `3e28f04755a881cb72697db2fc50bba031c9f5b0`。两折 OOS 和 2026 锁定区都没有进入运行环境。
 
 标签尺度实验只替换 train 分区的 H5 目标。每个有 H5 标签的动态截面先按中位数加减 5 倍原始 MAD 去极值，再按去极值后截面的均值和总体标准差转换成 z 标签。分区边界处没有 H5 标签的样本继续由 `day_valid=0` 屏蔽。原物化事件窗口、validation、OOS 和 H3 监控标签保持不变。第一轮只运行两折 seed 0，两折的 validation、OOS 和极端组收益差同时改善后才补 seed 1、2。
+
+## 2026-08-20：事件流标签尺度 seed 0 两折结果
+
+`EVT-LABEL-SCALE-001` 已完成最近折和 `fold-54-oos-202511` 的 seed 0。实验只在 train 分区使用每日截面去极值 z 标签，validation、OOS、H3 监控标签、事件窗口、模型容量和任务权重保持不变。训练实验身份绑定源码 revision `1b4c0f163d1f0aab2c930468f20eecaafe8b60f3`。
+
+| 滚动折 | 训练标签 | best epoch | validation Rank IC | OOS Rank IC | validation 极端组收益差 | OOS 极端组收益差 |
+|---|---|---:|---:|---:|---:|---:|
+| 最近折 | 原始 H5 收益 | 4 | 0.04345 | 0.05879 | -0.38744% | 0.34105% |
+| 最近折 | 每日截面 z 标签 | 4 | 0.11747 | 0.07446 | 1.27275% | 0.08885% |
+| `fold-54-oos-202511` | 原始 H5 收益 | 11 | 0.08735 | 0.03305 | 1.78031% | -0.51240% |
+| `fold-54-oos-202511` | 每日截面 z 标签 | 8 | 0.13534 | 0.07755 | 2.68055% | 0.48367% |
+
+两折的 validation 与 OOS Rank IC 全部提高，H3 监控的四段 Rank IC 也全部提高。相邻折的 H5 OOS 极端组收益差由负转正。最近折的 H5 OOS 极端组收益差仍为正，但低于原始标签基线。
+
+相邻折第一次正式恢复运行期间，Colab 虚拟机在任务仍显示运行时回收了执行环境，epoch 2 至 4 没有进入 Drive。PR #91 增加每 180 秒一次的事件流 checkpoint 同步，PR #92 允许新调度代码使用原实验 revision 恢复严格签名的旧 checkpoint。最终运行从 epoch 1 继续，在 epoch 8 取得最佳结果并于 epoch 12 早停。调度源码 revision 为 `35f90d722e6dacd98cd9d0608d6fa3c3c7737b3e`，best、last、历史、结果和摘要均已同步到本机与 Drive。
+
+预注册门槛要求两折的 validation、OOS 和极端组收益差同时改善。最近折 OOS 极端组收益差没有通过，因此暂不补 seed 1、2。正式决定为 `EXTEND_TO_SUPERVISION_POSITION`。下一步使用现有 z 标签全部位置结果作为对照，只新增最后位置和线性尾部加权两种模式，先完成两折 seed 0 validation 选择，再对入选方案开放 OOS。完整合同和产物身份见[事件流标签尺度实验](eventstream-label-scale.md)。

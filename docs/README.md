@@ -15,7 +15,8 @@
 7. [research/topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) 记录已经完成的正式 Top-K 诊断
 8. [research/eventstream-signal-trading-diagnostics.md](research/eventstream-signal-trading-diagnostics.md) 记录事件流半衰期、错峰持有和交易门槛结果
 9. [research/eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) 说明多任务梯度审计、决策门槛和正式运行方式
-10. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
+10. [research/eventstream-label-scale.md](research/eventstream-label-scale.md) 记录标签尺度 seed 0 两折结果和监督位置预注册合同
+11. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
 
 `project-status.md` 和路线总览用于判断当前状态。M0、M1、M2a 至 M2d 文档记录对应里程碑完成时的设计和结论，后续功能可能已经继续扩展。`reports/` 与 `baselines/` 是冻结产物。
 
@@ -57,6 +58,7 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 | [topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) | 正式 Top-K 成本诊断的输入、结果与判定门槛 |
 | [eventstream-signal-trading-diagnostics.md](research/eventstream-signal-trading-diagnostics.md) | 事件流半衰期、H5 错峰持有、排名平滑、动态成本和风险暴露 |
 | [eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) | 事件流四任务的梯度强度、方向、审计合同和决策门槛 |
+| [eventstream-label-scale.md](research/eventstream-label-scale.md) | 事件流标签尺度两折结果、正式决策和监督位置实验合同 |
 | [resource-strategy-and-pilot-gates.md](research/resource-strategy-and-pilot-gates.md) | 有限算力下的资源策略与门槛式实验原则 |
 | [external-l2-research-comparison.md](research/external-l2-research-comparison.md) | 外部 L2 研究路线对比、事实修正、待验证机制和实施顺序 |
 | [experiment-log.md](research/experiment-log.md) | 带日期的历史实验记录，含 TCN 对比、滚动验证、成本评估、审计归因与 Agent 闭环 |
