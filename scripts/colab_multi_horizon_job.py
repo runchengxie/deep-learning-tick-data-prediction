@@ -357,6 +357,17 @@ def _train_eventstream(spec: dict[str, Any]) -> None:
         ]
         if spec.get("training_epochs") is not None:
             command.extend(("--epochs", str(int(spec["training_epochs"]))))
+        if spec.get("day_supervision_mode") is not None:
+            command.extend(
+                (
+                    "--day-supervision-mode",
+                    str(spec["day_supervision_mode"]),
+                    "--checkpoint-dir",
+                    str(spec["output_local"]),
+                    "--checkpoint-name",
+                    str(spec["checkpoint_name"]),
+                )
+            )
         _run(command)
 
 
@@ -701,6 +712,8 @@ def _write_summary(
         summary["matrix_cell"] = spec["matrix_cell"]
     if spec.get("eventstream_fold_id") is not None:
         summary["eventstream_fold_id"] = spec["eventstream_fold_id"]
+    if spec.get("day_supervision_mode") is not None:
+        summary["day_supervision_mode"] = spec["day_supervision_mode"]
     if error is not None:
         summary["error"] = error
     (output_dir / "colab-run-summary.json").write_text(

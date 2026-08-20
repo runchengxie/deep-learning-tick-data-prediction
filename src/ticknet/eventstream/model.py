@@ -4,7 +4,7 @@
     - stream：下一事件流类型（0 pad, 1 snap, 2 order, 3 trade）
     - otype：下一订单类型（vocab）
     - reg：下一事件 price_bps / dt_log / qty_log（Smooth L1）
-    - day：外部标签表提供的日级连续信号（每个有效位置监督同一标量）
+    - day：外部标签表提供的日级连续信号（支持全位置、末位置和尾部加权监督）
 
 尺寸：
     probe25m : d=512,  12 层  -> ~25M 主干参数
@@ -24,6 +24,8 @@ from ticknet.eventstream.dataset import N_FEATURES, N_ORDER_TYPES
 
 N_STREAMS = 4  # 0 pad, 1 snap, 2 order, 3 trade
 LOSS_WEIGHTS = {"stream": 1.0, "otype": 0.5, "reg": 1.0, "day": 1.0}
+DAY_SUPERVISION_MODES = frozenset({"all", "last", "tail_weighted"})
+DAY_SUPERVISION_WEIGHT_VERSION = "linear-v1"
 
 
 @dataclass
@@ -170,10 +172,13 @@ def compute_loss_components(
     tgt_day: torch.Tensor,
     day_valid: torch.Tensor,
     valid: torch.Tensor,
+    *,
+    day_supervision_mode: str = "all",
 ) -> dict[str, torch.Tensor]:
     """返回事件流训练的四项未加权损失，供训练和梯度审计共用。
 
-    day 头在每个有效位置预测同一个 (ticker, day) 日级标签，day_valid 屏蔽无标签样本。
+    day 头预测同一个 (ticker, day) 日级标签，监督位置由
+    day_supervision_mode 控制，day_valid 屏蔽无标签样本。
     """
     mask = valid > 0
     n = mask.sum().clamp(min=1)
@@ -192,7 +197,11 @@ def compute_loss_components(
     reg_err = F.smooth_l1_loss(out["reg"], tgt_reg, reduction="none").mean(-1)
     reg_loss = (reg_err * valid).sum() / n
 
-    day_mask = valid * day_valid[:, None]
+    day_mask = day_supervision_weights(
+        valid,
+        day_valid,
+        mode=day_supervision_mode,
+    )
     day_err = F.smooth_l1_loss(out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none")
     day_loss = (day_err * day_mask).sum() / day_mask.sum().clamp(min=1)
 
@@ -212,6 +221,8 @@ def compute_loss(
     tgt_day: torch.Tensor,
     day_valid: torch.Tensor,
     valid: torch.Tensor,
+    *,
+    day_supervision_mode: str = "all",
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """多任务损失：stream CE + otype CE + reg SmoothL1 + day SmoothL1。"""
     components = compute_loss_components(
@@ -222,6 +233,7 @@ def compute_loss(
         tgt_day,
         day_valid,
         valid,
+        day_supervision_mode=day_supervision_mode,
     )
     total = components["stream"] * LOSS_WEIGHTS["stream"]
     for name in ("otype", "reg", "day"):
@@ -233,6 +245,34 @@ def compute_loss(
         "reg": float(components["reg"].detach()),
         "day": float(components["day"].detach()),
     }
+
+
+def day_supervision_weights(
+    valid: torch.Tensor,
+    day_valid: torch.Tensor,
+    *,
+    mode: str,
+) -> torch.Tensor:
+    """返回 day 头在每个序列位置的损失权重。"""
+    if mode not in DAY_SUPERVISION_MODES:
+        raise ValueError(f"day_supervision_mode 应为 {sorted(DAY_SUPERVISION_MODES)} 之一")
+    base = valid * day_valid[:, None]
+    if mode == "all":
+        return base
+
+    mask = valid > 0
+    if mode == "last":
+        positions = torch.arange(valid.shape[1], device=valid.device).expand_as(valid)
+        last_positions = positions.masked_fill(~mask, -1).max(dim=1).values
+        eligible = (day_valid > 0) & (last_positions >= 0)
+        weights = torch.zeros_like(valid)
+        rows = torch.arange(valid.shape[0], device=valid.device)[eligible]
+        weights[rows, last_positions[eligible]] = day_valid[eligible].to(valid.dtype)
+        return weights
+
+    lengths = mask.sum(dim=1).clamp(min=1).to(valid.dtype)
+    positions = torch.arange(1, valid.shape[1] + 1, device=valid.device, dtype=valid.dtype)
+    return base * positions[None, :] / lengths[:, None]
 
 
 def build_eventstream_model(name: str) -> L2FoundationModel:
