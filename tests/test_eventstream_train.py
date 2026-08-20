@@ -12,6 +12,7 @@ from ticknet.eventstream.config import day_pack_paths
 from ticknet.eventstream.fingerprint import dataset_fingerprint
 from ticknet.eventstream.train import (
     EventstreamConfig,
+    _checkpoint_matches_experiment,
     _experiment_signature,
     list_packed_days,
     train,
@@ -53,6 +54,7 @@ class TestConfig:
         yaml_text = yaml.safe_dump(cfg.to_dict())
         loaded = EventstreamConfig.from_mapping(yaml.safe_load(yaml_text))
         assert loaded.to_dict() == cfg.to_dict()
+        assert loaded.day_supervision_mode == "all"
 
     def test_rejects_unknown_field(self):
         with pytest.raises(ValueError, match="未知字段"):
@@ -75,6 +77,10 @@ class TestConfig:
     def test_target_overlay_requires_materialized_dataset(self):
         with pytest.raises(ValueError, match="materialized_root"):
             EventstreamConfig(days=(20210104,), target_overlay_root="target-overlay").validate()
+
+    def test_rejects_unknown_day_supervision_mode(self):
+        with pytest.raises(ValueError, match="day_supervision_mode"):
+            EventstreamConfig(days=(20210104,), day_supervision_mode="middle").validate()
 
 
 class TestTrain:
@@ -153,6 +159,28 @@ class TestFingerprint:
         assert "materialized_source_revision" not in sig
         assert "epochs" not in sig
         assert "device" not in sig
+        assert sig["day_supervision_mode"] == "all"
+        assert sig["day_supervision_weight_version"] == "linear-v1"
+
+    def test_checkpoint_signature_binds_supervision_mode(self, packed_day):
+        cfg = _smoke_config(packed_day, Path("/tmp/ckpt"))
+        all_signature = _experiment_signature(cfg, "fp-123")
+        cfg.day_supervision_mode = "last"
+        last_signature = _experiment_signature(cfg, "fp-123")
+
+        assert not _checkpoint_matches_experiment(
+            {"experiment": all_signature},
+            last_signature,
+        )
+
+    def test_legacy_all_checkpoint_signature_remains_compatible(self, packed_day):
+        cfg = _smoke_config(packed_day, Path("/tmp/ckpt"))
+        expected = _experiment_signature(cfg, "fp-123")
+        legacy = dict(expected)
+        legacy.pop("day_supervision_mode")
+        legacy.pop("day_supervision_weight_version")
+
+        assert _checkpoint_matches_experiment({"experiment": legacy}, expected)
 
 
 def test_list_packed_days(packed_day):

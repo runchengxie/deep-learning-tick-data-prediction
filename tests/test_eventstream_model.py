@@ -7,10 +7,12 @@ import torch
 
 from ticknet.eventstream.dataset import N_FEATURES, N_ORDER_TYPES
 from ticknet.eventstream.model import (
+    DAY_SUPERVISION_WEIGHT_VERSION,
     LOSS_WEIGHTS,
     build_eventstream_model,
     compute_loss,
     compute_loss_components,
+    day_supervision_weights,
 )
 
 
@@ -62,3 +64,38 @@ class TestModel:
     def test_unknown_model_name(self):
         with pytest.raises(ValueError, match="未知模型配置"):
             build_eventstream_model("nope")
+
+
+class TestDaySupervision:
+    def test_all_preserves_every_valid_position(self):
+        valid = torch.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 0.0]])
+        day_valid = torch.tensor([1.0, 0.0])
+
+        weights = day_supervision_weights(valid, day_valid, mode="all")
+
+        assert torch.equal(weights, torch.tensor([[1.0, 1.0, 1.0, 0.0], [0.0] * 4]))
+
+    def test_last_uses_each_samples_final_valid_position(self):
+        valid = torch.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]])
+        day_valid = torch.ones(3)
+
+        weights = day_supervision_weights(valid, day_valid, mode="last")
+
+        assert torch.equal(
+            weights,
+            torch.tensor([[0.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]),
+        )
+
+    def test_tail_weighted_uses_linear_position_weights(self):
+        valid = torch.tensor([[1.0, 1.0, 1.0, 0.0], [1.0, 1.0, 0.0, 0.0]])
+        day_valid = torch.tensor([1.0, 1.0])
+
+        weights = day_supervision_weights(valid, day_valid, mode="tail_weighted")
+
+        expected = torch.tensor([[1.0 / 3.0, 2.0 / 3.0, 1.0, 0.0], [1.0 / 2.0, 1.0, 0.0, 0.0]])
+        assert torch.allclose(weights, expected)
+        assert DAY_SUPERVISION_WEIGHT_VERSION == "linear-v1"
+
+    def test_rejects_unknown_mode(self):
+        with pytest.raises(ValueError, match="day_supervision_mode"):
+            day_supervision_weights(torch.ones(1, 2), torch.ones(1), mode="middle")

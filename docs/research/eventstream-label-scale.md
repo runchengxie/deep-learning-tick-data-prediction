@@ -55,6 +55,22 @@ H3 只作监控，没有参与 checkpoint 选择。它的 Rank IC 结果如下�
 
 `tail_weighted` 对长度为 L 的有效序列使用位置权重 `(t + 1) / L`，其中 t 从 0 开始。padding 权重为 0，最终损失除以 batch 内有效权重总和。三项生成任务、日级任务权重、优化器、数据和选模指标保持不变。`day_supervision_mode` 和尾部权重版本必须写入 checkpoint 实验签名，三个模式使用独立输出目录。
 
+训练入口已支持 `--day-supervision-mode all|last|tail_weighted`。Colab Runner 只允许标签尺度工作流使用新模式，并会将模式写入运行摘要。`last` 和 `tail_weighted` 的 checkpoint 名称、本地目录和 Drive 目录都相互独立。第一轮命令保持 OOS 关闭，例如：
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-label-scale-train \
+  --day-supervision-mode last \
+  --session ticknet-supervision-recent-last-seed0 \
+  --gpu A100 \
+  --seeds 0 \
+  --no-evaluate-test \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-supervision-position/recent-last-seed0
+```
+
+相邻折使用 `eventstream-rolling-label-scale-train`，增加 `--eventstream-fold-id fold-54-oos-202511`。将模式改为 `tail_weighted` 即可运行线性尾部加权对照。
+
 现有 `all` z 标签结果不重复训练。`last` 和 `tail_weighted` 先在两个滚动折运行 seed 0，并使用 `--no-evaluate-test` 保持 OOS 关闭。候选需要同时满足以下 validation 门槛：
 
 1. 两折 Rank IC 都高于同折 `all` 基线，两个增量的均值至少为 0.005

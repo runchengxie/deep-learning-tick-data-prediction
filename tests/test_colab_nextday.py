@@ -48,6 +48,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         training_epochs=None,
         experiment_source_revision=None,
         audit_batches=16,
+        day_supervision_mode="all",
         evaluate_test=True,
         session="ticknet-test",
         gpu="T4",
@@ -397,10 +398,56 @@ def test_eventstream_label_scale_specs_reuse_features_and_isolate_outputs(
         rolling.workflow,
         eventstream_fold_id=rolling.eventstream_fold_id,
     ).name.endswith("label-z-materialized-colab.yaml")
+    assert recent_spec["day_supervision_mode"] == "all"
 
     recent.seeds = [1]
     with pytest.raises(ValueError, match="只允许运行 seed 0"):
         _validate_lifecycle_arguments(recent)
+
+
+@pytest.mark.parametrize(
+    ("mode", "suffix"),
+    [("last", "day-last"), ("tail_weighted", "day-tail-weighted")],
+)
+def test_eventstream_supervision_modes_use_independent_run_identity(
+    tmp_path: Path,
+    mode: str,
+    suffix: str,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-label-scale-train"
+    arguments.gpu = "A100"
+    arguments.seeds = [0]
+    arguments.day_supervision_mode = mode
+    arguments.evaluate_test = False
+
+    spec = build_job_spec(arguments, "abc1234")
+    rolling = _arguments(tmp_path)
+    rolling.workflow = "eventstream-rolling-label-scale-train"
+    rolling.eventstream_fold_id = "fold-54-oos-202511"
+    rolling.gpu = "A100"
+    rolling.seeds = [0]
+    rolling.day_supervision_mode = mode
+    rolling.evaluate_test = False
+    rolling_spec = build_job_spec(rolling, "abc1234")
+
+    assert spec["day_supervision_mode"] == mode
+    assert spec["checkpoint_name"].endswith(suffix)
+    assert spec["checkpoint_local"] == spec["output_local"]
+    assert spec["output_remote"].endswith(f"{suffix}/training")
+    assert rolling_spec["day_supervision_mode"] == mode
+    assert rolling_spec["checkpoint_name"].endswith(suffix)
+    assert rolling_spec["output_remote"].endswith(f"{suffix}/training")
+
+
+def test_supervision_mode_only_applies_to_label_scale_workflow(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-train"
+    arguments.seeds = [0]
+    arguments.day_supervision_mode = "last"
+
+    with pytest.raises(ValueError, match="只用于标签尺度训练"):
+        _validate_lifecycle_arguments(arguments)
 
 
 def test_eventstream_embedding_spec_uses_shared_cache_and_one_seed(tmp_path: Path) -> None:
@@ -670,6 +717,32 @@ def test_eventstream_summary_confirms_seed_locked_and_oos_status(tmp_path: Path)
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="OOS 状态"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+
+def test_supervision_summary_confirms_mode_identity(tmp_path: Path) -> None:
+    spec = {
+        "workflow": "eventstream-recent-label-scale-train",
+        "source_revision": "abc1234",
+        "seeds": [0],
+        "evaluate_test": False,
+        "day_supervision_mode": "tail_weighted",
+    }
+    summary_path = tmp_path / "colab-run-summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                **spec,
+                "status": "complete",
+                "test_status": "locked_not_accessed",
+                "oos_status": "not_evaluated",
+                "day_supervision_mode": "last",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="day_supervision_mode 不匹配"):
         _validate_downloaded_summary(tmp_path, spec)
 
 
@@ -1397,6 +1470,8 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
         "source_revision": "abc1234",
         "experiment_source_revision": "old1234",
         "expected_parameter_count": 100_604_180,
+        "checkpoint_name": "eventstream-recent-label-z-day-last",
+        "day_supervision_mode": "last",
         "training_epochs": 1,
         "evaluate_test": False,
     }
@@ -1413,6 +1488,11 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     assert train_command[train_command.index("--epochs") + 1] == "1"
     assert train_command[train_command.index("--expected-parameter-count") + 1] == "100604180"
     assert train_command[train_command.index("--source-revision") + 1] == "old1234"
+    assert train_command[train_command.index("--day-supervision-mode") + 1] == "last"
+    assert train_command[train_command.index("--checkpoint-dir") + 1] == str(tmp_path / "output")
+    assert train_command[train_command.index("--checkpoint-name") + 1] == (
+        "eventstream-recent-label-z-day-last"
+    )
     assert "--no-evaluate-test" in train_command
 
 

@@ -32,7 +32,13 @@ from ticknet.eventstream.materialized import (
     assert_materialized_compatible,
     load_materialized_manifest,
 )
-from ticknet.eventstream.model import CONFIGS, build_eventstream_model, compute_loss
+from ticknet.eventstream.model import (
+    CONFIGS,
+    DAY_SUPERVISION_MODES,
+    DAY_SUPERVISION_WEIGHT_VERSION,
+    build_eventstream_model,
+    compute_loss,
+)
 from ticknet.train import resolve_device, set_seed
 
 
@@ -44,6 +50,7 @@ class EventstreamConfig:
         "batch_size",
         "checkpoint_dir",
         "checkpoint_name",
+        "day_supervision_mode",
         "days",
         "device",
         "epochs",
@@ -98,6 +105,7 @@ class EventstreamConfig:
         samples_per_day: int = 2000,
         eval_tickers: int = 200,
         evaluate_test: bool = True,
+        day_supervision_mode: str = "all",
         epochs: int = 20,
         batch_size: int = 8,
         lr: float = 3e-4,
@@ -135,6 +143,7 @@ class EventstreamConfig:
         self.samples_per_day = samples_per_day
         self.eval_tickers = eval_tickers
         self.evaluate_test = evaluate_test
+        self.day_supervision_mode = day_supervision_mode
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
@@ -170,6 +179,8 @@ class EventstreamConfig:
             raise ValueError("gradient_accumulation_steps 应为正整数")
         if self.device not in {"cpu", "cuda"}:
             raise ValueError("device 应为 cpu 或 cuda")
+        if self.day_supervision_mode not in DAY_SUPERVISION_MODES:
+            raise ValueError(f"day_supervision_mode 应为 {sorted(DAY_SUPERVISION_MODES)} 之一")
         if self.min_symbols_per_day < 2:
             raise ValueError("min_symbols_per_day 至少为 2")
         if self.monitor_label_path and not self.monitor_name:
@@ -551,6 +562,7 @@ def _experiment_signature(
     if not config.materialized_source_revision:
         signature.pop("materialized_source_revision")
     signature["dataset_fingerprint"] = fingerprint
+    signature["day_supervision_weight_version"] = DAY_SUPERVISION_WEIGHT_VERSION
     if monitor_label_fingerprint is not None:
         signature["monitor_label_fingerprint"] = monitor_label_fingerprint
     return signature
@@ -558,7 +570,12 @@ def _experiment_signature(
 
 def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[str, Any]) -> bool:
     experiment = checkpoint.get("experiment")
-    return isinstance(experiment, dict) and experiment == expected
+    if not isinstance(experiment, dict):
+        return False
+    normalized = dict(experiment)
+    normalized.setdefault("day_supervision_mode", "all")
+    normalized.setdefault("day_supervision_weight_version", DAY_SUPERVISION_WEIGHT_VERSION)
+    return normalized == expected
 
 
 def _checkpoint_paths(config: EventstreamConfig) -> tuple[str, Path, Path, Path, Path]:
@@ -661,7 +678,14 @@ def train(
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
                 out = model(x, sid, oid)
                 loss, _metrics = compute_loss(
-                    out, tgt_sid, tgt_oid, tgt_reg, tgt_day, day_valid, valid
+                    out,
+                    tgt_sid,
+                    tgt_oid,
+                    tgt_reg,
+                    tgt_day,
+                    day_valid,
+                    valid,
+                    day_supervision_mode=config.day_supervision_mode,
                 )
             scaled_loss = loss / config.gradient_accumulation_steps
             scaler.scale(scaled_loss).backward()
@@ -807,6 +831,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int)
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--source-revision")
+    parser.add_argument(
+        "--day-supervision-mode",
+        choices=sorted(DAY_SUPERVISION_MODES),
+    )
+    parser.add_argument("--checkpoint-dir")
+    parser.add_argument("--checkpoint-name")
     parser.add_argument("--expected-parameter-count", type=int)
     parser.add_argument(
         "--evaluate-test",
@@ -823,6 +853,9 @@ def main(argv: list[str] | None = None) -> None:
         "epochs": args.epochs,
         "source_revision": args.source_revision,
         "evaluate_test": args.evaluate_test,
+        "day_supervision_mode": args.day_supervision_mode,
+        "checkpoint_dir": args.checkpoint_dir,
+        "checkpoint_name": args.checkpoint_name,
     }
     for name, value in overrides.items():
         if value is not None:

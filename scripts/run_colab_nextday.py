@@ -58,6 +58,7 @@ EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
 EVENTSTREAM_LABEL_SCALE_WORKFLOWS = frozenset(
     {"eventstream-recent-label-scale-train", "eventstream-rolling-label-scale-train"}
 )
+DAY_SUPERVISION_MODES = ("all", "last", "tail_weighted")
 EVENTSTREAM_TRAIN_WORKFLOWS = (
     frozenset({"eventstream-recent-train", "eventstream-rolling-train"})
     | EVENTSTREAM_LABEL_SCALE_WORKFLOWS
@@ -144,6 +145,12 @@ def _parser() -> argparse.ArgumentParser:
         help="恢复旧 checkpoint 时使用的原实验代码版本，默认使用当前提交",
     )
     parser.add_argument("--audit-batches", type=int, default=16)
+    parser.add_argument(
+        "--day-supervision-mode",
+        choices=DAY_SUPERVISION_MODES,
+        default="all",
+        help="日级标签的监督位置，仅用于标签尺度训练",
+    )
     parser.add_argument(
         "--evaluate-test",
         action=argparse.BooleanOptionalAction,
@@ -286,6 +293,11 @@ def _validate_eventstream_arguments(arguments: argparse.Namespace) -> None:
         _gradient_audit_checkpoint_sha256(arguments)
     if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS and arguments.seeds != [0]:
         raise ValueError("标签尺度第一轮只允许运行 seed 0")
+    if (
+        arguments.day_supervision_mode != "all"
+        and arguments.workflow not in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+    ):
+        raise ValueError("--day-supervision-mode 只用于标签尺度训练")
     rolling_workflows = {
         "eventstream-rolling-train",
         "eventstream-rolling-export-predictions",
@@ -456,6 +468,9 @@ def _eventstream_training_paths(
         feature_local = f"/content/ticknet-eventstream/materialized/{fold_id}"
         if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
             run_name = f"{run_name}-label-z"
+            if arguments.day_supervision_mode != "all":
+                mode = arguments.day_supervision_mode.replace("_", "-")
+                run_name = f"{run_name}-day-{mode}"
         return run_name, run_name, feature_remote, feature_local
     run_name = "eventstream-top400-h5-capacity100m-recent"
     feature_remote = (
@@ -464,6 +479,9 @@ def _eventstream_training_paths(
     feature_local = "/content/ticknet-eventstream/materialized/recent"
     if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS:
         run_name = f"{run_name}-label-z"
+        if arguments.day_supervision_mode != "all":
+            mode = arguments.day_supervision_mode.replace("_", "-")
+            run_name = f"{run_name}-day-{mode}"
     return run_name, run_name, feature_remote, feature_local
 
 
@@ -725,6 +743,11 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         "effective_batch_size": arguments.effective_batch_size,
         "training_epochs": arguments.training_epochs,
         "audit_batches": arguments.audit_batches,
+        "day_supervision_mode": (
+            arguments.day_supervision_mode
+            if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+            else None
+        ),
         "evaluate_test": arguments.evaluate_test,
         "expected_parameter_count": (
             1_033_383
@@ -781,6 +804,8 @@ def _validate_downloaded_summary(
         fields.append("matrix_cell")
     if spec.get("eventstream_fold_id") is not None:
         fields.append("eventstream_fold_id")
+    if spec.get("day_supervision_mode") is not None:
+        fields.append("day_supervision_mode")
     for field in fields:
         if summary.get(field) != spec[field]:
             raise RuntimeError(
