@@ -7,8 +7,11 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 SPEC_PATH = Path("/content/ticknet-colab-job.json")
 EVENTSTREAM_BENCHMARK_WORKFLOWS = frozenset(
@@ -32,6 +35,11 @@ EVENTSTREAM_PREDICTION_WORKFLOWS = frozenset({"eventstream-rolling-export-predic
 EVENTSTREAM_GRADIENT_AUDIT_WORKFLOWS = frozenset(
     {"eventstream-recent-gradient-audit", "eventstream-rolling-gradient-audit"}
 )
+EVENTSTREAM_CHECKPOINT_SYNC_SECONDS = 180.0
+
+
+class _StopSignal(Protocol):
+    def wait(self, timeout: float | None = None) -> bool: ...
 
 
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -706,6 +714,54 @@ def _upload_output(spec: dict[str, Any], env: dict[str, str]) -> None:
     )
 
 
+def _sync_eventstream_checkpoints_once(spec: dict[str, Any], env: dict[str, str]) -> None:
+    output_dir = Path(str(spec["output_local"]))
+    if not output_dir.is_dir():
+        return
+    _rclone_copy(
+        str(output_dir),
+        _drive_path(str(spec["rclone_remote"]), str(spec["output_remote"])),
+        env=env,
+        exclude=("*.tmp",),
+    )
+    print("事件流 checkpoint 已同步到远端。", flush=True)
+
+
+def _checkpoint_sync_loop(
+    spec: dict[str, Any],
+    env: dict[str, str],
+    stop: _StopSignal,
+    interval_seconds: float,
+) -> None:
+    while not stop.wait(interval_seconds):
+        try:
+            _sync_eventstream_checkpoints_once(spec, env)
+        except Exception as error:
+            print(f"事件流 checkpoint 周期同步失败，将继续重试：{error}", file=sys.stderr)
+
+
+@contextmanager
+def _periodic_eventstream_checkpoint_sync(
+    spec: dict[str, Any], env: dict[str, str]
+) -> Iterator[None]:
+    if spec["workflow"] not in EVENTSTREAM_TRAIN_WORKFLOWS:
+        yield
+        return
+    stop = threading.Event()
+    worker = threading.Thread(
+        target=_checkpoint_sync_loop,
+        args=(spec, env, stop, EVENTSTREAM_CHECKPOINT_SYNC_SECONDS),
+        name="eventstream-checkpoint-sync",
+        daemon=True,
+    )
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join()
+
+
 def _execute_workflow(spec: dict[str, Any]) -> None:
     if spec["workflow"] == "multi-horizon-validation":
         _evaluate(spec)
@@ -754,7 +810,8 @@ def main() -> None:
             _ensure_rclone()
             _install_project(spec)
             _stage_inputs(spec, env)
-            _execute_workflow(spec)
+            with _periodic_eventstream_checkpoint_sync(spec, env):
+                _execute_workflow(spec)
         except Exception as error:
             if spec["workflow"] in {
                 "h5-train",

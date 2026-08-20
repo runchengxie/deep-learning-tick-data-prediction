@@ -1071,6 +1071,126 @@ def test_eventstream_label_scale_stages_overlay_before_training(
     ]
 
 
+def test_eventstream_checkpoint_sync_excludes_atomic_temporary_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "training"
+    output_dir.mkdir()
+    copies: list[tuple[str, str, tuple[str, ...]]] = []
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda source, destination, **kwargs: copies.append(
+            (source, destination, tuple(kwargs.get("exclude", ())))
+        ),
+    )
+
+    colab_job._sync_eventstream_checkpoints_once(
+        {
+            "output_local": str(output_dir),
+            "rclone_remote": "gdrive",
+            "output_remote": "project/runs/eventstream/training",
+        },
+        {},
+    )
+
+    assert copies == [
+        (
+            str(output_dir),
+            "gdrive:project/runs/eventstream/training",
+            ("*.tmp",),
+        )
+    ]
+
+
+def test_eventstream_checkpoint_sync_skips_missing_output_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        colab_job,
+        "_rclone_copy",
+        lambda *_args, **_kwargs: pytest.fail("不应同步不存在的输出目录"),
+    )
+
+    colab_job._sync_eventstream_checkpoints_once(
+        {
+            "output_local": str(tmp_path / "missing"),
+            "rclone_remote": "gdrive",
+            "output_remote": "project/runs/eventstream/training",
+        },
+        {},
+    )
+
+
+def test_eventstream_checkpoint_sync_retries_after_transient_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attempts = 0
+
+    def fake_sync(_spec: object, _env: object) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("temporary")
+
+    class FakeStop:
+        def wait(self, timeout: float | None = None) -> bool:
+            del timeout
+            return attempts >= 2
+
+    monkeypatch.setattr(colab_job, "_sync_eventstream_checkpoints_once", fake_sync)
+
+    colab_job._checkpoint_sync_loop({}, {}, FakeStop(), 0.01)
+
+    assert attempts == 2
+    assert "将继续重试" in capsys.readouterr().err
+
+
+def test_periodic_checkpoint_sync_wraps_eventstream_training(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeThread:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            events.append("start")
+
+        def join(self) -> None:
+            events.append("join")
+
+    monkeypatch.setattr(colab_job.threading, "Thread", FakeThread)
+
+    with colab_job._periodic_eventstream_checkpoint_sync(
+        {"workflow": "eventstream-rolling-label-scale-train"},
+        {},
+    ):
+        events.append("workflow")
+
+    assert events == ["start", "workflow", "join"]
+
+
+def test_periodic_checkpoint_sync_skips_non_training_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        colab_job.threading,
+        "Thread",
+        lambda **_kwargs: pytest.fail("非训练工作流不应启动同步线程"),
+    )
+
+    with colab_job._periodic_eventstream_checkpoint_sync(
+        {"workflow": "eventstream-recent-gradient-audit"},
+        {},
+    ):
+        pass
+
+
 def test_eventstream_gradient_audit_stages_validation_and_one_checkpoint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
