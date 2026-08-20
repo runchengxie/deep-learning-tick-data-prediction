@@ -46,6 +46,7 @@ def _arguments(tmp_path: Path) -> Namespace:
         num_workers=[2, 4, 8, 16],
         effective_batch_size=32,
         training_epochs=None,
+        experiment_source_revision=None,
         audit_batches=16,
         evaluate_test=True,
         session="ticknet-test",
@@ -70,6 +71,7 @@ def test_job_spec_preserves_checkpoint_signature_paths(tmp_path: Path) -> None:
     assert spec["rclone_config"] == REMOTE_RCLONE_CONFIG
     assert "token" not in json.dumps(spec, ensure_ascii=False).lower()
     assert spec["source_revision"] == "abc123"
+    assert spec["experiment_source_revision"] == "abc123"
     assert spec["seeds"] == [0, 1, 2]
 
 
@@ -209,6 +211,20 @@ def test_eventstream_recent_training_uses_one_materialized_seed(tmp_path: Path) 
     assert spec["projected_train_samples"] == 120_000
     assert spec["training_epochs"] == 1
     assert spec["evaluate_test"] is False
+
+
+def test_eventstream_training_can_resume_original_experiment_revision(
+    tmp_path: Path,
+) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-label-scale-train"
+    arguments.seeds = [0]
+    arguments.experiment_source_revision = "1b4c0f163d1f0aab2c930468f20eecaafe8b60f3"
+
+    spec = build_job_spec(arguments, "91466b9a468e736b46ba36a23dbdbb1fbf95f4de")
+
+    assert spec["source_revision"] == "91466b9a468e736b46ba36a23dbdbb1fbf95f4de"
+    assert spec["experiment_source_revision"] == ("1b4c0f163d1f0aab2c930468f20eecaafe8b60f3")
 
 
 def test_eventstream_rolling_training_uses_fold_scoped_paths(tmp_path: Path) -> None:
@@ -437,6 +453,28 @@ def test_eventstream_training_requires_one_seed(tmp_path: Path) -> None:
         _validate_lifecycle_arguments(arguments)
 
 
+def test_experiment_revision_only_applies_to_eventstream_training(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.experiment_source_revision = "abc1234"
+
+    with pytest.raises(ValueError, match="只适用于事件流训练"):
+        _validate_lifecycle_arguments(arguments)
+
+
+def test_experiment_revision_requires_safe_identifier(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-train"
+    arguments.seeds = [0]
+    arguments.experiment_source_revision = "abc123"
+
+    with pytest.raises(ValueError, match="至少 7 位 ASCII"):
+        _validate_lifecycle_arguments(arguments)
+
+    arguments.experiment_source_revision = "版本abc1234"
+    with pytest.raises(ValueError, match="至少 7 位 ASCII"):
+        _validate_lifecycle_arguments(arguments)
+
+
 def test_eventstream_embedding_requires_one_seed_and_oos_authorization(tmp_path: Path) -> None:
     arguments = _arguments(tmp_path)
     arguments.workflow = "eventstream-recent-export-embeddings"
@@ -568,6 +606,7 @@ def test_downloaded_summary_must_confirm_revision_and_success(tmp_path: Path) ->
     spec = {
         "workflow": "h5-train",
         "source_revision": "abc123",
+        "experiment_source_revision": "abc123",
     }
     summary_path = tmp_path / "colab-run-summary.json"
     summary_path.write_text(
@@ -588,6 +627,13 @@ def test_downloaded_summary_must_confirm_revision_and_success(tmp_path: Path) ->
         encoding="utf-8",
     )
     with pytest.raises(RuntimeError, match="source_revision 不匹配"):
+        _validate_downloaded_summary(tmp_path, spec)
+
+    summary_path.write_text(
+        json.dumps({**spec, "status": "complete", "experiment_source_revision": "wrong"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="experiment_source_revision 不匹配"):
         _validate_downloaded_summary(tmp_path, spec)
 
 
@@ -1349,6 +1395,7 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
         "training_config": "/content/config.yaml",
         "seeds": [0],
         "source_revision": "abc1234",
+        "experiment_source_revision": "old1234",
         "expected_parameter_count": 100_604_180,
         "training_epochs": 1,
         "evaluate_test": False,
@@ -1365,6 +1412,7 @@ def test_eventstream_training_verifies_cache_and_preserves_oos_boundary(
     assert train_command[train_command.index("--seed") + 1] == "0"
     assert train_command[train_command.index("--epochs") + 1] == "1"
     assert train_command[train_command.index("--expected-parameter-count") + 1] == "100604180"
+    assert train_command[train_command.index("--source-revision") + 1] == "old1234"
     assert "--no-evaluate-test" in train_command
 
 

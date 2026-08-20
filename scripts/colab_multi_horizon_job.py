@@ -350,7 +350,7 @@ def _train_eventstream(spec: dict[str, Any]) -> None:
             "--seed",
             str(int(seed)),
             "--source-revision",
-            str(spec["source_revision"]),
+            str(spec.get("experiment_source_revision") or spec["source_revision"]),
             "--expected-parameter-count",
             str(int(spec["expected_parameter_count"])),
             "--evaluate-test" if spec["evaluate_test"] else "--no-evaluate-test",
@@ -680,6 +680,9 @@ def _write_summary(
         "status": status,
         "workflow": spec["workflow"],
         "source_revision": spec["source_revision"],
+        "experiment_source_revision": (
+            spec.get("experiment_source_revision") or spec["source_revision"]
+        ),
         "seeds": spec["seeds"],
         "output_remote": spec["output_remote"],
         "test_status": "locked_not_accessed",

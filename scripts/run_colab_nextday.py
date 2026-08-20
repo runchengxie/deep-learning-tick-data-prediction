@@ -139,6 +139,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", nargs="+", type=int, default=[2, 4, 8, 16])
     parser.add_argument("--effective-batch-size", type=int, default=32)
     parser.add_argument("--training-epochs", type=int)
+    parser.add_argument(
+        "--experiment-source-revision",
+        help="恢复旧 checkpoint 时使用的原实验代码版本，默认使用当前提交",
+    )
     parser.add_argument("--audit-batches", type=int, default=16)
     parser.add_argument(
         "--evaluate-test",
@@ -223,6 +227,12 @@ def _validate_lifecycle_arguments(arguments: argparse.Namespace) -> None:
         raise ValueError("--num-workers 不能为负数")
     if arguments.training_epochs is not None and arguments.training_epochs < 1:
         raise ValueError("--training-epochs 应为正整数")
+    if arguments.experiment_source_revision is not None:
+        revision = arguments.experiment_source_revision
+        if arguments.workflow not in EVENTSTREAM_TRAIN_WORKFLOWS:
+            raise ValueError("--experiment-source-revision 只适用于事件流训练")
+        if not revision.isascii() or len(revision) < 7:
+            raise ValueError("--experiment-source-revision 应为至少 7 位 ASCII 标识")
     if arguments.audit_batches < 8 or arguments.audit_batches > 16:
         raise ValueError("--audit-batches 应在 8 至 16 之间")
     _validate_eventstream_arguments(arguments)
@@ -752,6 +762,7 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
         ),
         "requested_gpu": arguments.gpu,
         "source_revision": source_revision,
+        "experiment_source_revision": (arguments.experiment_source_revision or source_revision),
     }
 
 
@@ -764,6 +775,8 @@ def _validate_downloaded_summary(
         raise RuntimeError("Colab job 缺少 colab-run-summary.json 完成标记")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     fields = ["workflow", "source_revision"]
+    if spec.get("experiment_source_revision") is not None:
+        fields.append("experiment_source_revision")
     if spec.get("matrix_cell") is not None:
         fields.append("matrix_cell")
     if spec.get("eventstream_fold_id") is not None:
