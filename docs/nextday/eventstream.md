@@ -1,6 +1,6 @@
 # L2 逐笔事件流主线
 
-这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-20，100M 最近折三 seed、冻结 embedding 下游对照、联合端到端三 seed、多任务梯度审计和标签尺度 seed 0 两折实验均已完成。
+这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-22，100M 最近折三 seed、冻结 embedding 下游对照、联合端到端三 seed、多任务梯度审计、标签尺度和监督位置实验均已完成。
 
 ## 数据契约
 
@@ -169,7 +169,7 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
 
-`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。信号半衰期、交易规则、已具备数据的风险暴露、多任务梯度和标签尺度已经完成第一轮检查。每日截面 z 标签提高了两折 validation 与 OOS Rank IC，最近折的 OOS 极端组收益差没有改善。下一步比较全部位置、最后位置和线性尾部加权三种日级监督方式。第一轮 150M 实验等待训练机制在两折形成稳定增量。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。信号半衰期、交易规则、已具备数据的风险暴露、多任务梯度、标签尺度和监督位置已经完成第一轮检查。每日截面 z 标签提高了两折 validation 与 OOS Rank IC，最后位置和线性尾部加权都没有超过全位置基线。下一步检查日级任务权重，再决定是否实现成本感知排序目标。第一轮 150M 实验等待训练机制在两折形成稳定增量。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
 
 ### 多任务梯度审计
 
@@ -177,7 +177,7 @@ ticknet-eventstream-storage-readiness verify-staged \
 
 Colab 提供 `eventstream-recent-gradient-audit` 和 `eventstream-rolling-gradient-audit` 两个工作流。两者只下载 validation 分片和已登记 SHA-256 的 checkpoint，排除 train、OOS、监控分区和 2026 锁定区。完整合同、门槛和命令见[事件流多任务梯度审计](../research/eventstream-gradient-audit.md)。
 
-标签尺度的两折 seed 0 正式结果和监督位置预注册合同见[事件流标签尺度实验](../research/eventstream-label-scale.md)。
+标签尺度的两折 seed 0 结果、监督位置合同和正式结论见[事件流标签尺度实验](../research/eventstream-label-scale.md)。
 
 ### 联合端到端实验
 
