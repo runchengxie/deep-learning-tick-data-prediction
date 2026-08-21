@@ -1,6 +1,6 @@
 # 事件流标签尺度实验
 
-`EVT-LABEL-SCALE-001` 检查日级收益标签的数值尺度是否限制了 100M 事件流 Transformer 对 H5 横截面信号的学习。实验已经完成最近折和相邻折 seed 0，正式决定为 `EXTEND_TO_SUPERVISION_POSITION`。
+`EVT-LABEL-SCALE-001` 检查日级收益标签的数值尺度是否限制了 100M 事件流 Transformer 对 H5 横截面信号的学习。实验已经完成最近折和相邻折 seed 0，并进一步完成 `EVT-SUPERVISION-POSITION-001`。最终决定为 `KEEP_ALL`。
 
 ## 实验问题
 
@@ -79,11 +79,31 @@ python scripts/run_colab_nextday.py \
 
 只对入选方案开放两折 OOS。两折 OOS Rank IC 和极端组收益差都高于同折 `all` 基线后，才补 seed 1、2。没有方案通过时，下一步检查日级任务权重和成本感知排序目标。
 
+## 监督位置正式结果
+
+`last` 和 `tail_weighted` 都使用 seed 0、每日截面 z 标签和最近折数据。模型容量、三项生成任务、日级任务权重、优化器、选模指标和评估样本保持不变。两次训练都绑定源码 revision `41290ff056fb318d37ce44ba89bcbf31453c07f3`，数据指纹和 z 标签指纹与 `all` 基线一致。
+
+| 模式 | best epoch | validation Rank IC | 相对 `all` | validation 极端组收益差 | 相对 `all` |
+|---|---:|---:|---:|---:|---:|
+| `all` | 4 | 0.11747 | 基线 | 1.27275% | 基线 |
+| `last` | 7 | 0.07802 | -0.03945 | 0.92692% | -0.34583 个百分点 |
+| `tail_weighted` | 7 | 0.11289 | -0.00458 | 1.10797% | -0.16478 个百分点 |
+
+`last` 只在最后一个有效位置提供日级梯度，Rank IC 和极端组收益差都明显下降。`tail_weighted` 保留了全序列监督，结果更接近 `all`，两项主要指标仍然较低。H3 监控 Rank IC 分别为 0.06055 和 0.08667，也低于 `all` 的 0.09230。
+
+预注册门槛要求候选方案在两折都超过 `all`。两个候选在最近折已经违反这项必要条件，相邻折结果无法改变正式判定。因此实验按门槛提前停止，未运行相邻折，也未开放任何 OOS。这一停止不依赖 OOS 结果，也不改变原有选择条件。
+
+正式决定为 `KEEP_ALL`。日级标签继续在所有有效位置计算损失，不补监督位置的 seed 1、2，也不启动 `probe150m`。下一步先检查日级任务在多任务总损失中的权重，再根据结果决定是否实现更贴近选股和交易成本的排序目标。
+
 ## 产物
 
 本地正式结果位于：
 
 - `artifacts/eventstream-label-scale/recent-seed0/training`
 - `artifacts/eventstream-label-scale/fold54-seed0/training`
+- `artifacts/eventstream-supervision-position/recent-last-seed0`
+- `artifacts/eventstream-supervision-position/recent-tail-weighted-seed0`
 
-Drive 使用对应的 `eventstream-top400-h5-capacity100m-*-label-z/training` 目录。每个目录包含 best、last、训练历史、结果、预检报告和 Colab 运行摘要。
+Drive 使用对应的 `eventstream-top400-h5-capacity100m-*-label-z/training`、`eventstream-top400-h5-capacity100m-recent-label-z-day-last/training` 和 `eventstream-top400-h5-capacity100m-recent-label-z-day-tail-weighted/training` 目录。每个目录包含 best、last、训练历史、结果、预检报告和 Colab 运行摘要。
+
+`last` 的 best、last 和结果 JSON SHA-256 分别为 `6148eb9d4b8d83134c625e7af0570069f733e852ffd5bbc33dddcb7aecf26b5b`、`eb14826d9080cff3c466334735fc584adb921af17faa66c93a0b382fe7050f7e` 和 `28d1420ae275ee28c02d255afa03fbfd5bb6495d2710363bb34adea7622a0c04`。`tail_weighted` 对应为 `3f6a4a5956631d85f74aae43ea7a3b13a61015bcca8e86306ca8879418a0a819`、`b74b141603667680afe8717e874b5a2fd0f08f3025eb6e4cf0e37028b250b2e2` 和 `b463d172fc470abf63eb3dd4fedd6c41c3f01d219925e3786069fe9ffb5e4fdd`。两个 Drive 目录与本机都有 6 个正式文件，文件名和大小一致。

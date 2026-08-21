@@ -404,3 +404,19 @@ best、last、结果 JSON、训练历史、运行摘要和物化预检共 6 个�
 相邻折第一次正式恢复运行期间，Colab 虚拟机在任务仍显示运行时回收了执行环境，epoch 2 至 4 没有进入 Drive。PR #91 增加每 180 秒一次的事件流 checkpoint 同步，PR #92 允许新调度代码使用原实验 revision 恢复严格签名的旧 checkpoint。最终运行从 epoch 1 继续，在 epoch 8 取得最佳结果并于 epoch 12 早停。调度源码 revision 为 `35f90d722e6dacd98cd9d0608d6fa3c3c7737b3e`，best、last、历史、结果和摘要均已同步到本机与 Drive。
 
 预注册门槛要求两折的 validation、OOS 和极端组收益差同时改善。最近折 OOS 极端组收益差没有通过，因此暂不补 seed 1、2。正式决定为 `EXTEND_TO_SUPERVISION_POSITION`。下一步使用现有 z 标签全部位置结果作为对照，只新增最后位置和线性尾部加权两种模式，先完成两折 seed 0 validation 选择，再对入选方案开放 OOS。完整合同和产物身份见[事件流标签尺度实验](eventstream-label-scale.md)。
+
+## 2026-08-22：事件流监督位置 seed 0 结果
+
+`EVT-SUPERVISION-POSITION-001` 复用最近折每日截面 z 标签的 `all` 结果，只新训练 `last` 和 `tail_weighted`。两次运行均使用 seed 0 和源码 revision `41290ff056fb318d37ce44ba89bcbf31453c07f3`。数据指纹为 `5a7d9216c7b4a8f680ef8a22ca760b482b6ccd38f6a8df587bd7deb44f445314`，z 标签指纹为 `7f8223c0581e08115b18c19e36756e8431e2e2b395231e5a047860eb5ae53832`。
+
+| 模式 | best epoch | validation Rank IC | validation 极端组收益差 | H3 监控 Rank IC | 训练 epoch 数 | 用时 |
+|---|---:|---:|---:|---:|---:|---:|
+| `all` | 4 | 0.11747 | 1.27275% | 0.09230 |  |  |
+| `last` | 7 | 0.07802 | 0.92692% | 0.06055 | 11 | 7,723.7 秒 |
+| `tail_weighted` | 7 | 0.11289 | 1.10797% | 0.08667 | 11 | 7,579.4 秒 |
+
+`last` 的 Rank IC 和极端组收益差分别比 `all` 低 0.03945 和 0.34583 个百分点。`tail_weighted` 分别低 0.00458 和 0.16478 个百分点。两个候选都在最近折违反了两折都改善的必要条件。实验因此提前停止，没有运行相邻折，OOS 和 2026 锁定区都没有进入运行环境。
+
+`last` 的 best checkpoint、last checkpoint 和结果 JSON SHA-256 分别为 `6148eb9d4b8d83134c625e7af0570069f733e852ffd5bbc33dddcb7aecf26b5b`、`eb14826d9080cff3c466334735fc584adb921af17faa66c93a0b382fe7050f7e` 和 `28d1420ae275ee28c02d255afa03fbfd5bb6495d2710363bb34adea7622a0c04`。`tail_weighted` 对应为 `3f6a4a5956631d85f74aae43ea7a3b13a61015bcca8e86306ca8879418a0a819`、`b74b141603667680afe8717e874b5a2fd0f08f3025eb6e4cf0e37028b250b2e2` 和 `b463d172fc470abf63eb3dd4fedd6c41c3f01d219925e3786069fe9ffb5e4fdd`。两组正式目录都已从 Drive 回传，每组 6 个文件的名称和大小与 Drive 一致。
+
+正式决定为 `KEEP_ALL`。日级标签继续在所有有效位置计算损失。下一项单变量实验检查日级任务在多任务总损失中的权重。该实验仍然没有稳定增量时，再评估成本感知排序目标。`probe150m` 继续暂缓。完整合同、结果和产物身份见[事件流标签尺度实验](eventstream-label-scale.md)。
