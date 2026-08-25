@@ -16,6 +16,14 @@ min_events: 256
 samples_per_day: 2000
 eval_tickers: 200
 
+# M3-inspired 表征默认关闭，便于与现有实验做单变量 A/B。
+use_lob_prefix: false
+use_session_anchors: false
+use_vq: false
+vq_codebook_size: 1024
+vq_dim: 64
+vq_loss_weight: 0.25
+
 epochs: 20
 batch_size: 8
 lr: 0.0003

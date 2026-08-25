@@ -58,6 +58,16 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _representation_contract(experiment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "use_lob_prefix": bool(experiment.get("use_lob_prefix", False)),
+        "use_session_anchors": bool(experiment.get("use_session_anchors", False)),
+        "use_vq": bool(experiment.get("use_vq", False)),
+        "vq_codebook_size": int(experiment.get("vq_codebook_size", 1024)),
+        "vq_dim": int(experiment.get("vq_dim", 64)),
+    }
+
+
 def _checkpoint_contract(
     checkpoint_path: Path,
     checkpoint: dict[str, Any],
@@ -104,6 +114,15 @@ def _checkpoint_contract(
         "source_dataset_fingerprint"
     ):
         raise ValueError("训练缓存与尾盘缓存的源数据指纹不一致")
+
+    representation = _representation_contract(experiment)
+    for name in ("use_lob_prefix", "use_session_anchors"):
+        expected_value = bool(training_contract.get(name, False))
+        if bool(close_contract.get(name, False)) != expected_value:
+            raise ValueError(f"训练缓存与尾盘缓存的 {name} 不一致")
+        if representation[name] != expected_value:
+            raise ValueError(f"事件流 checkpoint 与缓存的 {name} 不一致")
+
     seed = int(experiment.get("seed", -1))
     if seed < 0:
         raise ValueError("事件流 checkpoint 缺少有效 seed")
@@ -123,6 +142,7 @@ def _checkpoint_contract(
         "seq_len": int(close_contract["seq_len"]),
         "min_events": int(close_contract["min_events"]),
         "embedding_dimension": int(CONFIGS[model_name].d_model),
+        **representation,
     }
 
 
@@ -264,12 +284,13 @@ def _encode_shard(
         x = x.to(device)
         sid = sid.to(device)
         oid = oid.to(device)
-        valid_lengths = (sid != 0).sum(dim=1)
-        if torch.any(valid_lengths < 1):
+        positions = torch.arange(sid.shape[1], device=device).expand_as(sid)
+        last_positions = positions.masked_fill(sid == 0, -1).max(dim=1).values
+        if torch.any(last_positions < 0):
             raise ValueError("尾盘窗口包含没有有效事件的样本")
         hidden = model.backbone(x, sid, oid)
         rows = torch.arange(hidden.shape[0], device=device)
-        selected = hidden[rows, valid_lengths - 1]
+        selected = hidden[rows, last_positions]
         embeddings.append(selected.float().cpu().numpy())
         days.extend(int(value) for value in day.tolist())
         symbols.extend(bytes(row.tolist()).decode("ascii") for row in symbol)
@@ -323,7 +344,9 @@ def export_frozen_embeddings(
         "close_cache_fingerprint": close_manifest["dataset_fingerprint"],
         "close_cache_contract_sha256": close_manifest["contract_sha256"],
         "anchor": "market_close",
-        "input_window": "last_seq_len_events",
+        "input_window": (
+            "lob_prefix_plus_last_events" if encoder["use_lob_prefix"] else "last_seq_len_events"
+        ),
         "pooling": "last_valid_hidden",
         "dtype": "float32",
         "partitions": list(PARTITIONS),
@@ -341,7 +364,12 @@ def export_frozen_embeddings(
     output_root.mkdir(parents=True, exist_ok=True)
 
     resolved_device = resolve_device(device)
-    model = build_eventstream_model(model_name).to(resolved_device)
+    model = build_eventstream_model(
+        model_name,
+        use_vq=bool(encoder["use_vq"]),
+        vq_codebook_size=int(encoder["vq_codebook_size"]),
+        vq_dim=int(encoder["vq_dim"]),
+    ).to(resolved_device)
     model.load_state_dict(raw_checkpoint["model"])
     del raw_checkpoint
     artifacts: list[dict[str, Any]] = []

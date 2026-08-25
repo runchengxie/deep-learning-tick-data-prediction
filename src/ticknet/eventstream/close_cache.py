@@ -91,11 +91,15 @@ def _contract(
     seq_len: int,
     min_events: int,
     source_revision: str,
+    use_lob_prefix: bool = False,
+    use_session_anchors: bool = False,
 ) -> dict[str, Any]:
     if not source_revision or source_revision == "unknown":
         raise ValueError("尾盘窗口物化需要有效的源码 revision")
     if seq_len < 1 or min_events < 2:
         raise ValueError("seq_len 和 min_events 必须为正数")
+    if use_session_anchors and not use_lob_prefix:
+        raise ValueError("use_session_anchors 需要同时启用 use_lob_prefix")
     ranges = storage["contract"]["ranges"]
     if int(storage["contract"]["locked_start"]) <= max(
         int(ranges[name]["end"]) for name in PARTITIONS
@@ -111,8 +115,14 @@ def _contract(
         "ranges": {name: ranges[name] for name in PARTITIONS},
         "seq_len": seq_len,
         "min_events": min_events,
+        "use_lob_prefix": bool(use_lob_prefix),
+        "use_session_anchors": bool(use_session_anchors),
         "selection_policy": "all_pack_tickers_min_events_v1",
-        "anchor_policy": "last_seq_len_events_before_market_close_v1",
+        "anchor_policy": (
+            "lob_prefix_last_events_before_market_close_v2"
+            if use_lob_prefix
+            else "last_seq_len_events_before_market_close_v1"
+        ),
         "arrays": _array_contract(seq_len),
     }
 
@@ -167,6 +177,20 @@ def _validate_shard_manifest_record(record: dict[str, Any]) -> tuple[str, str]:
     return partition, month
 
 
+def _validate_representation_contract(contract: dict[str, Any]) -> None:
+    use_lob_prefix = bool(contract.get("use_lob_prefix", False))
+    use_session_anchors = bool(contract.get("use_session_anchors", False))
+    if use_session_anchors and not use_lob_prefix:
+        raise ValueError("尾盘窗口缓存 session anchor 缺少 LOB prefix")
+    expected_anchor = (
+        "lob_prefix_last_events_before_market_close_v2"
+        if use_lob_prefix
+        else "last_seq_len_events_before_market_close_v1"
+    )
+    if contract.get("anchor_policy") != expected_anchor:
+        raise ValueError("尾盘窗口缓存锚点合同无效")
+
+
 def validate_close_cache_manifest(
     manifest: dict[str, Any],
     *,
@@ -194,6 +218,7 @@ def validate_close_cache_manifest(
         raise ValueError("尾盘窗口缓存张量合同无效")
     if contract.get("selection_policy") != "all_pack_tickers_min_events_v1":
         raise ValueError("尾盘窗口缓存股票选择合同无效")
+    _validate_representation_contract(contract)
     if manifest.get("contract_sha256") != _canonical_sha256(contract):
         raise ValueError("尾盘窗口缓存合同指纹不匹配")
 
@@ -284,6 +309,8 @@ def _build_datasets(
     pack_root: Path,
     seq_len: int,
     min_events: int,
+    use_lob_prefix: bool = False,
+    use_session_anchors: bool = False,
 ) -> dict[str, L2WindowDataset]:
     return {
         partition: L2WindowDataset(
@@ -298,6 +325,8 @@ def _build_datasets(
             eval_tickers=0,
             fixed_windows=True,
             require_eval_labels=False,
+            use_lob_prefix=use_lob_prefix,
+            use_session_anchors=use_session_anchors,
         )
         for partition in PARTITIONS
     }
@@ -440,6 +469,8 @@ def build_close_cache(
     batch_size: int,
     num_workers: int,
     source_revision: str,
+    use_lob_prefix: bool = False,
+    use_session_anchors: bool = False,
 ) -> dict[str, Any]:
     """物化 seed 无关的尾盘窗口，支持按月原子恢复。"""
     storage = _load_json(storage_manifest_path)
@@ -450,6 +481,8 @@ def build_close_cache(
         seq_len=seq_len,
         min_events=min_events,
         source_revision=source_revision,
+        use_lob_prefix=use_lob_prefix,
+        use_session_anchors=use_session_anchors,
     )
     output_root = Path(output_root)
     manifest_path = output_root / MANIFEST_NAME
@@ -473,6 +506,8 @@ def build_close_cache(
         pack_root=pack_root,
         seq_len=seq_len,
         min_events=min_events,
+        use_lob_prefix=use_lob_prefix,
+        use_session_anchors=use_session_anchors,
     )
     per_sample = sum(
         int(np.prod(shape, dtype=np.int64) if shape else 1) * ARRAY_DTYPES[name].itemsize
@@ -528,9 +563,24 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--batch-size", type=int, default=64)
     build.add_argument("--num-workers", type=int, default=4)
     build.add_argument("--source-revision", default="")
+    build.add_argument(
+        "--use-lob-prefix",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    build.add_argument(
+        "--use-session-anchors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     verify = commands.add_parser("verify", help="逐文件核对尾盘窗口缓存")
     verify.add_argument("--root", type=Path, required=True)
-    verify.add_argument("--partition", action="append", choices=PARTITIONS, dest="partitions")
+    verify.add_argument(
+        "--partition",
+        action="append",
+        choices=PARTITIONS,
+        dest="partitions",
+    )
     return parser
 
 
@@ -546,6 +596,8 @@ def main(argv: list[str] | None = None) -> None:
             batch_size=arguments.batch_size,
             num_workers=arguments.num_workers,
             source_revision=arguments.source_revision or git_sha(Path.cwd()),
+            use_lob_prefix=arguments.use_lob_prefix,
+            use_session_anchors=arguments.use_session_anchors,
         )
     else:
         report = verify_close_cache(

@@ -5,17 +5,8 @@ open-to-following-open 收益 / 可交易状态 / 动态 universe 合并，产�
 ``research.prediction_contract`` 正式契约的预测 parquet（含 metadata），
 可直接被 ``import_predictions`` 导入 registry，或被 ``topk_cost_sweep`` 消费。
 
-候选行（in_universe）分数来自事件流模型；状态行（in_universe=False，用于持仓
-可交易跟踪）分数记为 0.0（不会被选中排序）。
-
-用法：
-    python -m ticknet.eventstream.export \
-        --checkpoint checkpoints-eventstream/eventstream.seed0.best.pt \
-        --model probe25m --days 20210104 20210105 \
-        --pack-root /mnt/.../l2_eventstream/v2 --label-path /mnt/.../label.parquet \
-        --basic-root /mnt/.../cn_a_share_level2/basic \
-        --benchmark /mnt/.../benchmark_open.parquet --top-n 400 \
-        --start 2021-01-04 --end 2021-01-05 --out predictions.parquet
+候选行（in_universe）分数来自事件流模型。状态行（in_universe=False，用于持仓
+可交易跟踪）分数记为 0.0，不会被选中排序。
 """
 
 from __future__ import annotations
@@ -23,6 +14,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pyarrow as pa
@@ -30,7 +22,7 @@ import pyarrow.parquet as pq
 import torch
 
 from ticknet.eventstream.config import PACK_ROOT, STREAM_DTYPES, day_pack_paths
-from ticknet.eventstream.dataset import N_FEATURES, _merge_and_featurize
+from ticknet.eventstream.dataset import N_FEATURES, _merge_window_and_featurize
 from ticknet.eventstream.fingerprint import dataset_fingerprint
 from ticknet.eventstream.model import build_eventstream_model
 from ticknet.nextday.formal_targets import (
@@ -46,6 +38,19 @@ from ticknet.research.prediction_contract import (
 from ticknet.train import resolve_device
 
 
+def _checkpoint_representation(checkpoint: dict[str, Any]) -> dict[str, Any]:
+    experiment = checkpoint.get("experiment")
+    if not isinstance(experiment, dict):
+        experiment = {}
+    return {
+        "use_lob_prefix": bool(experiment.get("use_lob_prefix", False)),
+        "use_session_anchors": bool(experiment.get("use_session_anchors", False)),
+        "use_vq": bool(experiment.get("use_vq", False)),
+        "vq_codebook_size": int(experiment.get("vq_codebook_size", 1024)),
+        "vq_dim": int(experiment.get("vq_dim", 64)),
+    }
+
+
 @torch.no_grad()
 def score_day_head(
     model,
@@ -55,14 +60,16 @@ def score_day_head(
     seq_len: int,
     min_events: int,
     device: torch.device,
+    use_lob_prefix: bool = False,
+    use_session_anchors: bool = False,
 ) -> dict[tuple[int, str], float]:
-    """对每个 (day, ticker) 的收盘全量上下文输出 day 头分数。"""
+    """按训练时相同表征，对每个 (day, ticker) 的尾盘上下文输出 day 头分数。"""
     root = Path(root)
     result: dict[tuple[int, str], float] = {}
     model.eval()
     for day in days:
         paths = day_pack_paths(day, root)
-        if not all(p.exists() for p in paths.values()):
+        if not all(path.exists() for path in paths.values()):
             continue
         index = np.load(paths["index"], allow_pickle=False)
         total = index["o_len"] + index["t_len"] + index["s_len"]
@@ -79,18 +86,28 @@ def score_day_head(
             trade = mmaps["trade"][offset : offset + index["t_len"][ticker_index]]
             offset = index["s_off"][ticker_index]
             snap = mmaps["snap"][offset : offset + index["s_len"][ticker_index]]
-            feats, sid, oid = _merge_and_featurize(
-                order, trade, snap, float(index["prev_close"][ticker_index]) * 100.0
+            event_count = len(order) + len(trade) + len(snap)
+            need = seq_len if use_lob_prefix else seq_len + 1
+            start = max(0, event_count - need)
+            feats, sid, oid = _merge_window_and_featurize(
+                order,
+                trade,
+                snap,
+                float(index["prev_close"][ticker_index]) * 100.0,
+                start=start,
+                stop=event_count,
+                use_lob_prefix=use_lob_prefix,
+                use_session_anchors=use_session_anchors,
             )
-            n = len(sid)
-            start = max(0, n - (seq_len + 1))
-            span = min(seq_len, n - start - 1)
+            span = min(seq_len, len(sid) - 1)
+            if span < 1:
+                continue
             x = np.zeros((1, seq_len, N_FEATURES), dtype=np.float32)
             x_sid = np.zeros((1, seq_len), dtype=np.int64)
             x_oid = np.zeros((1, seq_len), dtype=np.int64)
-            x[0, :span] = feats[start : start + span]
-            x_sid[0, :span] = sid[start : start + span]
-            x_oid[0, :span] = oid[start : start + span]
+            x[0, :span] = feats[:span]
+            x_sid[0, :span] = sid[:span]
+            x_oid[0, :span] = oid[:span]
             prediction = model(
                 torch.from_numpy(x).to(device),
                 torch.from_numpy(x_sid).to(device),
@@ -125,13 +142,31 @@ def export_predictions(
     """导出正式 Top-K 预测 artifact，并校验契约。"""
     started_at = time.perf_counter()
     device_resolved = resolve_device(device)
-    model = build_eventstream_model(model_name).to(device_resolved)
-    checkpoint = torch.load(checkpoint, map_location="cpu", weights_only=True)
-    model.load_state_dict(checkpoint["model"])
-    days = [int(d) for d in days]
+    raw_checkpoint = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    if not isinstance(raw_checkpoint, dict):
+        raise ValueError("事件流 checkpoint 顶层应为对象")
+    experiment = raw_checkpoint.get("experiment")
+    if isinstance(experiment, dict) and experiment.get("model") not in {None, model_name}:
+        raise ValueError("事件流 checkpoint 模型名称与导出配置不一致")
+    representation = _checkpoint_representation(raw_checkpoint)
+    model = build_eventstream_model(
+        model_name,
+        use_vq=representation["use_vq"],
+        vq_codebook_size=representation["vq_codebook_size"],
+        vq_dim=representation["vq_dim"],
+    ).to(device_resolved)
+    model.load_state_dict(raw_checkpoint["model"])
+    days = [int(day) for day in days]
 
     scores = score_day_head(
-        model, days, root, seq_len=seq_len, min_events=min_events, device=device_resolved
+        model,
+        days,
+        root,
+        seq_len=seq_len,
+        min_events=min_events,
+        device=device_resolved,
+        use_lob_prefix=representation["use_lob_prefix"],
+        use_session_anchors=representation["use_session_anchors"],
     )
     del model
 

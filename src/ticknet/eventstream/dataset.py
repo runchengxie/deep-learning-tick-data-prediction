@@ -20,6 +20,10 @@
     52-61 bid_cnt_log / 62-71 ask_cnt_log
     72 totbid_log 73 totask_log 74 wbid_bps 75 wask_bps
     76 dealnum_log 77 tod_sin 78 tod_cos 79 is_auction
+
+可选 LOB prefix 使用保留的 order-type id 11。prefix 复用同一 80 维合同，但
+5-8 号位置改为固定 session anchor 偏离、昨收偏离、anchor 可用标记和盘口可用标记。
+
 目标：
     下一事件流类型（0 pad/eos, 1 snap, 2 order, 3 trade）
     下一订单类型 id（vocab）、下一 price_bps / dt_log / qty_log
@@ -39,8 +43,9 @@ from ticknet.eventstream.config import PACK_ROOT, STREAM_DTYPES, day_pack_paths
 N_FEATURES = 80
 BPS_SCALE = 100.0  # 以 bps/100 存储使量级 O(1)
 
-# raw OrderType -> embedding id（0 = 其他/pad）
+# raw OrderType -> embedding id（0 = 其他/pad，11 = LOB prefix）
 ORDER_TYPE_VOCAB = {0: 1, 10: 2, 1: 3, 2: 4, 3: 5, 11: 6, 12: 7, 13: 8, -1: 9, -11: 10}
+ORDER_TYPE_LOB_PREFIX = 11
 N_ORDER_TYPES = 12
 
 STREAM_SNAP, STREAM_ORDER, STREAM_TRADE = 1, 2, 3
@@ -58,10 +63,11 @@ def _resolve_window_entries(
     eval_mode: bool,
     fixed_windows: bool,
     rng: np.random.Generator,
+    use_lob_prefix: bool = False,
 ) -> list[tuple[int, int, int]]:
     """为评估或正式物化预先固定窗口起点。"""
     resolved: list[tuple[int, int, int]] = []
-    need = seq_len + 1
+    need = seq_len if use_lob_prefix else seq_len + 1
     for day, ticker_index in entries:
         index = index_by_day[day]
         total = int(
@@ -85,7 +91,8 @@ class L2WindowDataset(Dataset):
     """训练模式：随机窗口，股票按事件数比例采样。
 
     评估模式（``eval_mode=True``）：每个有标签的 (ticker, day) 一个确定性样本，
-    取当天最后 ``seq_len`` 个事件（收盘全量上下文），可选 ``eval_tickers`` 抽样。
+    取当天最后 ``seq_len`` 个输入位置，可选 ``eval_tickers`` 抽样。启用 LOB prefix
+    时第一个输入位置为窗口边界之前的盘口状态，其余位置为真实事件。
     """
 
     def __init__(
@@ -101,10 +108,16 @@ class L2WindowDataset(Dataset):
         eval_tickers: int = 0,
         fixed_windows: bool = False,
         require_eval_labels: bool = True,
+        use_lob_prefix: bool = False,
+        use_session_anchors: bool = False,
     ):
+        if use_session_anchors and not use_lob_prefix:
+            raise ValueError("use_session_anchors 需要同时启用 use_lob_prefix")
         self.root = Path(root)
         self.seq_len = int(seq_len)
         self.eval_mode = bool(eval_mode)
+        self.use_lob_prefix = bool(use_lob_prefix)
+        self.use_session_anchors = bool(use_session_anchors)
         self.rng = np.random.default_rng(seed)
         self.days: list[int] = []
         self.index: dict[int, dict] = {}
@@ -176,6 +189,7 @@ class L2WindowDataset(Dataset):
             eval_mode=self.eval_mode,
             fixed_windows=fixed_windows,
             rng=self.rng,
+            use_lob_prefix=self.use_lob_prefix,
         )
         n_total = sum(len(v["label"]) for v in self.index.values())
         label_summary = (
@@ -221,7 +235,7 @@ class L2WindowDataset(Dataset):
 
         n = len(order) + len(trade) + len(snap)
         length = self.seq_len
-        need = length + 1  # 需要下一个事件作目标
+        need = length if self.use_lob_prefix else length + 1
         if start < 0:
             start = int(self.rng.integers(0, max(n - need + 1, 1)))
         end = min(start + need, n)
@@ -232,6 +246,8 @@ class L2WindowDataset(Dataset):
             prev_close_cent,
             start=start,
             stop=end,
+            use_lob_prefix=self.use_lob_prefix,
+            use_session_anchors=self.use_session_anchors,
         )
 
         x = np.zeros((length, N_FEATURES), dtype=np.float32)
@@ -357,6 +373,83 @@ def _reference_before_window(snap, consumed_snapshots: int, prev_close_cent: flo
     return max(valid, default=1.0)
 
 
+def _fixed_session_anchor(
+    trade,
+    snap,
+    positions: tuple[int, int, int],
+    prev_close_cent: float,
+) -> tuple[float, bool]:
+    """只从窗口边界前的成交或快照选择全日固定首个价格锚。"""
+    _order_position, trade_position, snap_position = positions
+    candidates: list[tuple[int, int, float]] = []
+    for row in trade[:trade_position]:
+        price = float(row["price"])
+        if price > 0 and np.isfinite(price):
+            candidates.append((int(row["time_ms"]), 0, price))
+    for row in snap[:snap_position]:
+        price = float(row["last"])
+        if price > 0 and np.isfinite(price):
+            candidates.append((int(row["time_ms"]), 1, price))
+    if candidates:
+        _time, _priority, price = min(candidates, key=lambda value: (value[0], value[1]))
+        return price, True
+    if prev_close_cent > 0 and np.isfinite(prev_close_cent):
+        return float(prev_close_cent), False
+    return 1.0, False
+
+
+def _scaled_bps(price: float, reference: float) -> float:
+    if price <= 0 or reference <= 0 or not np.isfinite(price) or not np.isfinite(reference):
+        return 0.0
+    value = (price / reference - 1.0) * 1e4 / BPS_SCALE
+    return float(np.clip(value, -50.0, 50.0))
+
+
+def _lob_prefix_features(
+    order,
+    trade,
+    snap,
+    *,
+    positions: tuple[int, int, int],
+    prev_close_cent: float,
+    use_session_anchors: bool,
+) -> np.ndarray:
+    """构造严格位于窗口边界之前的盘口状态，不读取任何未来快照。"""
+    _order_position, _trade_position, snap_position = positions
+    prefix = np.zeros(N_FEATURES, dtype=np.float32)
+    current_mid = prev_close_cent if prev_close_cent > 0 else 1.0
+    lob_available = False
+    if snap_position > 0:
+        row = snap[snap_position - 1]
+        middle = _snapshot_mid(row)
+        if middle > 0 and np.isfinite(middle):
+            current_mid = middle
+            one_snap = snap[snap_position - 1 : snap_position]
+            features, _stream, _otype = _merge_and_featurize(
+                order[:0],
+                trade[:0],
+                one_snap,
+                current_mid,
+            )
+            prefix = features[0].copy()
+            prefix[:9] = 0.0
+            lob_available = True
+
+    anchor, anchor_available = _fixed_session_anchor(
+        trade,
+        snap,
+        positions,
+        prev_close_cent,
+    )
+    if use_session_anchors and anchor_available:
+        prefix[5] = _scaled_bps(current_mid, anchor)
+        prefix[7] = 1.0
+    if prev_close_cent > 0 and np.isfinite(prev_close_cent):
+        prefix[6] = _scaled_bps(current_mid, prev_close_cent)
+    prefix[8] = 1.0 if lob_available else 0.0
+    return prefix
+
+
 def _merge_window_and_featurize(
     order,
     trade,
@@ -365,8 +458,10 @@ def _merge_window_and_featurize(
     *,
     start: int,
     stop: int,
+    use_lob_prefix: bool = False,
+    use_session_anchors: bool = False,
 ):
-    """定位并特征化目标窗口，避免为 513 个事件重算整日序列。"""
+    """定位并特征化目标窗口，避免为少量事件重算整日序列。"""
     context_start = max(0, start - 1)
     streams, row_indices, positions = _merged_window_rows(
         order,
@@ -386,10 +481,26 @@ def _merge_window_and_featurize(
         initial_ref,
     )
     drop_context = start - context_start
+    feats = feats[drop_context:]
+    stream_ids = stream_ids[drop_context:]
+    order_type_ids = order_type_ids[drop_context:]
+    if not use_lob_prefix:
+        return feats, stream_ids, order_type_ids
+
+    time_streams = (order["time_ms"], trade["time_ms"], snap["time_ms"])
+    boundary_positions = _positions_at_rank(time_streams, start)
+    prefix = _lob_prefix_features(
+        order,
+        trade,
+        snap,
+        positions=boundary_positions,
+        prev_close_cent=prev_close_cent,
+        use_session_anchors=use_session_anchors,
+    )
     return (
-        feats[drop_context:],
-        stream_ids[drop_context:],
-        order_type_ids[drop_context:],
+        np.concatenate([prefix[None, :], feats], axis=0),
+        np.concatenate([np.array([0], dtype=np.int64), stream_ids]),
+        np.concatenate([np.array([ORDER_TYPE_LOB_PREFIX], dtype=np.int64), order_type_ids]),
     )
 
 
@@ -420,7 +531,11 @@ def _merge_and_featurize(order, trade, snap, prev_close_cent: float):
     if n_s:
         bid1 = snap["bid_px"][:, 0].astype(np.float64)
         ask1 = snap["ask_px"][:, 0].astype(np.float64)
-        mid_s = np.where((bid1 > 0) & (ask1 > 0), (bid1 + ask1) / 2.0, np.maximum(bid1, ask1))
+        mid_s = np.where(
+            (bid1 > 0) & (ask1 > 0),
+            (bid1 + ask1) / 2.0,
+            np.maximum(bid1, ask1),
+        )
         mid_s = np.where(mid_s > 0, mid_s, np.nan)
         mid_src[n_o + n_t :] = mid_s
     mid_sorted = mid_src[sorted_idx]
@@ -491,13 +606,27 @@ def _merge_and_featurize(order, trade, snap, prev_close_cent: float):
         bv1 = snap["bid_vol"][:, 0].astype(np.float64)
         av1 = snap["ask_vol"][:, 0].astype(np.float64)
         ok = (bid1 > 0) & (ask1 > 0)
-        feats[pos_s, 9] = np.where(ok, (ask1 - bid1) / r * 1e4 / BPS_SCALE, 0.0).astype(np.float32)
+        feats[pos_s, 9] = np.where(
+            ok,
+            (ask1 - bid1) / r * 1e4 / BPS_SCALE,
+            0.0,
+        ).astype(np.float32)
         depth = bv1 + av1
-        feats[pos_s, 10] = np.where(depth > 0, (bv1 - av1) / np.maximum(depth, 1), 0.0).astype(
-            np.float32
+        feats[pos_s, 10] = np.where(
+            depth > 0,
+            (bv1 - av1) / np.maximum(depth, 1),
+            0.0,
+        ).astype(np.float32)
+        micro = np.where(
+            depth > 0,
+            (ask1 * bv1 + bid1 * av1) / np.maximum(depth, 1),
+            0.0,
         )
-        micro = np.where(depth > 0, (ask1 * bv1 + bid1 * av1) / np.maximum(depth, 1), 0.0)
-        feats[pos_s, 11] = np.where(ok, (micro / r - 1.0) * 1e4 / BPS_SCALE, 0.0).astype(np.float32)
+        feats[pos_s, 11] = np.where(
+            ok,
+            (micro / r - 1.0) * 1e4 / BPS_SCALE,
+            0.0,
+        ).astype(np.float32)
         for level in range(10):
             feats[pos_s, 12 + level] = bps(snap["bid_px"][:, level], r)
             feats[pos_s, 22 + level] = bps(snap["ask_px"][:, level], r)

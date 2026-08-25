@@ -251,6 +251,11 @@ def load_pretrained_backbone(
     experiment = checkpoint["experiment"]
     if experiment.get("model") != model_name or int(experiment.get("seed", -1)) != seed:
         raise ValueError("预训练 checkpoint 的模型或 seed 与配置不一致")
+    if any(
+        bool(experiment.get(name, False))
+        for name in ("use_lob_prefix", "use_session_anchors", "use_vq")
+    ):
+        raise ValueError("联合微调暂不支持 M3-inspired 事件流表征")
     model.eventstream.load_state_dict(checkpoint["model"])
     return {
         "sha256": actual_sha256,

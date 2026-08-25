@@ -87,6 +87,8 @@ GRU 是门控循环单元，属于深度学习模型。
 
 代码位于 `ticknet.eventstream.model`，完整状态见[事件流说明](nextday/eventstream.md)。
 
+事件流主干还提供一组默认关闭的 M3-inspired 表征开关，用于受控比较盘口 prefix、固定 session anchor 和 Hybrid VQ。它们属于表征实验，不代表已经完成真实滚动窗口训练，也不改变当前模型清单中的正式性能结论。设计与合同见[M3-inspired 事件流表征实验](research/m3-eventstream-representation.md)。
+
 联合端到端实验复用同一个 100M 主干和尾盘事件缓存。每个样本同时读取收盘前 512 个事件与 120 维分钟聚合特征。模型取最后一个有效事件的隐藏状态，拼接分钟特征塔输出，再由三分类头生成上涨概率减下跌概率的排序分数。训练先固定主干，让新增特征塔和分类头适应标签，随后用较小学习率联合更新全部参数。入口为 `ticknet-eventstream-joint-cache` 和 `ticknet-eventstream-joint-train`。
 
 正式 seed 0、1、2 的最佳 epoch 分别为 2、1、1，后续训练很快回落并触发早停。联合模型的 OOS `NDCG@100` 为 `0.54507 ± 0.00450`，与冻结 HGB 三 seed 预测均值接近。日均单边换手为 `49.74% ± 5.79%`，三个 seed 的成本后主动收益均为负。后续实验需要同时观察 Rank IC、Precision 和交易成本，不能只按 Rank IC 决定容量扩张。

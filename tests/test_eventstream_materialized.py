@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import shutil
+from copy import copy
 from pathlib import Path
 
 import numpy as np
@@ -163,6 +164,49 @@ def test_materialized_samples_match_canonical_windows(
 
     assert len(materialized) == len(source)
     assert all(start >= 0 for _day, _ticker, start in source.entries)
+    for row in range(len(source)):
+        assert all(
+            torch.equal(actual, expected)
+            for actual, expected in zip(materialized[row], source[row], strict=True)
+        )
+    report = verify_materialized_dataset(output)
+    assert report["samples"] == 8
+    assert report["shards"] == 5
+
+
+def test_materialized_prefix_samples_match_canonical_windows(
+    materialized_fixture: tuple[EventstreamConfig, Path],
+    tmp_path: Path,
+) -> None:
+    config, _output = materialized_fixture
+    prefix_config = copy(config)
+    prefix_config.use_lob_prefix = True
+    prefix_config.use_session_anchors = True
+    output = tmp_path / "materialized-prefix"
+    manifest = build_materialized_dataset(
+        prefix_config,
+        storage_manifest_path=tmp_path / "storage-manifest.json",
+        output_root=output,
+        source_revision=SOURCE_REVISION,
+    )
+
+    assert manifest["status"] == "complete"
+    assert manifest["contract"]["sampling_policy"] == "seeded_fixed_window_v2"
+    source = L2WindowDataset(
+        list(DAYS[:2]),
+        seq_len=prefix_config.seq_len,
+        min_events=prefix_config.min_events,
+        samples_per_day=prefix_config.samples_per_day,
+        root=Path(prefix_config.pack_root),
+        label_path=Path(prefix_config.label_path),
+        seed=prefix_config.seed,
+        fixed_windows=True,
+        use_lob_prefix=True,
+        use_session_anchors=True,
+    )
+    materialized = MaterializedWindowDataset(output, "train")
+
+    assert len(materialized) == len(source)
     for row in range(len(source)):
         assert all(
             torch.equal(actual, expected)
