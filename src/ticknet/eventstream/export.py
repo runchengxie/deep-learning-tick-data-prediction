@@ -41,7 +41,7 @@ from ticknet.train import resolve_device
 def _checkpoint_representation(checkpoint: dict[str, Any]) -> dict[str, Any]:
     experiment = checkpoint.get("experiment")
     if not isinstance(experiment, dict):
-        raise ValueError("事件流 checkpoint 缺少实验签名")
+        experiment = {}
     return {
         "use_lob_prefix": bool(experiment.get("use_lob_prefix", False)),
         "use_session_anchors": bool(experiment.get("use_session_anchors", False)),
@@ -146,9 +146,7 @@ def export_predictions(
     if not isinstance(raw_checkpoint, dict):
         raise ValueError("事件流 checkpoint 顶层应为对象")
     experiment = raw_checkpoint.get("experiment")
-    if not isinstance(experiment, dict):
-        raise ValueError("事件流 checkpoint 缺少实验签名")
-    if experiment.get("model") not in {None, model_name}:
+    if isinstance(experiment, dict) and experiment.get("model") not in {None, model_name}:
         raise ValueError("事件流 checkpoint 模型名称与导出配置不一致")
     representation = _checkpoint_representation(raw_checkpoint)
     model = build_eventstream_model(
