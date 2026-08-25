@@ -1,209 +1,99 @@
 # M3-inspired EventStream Representation Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+目标：在不改变旧配置默认行为的前提下，为现有事件流 Transformer 增加可选的 LOB prefix、固定因果 session anchor 和 Hybrid VQ 表征，并把它们纳入实验身份与物化合同。
 
-**Goal:** Add optional LOB-prefix, causal session-anchor, and hybrid VQ representations to the existing event-stream Transformer without changing legacy defaults.
+架构约束：继续使用 80 维事件张量和现有 dataset tuple 合同。Prefix 占用序列中的一个输入位置；VQ 只在模型侧作为连续事件 embedding 的残差分支。撮合引擎与闭环市场模拟不属于本 PR。
 
-**Architecture:** Keep the 80-dimensional event tensor and public dataset tuple contract unchanged. Prefix mode inserts a synthetic state token into the existing sequence positions, while VQ remains a model-side residual branch. Materialized datasets record only the representation switches that alter sampled tensors.
+技术栈：Python 3.10+、NumPy、PyTorch、PyArrow、pytest、YAML。
 
-**Tech Stack:** Python 3.10+, NumPy, PyTorch, PyArrow, pytest, YAML.
+设计文档：`docs/superpowers/specs/2026-08-25-m3-eventstream-representation-design.md`
 
-**Spec:** `docs/superpowers/specs/2026-08-25-m3-eventstream-representation-design.md`
+## 全局约束
 
-## Global Constraints
+- 所有新开关关闭时，保留旧样本形状、模型参数量和 checkpoint 行为。
+- Prefix 和 session anchor 不能读取窗口边界之后的快照或成交。
+- `N_FEATURES=80`、`N_STREAMS=4`、`N_ORDER_TYPES=12` 保持不变。
+- 物化数组 schema 保持不变。
+- 不读取 2026 锁定区，也不加入任何真实数据性能结论。
 
-- Existing configurations with all new switches disabled must preserve legacy sample shapes and model parameter counts.
-- No future snapshot or trade may be used to construct a prefix or session anchor.
-- `N_FEATURES=80`, `N_STREAMS=4`, and `N_ORDER_TYPES=12` remain unchanged.
-- The materialized array schema remains unchanged.
-- Matching-engine and simulator work is outside this PR.
+## 任务一：LOB prefix 与固定 session anchor
 
----
+涉及文件：
 
-### Task 1: Add causal LOB prefix and session anchors
+- `src/ticknet/eventstream/dataset.py`
+- `tests/test_eventstream_m3_repr.py`
 
-**Files:**
-- Modify: `src/ticknet/eventstream/dataset.py`
-- Modify: `tests/test_eventstream.py`
+实施步骤：
 
-**Interfaces:**
-- Produces: `ORDER_TYPE_LOB_PREFIX: int = 11`
-- Produces: `L2WindowDataset(..., use_lob_prefix: bool = False, use_session_anchors: bool = False)`
-- Produces: `_session_open_reference(order, trade, snap, positions, prev_close_cent) -> tuple[float, bool]`
-- Produces: `_build_lob_prefix_features(snap, consumed_snapshots, positions, prev_close_cent, use_session_anchors) -> np.ndarray`
+- [x] 先写失败测试，覆盖 prefix 张量形状、目标对齐、严格使用边界前快照和 anchor 因果性。
+- [x] 确认 RED：旧实现因缺少 `use_lob_prefix`、`ORDER_TYPE_LOB_PREFIX` 和 prefix 构造接口而失败。
+- [x] 实现 `ORDER_TYPE_LOB_PREFIX = 11`，保持公开 tensor shape 不变。
+- [x] Prefix 从窗口开始前最后一个 snapshot 构造，不读取未来 snapshot。
+- [x] 固定 session anchor 只从边界前已经出现的 trade 或 snapshot last 中选择最早价格；同时间 trade 优先。首次出现后，后续窗口的 anchor 不再变化。
+- [x] Anchor 尚未出现时用昨收作为数值 fallback，并把可用标记设为 0。
 
-- [ ] **Step 1: Write failing prefix tests**
+## 任务二：配置与物化合同
 
-Add tests that create a window after the first snapshot and assert that prefix mode keeps `x`, `sid`, `oid`, target and mask shapes unchanged, places `oid=11` at position zero, predicts the first real event from the prefix, and uses the latest strictly prior snapshot.
+涉及文件：
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- `src/ticknet/eventstream/train.py`
+- `src/ticknet/eventstream/materialized.py`
+- `tests/test_eventstream_materialized.py`
+- `configs/eventstream.yaml`
 
-Run: `pytest tests/test_eventstream.py -q`
+实施步骤：
 
-Expected: FAIL because `use_lob_prefix`, `ORDER_TYPE_LOB_PREFIX`, and prefix construction do not exist.
+- [x] `EventstreamConfig` 增加 `use_lob_prefix`、`use_session_anchors`、`use_vq`、`vq_codebook_size`、`vq_dim` 和 `vq_loss_weight`。
+- [x] `use_session_anchors=True` 时要求同时启用 LOB prefix。
+- [x] 原始训练、validation、OOS 和 monitor dataset 统一接收表征开关。
+- [x] 物化合同记录 prefix 与 anchor 开关；prefix 开启时使用 `seeded_fixed_window_v2`，旧合同继续使用 v1。
+- [ ] 在 prefix 模式下增加 source 与 materialized 样本逐张量一致测试。
+- [ ] 更新示例 YAML。
 
-- [ ] **Step 3: Implement minimal prefix sampling**
+## 任务三：Hybrid VQ
 
-Update `_resolve_window_entries` so prefix mode needs `seq_len` real events rather than `seq_len + 1`. Build the synthetic prefix from the snapshot position strictly before `start`. Keep all returned tensor shapes unchanged and shift real events by one position.
+涉及文件：
 
-- [ ] **Step 4: Write failing causal-anchor tests**
+- `src/ticknet/eventstream/model.py`
+- `src/ticknet/eventstream/train.py`
+- `tests/test_eventstream_vq.py`
 
-Add cases where the first trade occurs before and after the sampled boundary. Assert that the earlier window cannot use a future first trade and that the availability flag changes only after the anchor becomes observable.
+实施步骤：
 
-- [ ] **Step 5: Run the focused test and verify RED**
+- [x] 先写失败测试，覆盖关闭 VQ 时参数形状兼容、code 输出、prefix/pad 屏蔽和 VQ loss 权重。
+- [x] 确认 RED：旧模型构造器和 loss 接口不接受 VQ 参数。
+- [x] 用 `[dt_log, price_bps, qty_log, side, is_cancel]` 编码核心事件行为。
+- [x] 用最近邻 codebook、straight-through estimator、codebook loss 和 commitment loss 实现量化。
+- [x] 量化结果投影到 `d_model` 后作为连续 embedding 的残差；`sid==0` 的 pad 与 prefix 不参与 VQ。
+- [x] `compute_loss_components` 保留四项原任务合同，VQ 正则只在 `compute_loss` 中加入。
 
-Run: `pytest tests/test_eventstream.py -q`
+## 任务四：兼容链
 
-Expected: FAIL on missing session-anchor behavior.
+涉及文件：
 
-- [ ] **Step 6: Implement causal session anchors**
+- `src/ticknet/eventstream/train.py`
+- 冻结 embedding、固定窗口缓存和其他 checkpoint 消费端
+- 相关测试
 
-Use already-consumed stream positions to select the earliest observed valid trade, snapshot, or non-cancel order price. Encode mid/open and mid/previous-close offsets in prefix feature slots 5 and 6, plus availability flags in 7 and 8.
+实施步骤：
 
-- [ ] **Step 7: Run the focused test and verify GREEN**
+- [x] legacy checkpoint 缺少新字段时按默认关闭配置归一化。
+- [ ] 检查所有 `build_eventstream_model` checkpoint 消费端，确保 VQ checkpoint 可以按实验签名重建模型。
+- [ ] 检查固定尾盘窗口与 prefix 模式的输入合同，必要时绑定 representation identity。
+- [ ] 保留旧 checkpoint、旧 materialized manifest 和旧 close cache 的默认兼容路径。
 
-Run: `pytest tests/test_eventstream.py -q`
+## 任务五：文档与验证
 
-Expected: PASS.
+涉及文件：
 
-### Task 2: Add configuration and materialized-data identity
+- `docs/nextday/eventstream.md`
+- `docs/model-catalog.md`
+- PR 描述
 
-**Files:**
-- Modify: `src/ticknet/eventstream/train.py`
-- Modify: `src/ticknet/eventstream/materialized.py`
-- Modify: `tests/test_eventstream_materialized.py`
-- Modify: `configs/eventstream.yaml`
+实施步骤：
 
-**Interfaces:**
-- Produces config fields: `use_lob_prefix`, `use_session_anchors`, `use_vq`, `vq_codebook_size`, `vq_dim`, `vq_loss_weight`
-- Materialized contract keys: `use_lob_prefix`, `use_session_anchors`
-
-- [ ] **Step 1: Write failing config and materialization tests**
-
-Add tests that reject `use_session_anchors=True` when prefix mode is disabled, verify representation switches are persisted in materialized contracts, verify source and materialized samples are identical with prefix mode enabled, and reject a training config whose representation switches differ from the materialized contract.
-
-- [ ] **Step 2: Run focused tests and verify RED**
-
-Run: `pytest tests/test_eventstream_materialized.py tests/test_eventstream.py -q`
-
-Expected: FAIL because the new config and contract fields do not exist.
-
-- [ ] **Step 3: Implement configuration plumbing**
-
-Add the six fields to `EventstreamConfig`, validation, `to_dict` identity, raw dataset construction, monitor datasets, and model construction call sites. Pass only prefix/session switches into `L2WindowDataset`.
-
-- [ ] **Step 4: Implement materialized identity**
-
-Record prefix/session switches in `_materialization_contract`, pass them through `build_source_datasets`, and check them in `assert_materialized_compatible`. Preserve legacy `seeded_fixed_window_v1` when prefix mode is off and use `seeded_fixed_window_v2` when it is on.
-
-- [ ] **Step 5: Update example config**
-
-Add all new fields with disabled/default values to `configs/eventstream.yaml`.
-
-- [ ] **Step 6: Run focused tests and verify GREEN**
-
-Run: `pytest tests/test_eventstream_materialized.py tests/test_eventstream.py -q`
-
-Expected: PASS.
-
-### Task 3: Add optional hybrid VQ residual branch
-
-**Files:**
-- Modify: `src/ticknet/eventstream/model.py`
-- Create: `tests/test_eventstream_vq.py`
-- Modify: `src/ticknet/eventstream/train.py`
-
-**Interfaces:**
-- Produces: `VectorQuantizer(nn.Module)`
-- Extends: `L2FoundationModel(..., use_vq=False, vq_codebook_size=1024, vq_dim=64)`
-- Extends: `build_eventstream_model(name, *, use_vq=False, vq_codebook_size=1024, vq_dim=64)`
-- Extends: `compute_loss(..., vq_loss_weight=0.0)`
-
-- [ ] **Step 1: Write failing VQ tests**
-
-Create tests that assert the default smoke model has the legacy parameter count/state shapes, a VQ-enabled model returns finite `vq_loss` and integer `vq_codes`, prefix/pad positions do not contribute to VQ loss, and changing `vq_loss_weight` changes total loss by the expected regularizer amount while leaving the four task components unchanged.
-
-- [ ] **Step 2: Run VQ tests and verify RED**
-
-Run: `pytest tests/test_eventstream_vq.py -q`
-
-Expected: FAIL because VQ classes and arguments do not exist.
-
-- [ ] **Step 3: Implement minimal VectorQuantizer**
-
-Encode event core features `[0,1,2,3,4]`, compute nearest codebook entries by squared Euclidean distance, use straight-through quantization, and return codebook plus commitment loss with beta `0.25`.
-
-- [ ] **Step 4: Add VQ residual to the model**
-
-Project quantized vectors to `d_model` and add them to the normal embedding. Exclude positions with `sid==0` so padding and the synthetic prefix are ignored.
-
-- [ ] **Step 5: Add VQ regularization to training loss**
-
-Keep `compute_loss_components` unchanged. Add `out['vq_loss'] * vq_loss_weight` only in `compute_loss`, expose a `vq` metric, and pass the configured weight from training.
-
-- [ ] **Step 6: Run VQ tests and verify GREEN**
-
-Run: `pytest tests/test_eventstream_vq.py -q`
-
-Expected: PASS.
-
-### Task 4: Preserve checkpoint compatibility and experiment identity
-
-**Files:**
-- Modify: `src/ticknet/eventstream/train.py`
-- Modify: relevant checkpoint/config tests under `tests/`
-
-**Interfaces:**
-- Extends: `_checkpoint_matches_experiment` default normalization for all new fields
-
-- [ ] **Step 1: Write failing compatibility test**
-
-Add a test with a legacy experiment dictionary that lacks the new fields and assert it matches a current default-disabled expected signature.
-
-- [ ] **Step 2: Run the focused test and verify RED**
-
-Run the checkpoint/config-focused pytest target containing the new test.
-
-Expected: FAIL because missing fields are not normalized.
-
-- [ ] **Step 3: Normalize legacy experiment dictionaries**
-
-Set defaults for `use_lob_prefix=False`, `use_session_anchors=False`, `use_vq=False`, `vq_codebook_size=1024`, `vq_dim=64`, and `vq_loss_weight=0.25` before identity comparison.
-
-- [ ] **Step 4: Run the focused test and verify GREEN**
-
-Run the same target.
-
-Expected: PASS.
-
-### Task 5: Documentation and full verification
-
-**Files:**
-- Modify: `docs/nextday/eventstream.md`
-- Modify: `docs/model-catalog.md`
-
-**Interfaces:**
-- Documents the new flags, causal boundary, VQ role, and explicit statement that no real-data performance claim exists yet.
-
-- [ ] **Step 1: Update user-facing documentation**
-
-Document the representation switches, the reserved prefix order-type id, the causal session-anchor rule, materialization identity, and the experiment interpretation. State that the feature is an unvalidated candidate until real rolling-window experiments are run.
-
-- [ ] **Step 2: Run repository quality gates**
-
-Run:
-
-```bash
-pre-commit run --all-files
-python scripts/check.py
-```
-
-Expected: both commands pass.
-
-- [ ] **Step 3: Review the diff for scope and compatibility**
-
-Confirm no matching-engine code, no simulator data-contract change, no raw-ID retention change, no locked 2026 data access, and no numerical performance claims were added.
-
-- [ ] **Step 4: Commit and open the PR**
-
-Use a feature commit message such as `feat: add M3-inspired eventstream representations`, then open a PR against `main` with the focused and full verification results.
+- [ ] 记录新配置、因果边界、VQ 角色和实验解释。
+- [ ] 明确说明新表征尚未经过真实滚动窗口性能验证。
+- [ ] 运行 PR CI，并确认 Python 3.10、Python 3.12、ruff、format、ty、pytest、coverage 和依赖审计通过。
+- [ ] 审查最终 diff，确认没有 matching engine、simulator raw-ID 合同、2026 锁定数据访问或未经验证的性能声明。
+- [ ] 把 draft PR 更新为可审查状态，并写明 RED 与 GREEN 验证证据。
