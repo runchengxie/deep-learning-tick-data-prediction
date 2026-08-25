@@ -26,7 +26,9 @@ def test_disabled_vq_preserves_legacy_model_state_shapes() -> None:
     legacy = build_eventstream_model("smoke")
     disabled = build_eventstream_model("smoke", use_vq=False)
 
-    assert sum(p.numel() for p in legacy.parameters()) == sum(p.numel() for p in disabled.parameters())
+    legacy_count = sum(parameter.numel() for parameter in legacy.parameters())
+    disabled_count = sum(parameter.numel() for parameter in disabled.parameters())
+    assert legacy_count == disabled_count
     assert {
         name: tuple(value.shape) for name, value in legacy.state_dict().items()
     } == {name: tuple(value.shape) for name, value in disabled.state_dict().items()}
