@@ -2,7 +2,7 @@
 
 目标：在不改变旧配置默认行为的前提下，为现有事件流 Transformer 增加可选的 LOB prefix、固定因果 session anchor 和 Hybrid VQ 表征，并把它们纳入实验身份与物化合同。
 
-架构约束：继续使用 80 维事件张量和现有 dataset tuple 合同。Prefix 占用序列中的一个输入位置；VQ 只在模型侧作为连续事件 embedding 的残差分支。撮合引擎与闭环市场模拟不属于本 PR。
+架构约束：继续使用 80 维事件张量和现有 dataset tuple 合同。Prefix 占用序列中的一个输入位置。VQ 只在模型侧作为连续事件 embedding 的残差分支。撮合引擎与闭环市场模拟不属于本 PR。
 
 技术栈：Python 3.10+、NumPy、PyTorch、PyArrow、pytest、YAML。
 
@@ -29,7 +29,7 @@
 - [x] 确认 RED：旧实现因缺少 `use_lob_prefix`、`ORDER_TYPE_LOB_PREFIX` 和 prefix 构造接口而失败。
 - [x] 实现 `ORDER_TYPE_LOB_PREFIX = 11`，保持公开 tensor shape 不变。
 - [x] Prefix 从窗口开始前最后一个 snapshot 构造，不读取未来 snapshot。
-- [x] 固定 session anchor 只从边界前已经出现的 trade 或 snapshot last 中选择最早价格；同时间 trade 优先。首次出现后，后续窗口的 anchor 不再变化。
+- [x] 固定 session anchor 只从边界前已经出现的 trade 或 snapshot last 中选择最早价格。同时间 trade 优先。首次出现后，后续窗口的 anchor 不再变化。
 - [x] Anchor 尚未出现时用昨收作为数值 fallback，并把可用标记设为 0。
 
 ## 任务二：配置与物化合同
@@ -46,9 +46,9 @@
 - [x] `EventstreamConfig` 增加 `use_lob_prefix`、`use_session_anchors`、`use_vq`、`vq_codebook_size`、`vq_dim` 和 `vq_loss_weight`。
 - [x] `use_session_anchors=True` 时要求同时启用 LOB prefix。
 - [x] 原始训练、validation、OOS 和 monitor dataset 统一接收表征开关。
-- [x] 物化合同记录 prefix 与 anchor 开关；prefix 开启时使用 `seeded_fixed_window_v2`，旧合同继续使用 v1。
+- [x] 物化合同记录 prefix 与 anchor 开关。Prefix 开启时使用 `seeded_fixed_window_v2`，旧合同继续使用 v1。
 - [ ] 在 prefix 模式下增加 source 与 materialized 样本逐张量一致测试。
-- [ ] 更新示例 YAML。
+- [x] 更新示例 YAML。
 
 ## 任务三：Hybrid VQ
 
@@ -64,7 +64,7 @@
 - [x] 确认 RED：旧模型构造器和 loss 接口不接受 VQ 参数。
 - [x] 用 `[dt_log, price_bps, qty_log, side, is_cancel]` 编码核心事件行为。
 - [x] 用最近邻 codebook、straight-through estimator、codebook loss 和 commitment loss 实现量化。
-- [x] 量化结果投影到 `d_model` 后作为连续 embedding 的残差；`sid==0` 的 pad 与 prefix 不参与 VQ。
+- [x] 量化结果投影到 `d_model` 后作为连续 embedding 的残差。`sid==0` 的 pad 与 prefix 不参与 VQ。
 - [x] `compute_loss_components` 保留四项原任务合同，VQ 正则只在 `compute_loss` 中加入。
 
 ## 任务四：兼容链
