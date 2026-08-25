@@ -40,9 +40,9 @@ The synthetic prefix is a valid causal input position and predicts the first rea
 
 Normal event rows keep their current meanings. The special prefix row reuses event-only slots for state metadata because its reserved order-type id makes the semantics unambiguous:
 
-- feature 5: current book mid relative to the causally known session-open reference, in the existing `bps / 100` scale
+- feature 5: current book mid relative to the causally known fixed session anchor, in the existing `bps / 100` scale
 - feature 6: current book mid relative to previous close, in the existing `bps / 100` scale
-- feature 7: `1.0` when a causal session-open reference is available, else `0.0`
+- feature 7: `1.0` when a causal session anchor is available, else `0.0`
 - feature 8: `1.0` when a prior LOB snapshot is available, else `0.0`
 
 Snapshot-derived L1/L10 spread, imbalance, depth, weighted-price and order-count features continue to occupy their existing positions.
@@ -51,14 +51,11 @@ Snapshot-derived L1/L10 spread, imbalance, depth, weighted-price and order-count
 
 `use_session_anchors` requires `use_lob_prefix`.
 
-The session-open reference is causal. At a window boundary, it is selected from information already consumed before that boundary in this order:
+The fixed session anchor is causal. At a window boundary, consider only valid trade prices and snapshot last prices already consumed before that boundary. Select the earliest observed candidate by timestamp, preferring a trade when timestamps tie. Once the first candidate has appeared, every later window resolves to the same session anchor because later observations cannot precede it.
 
-1. earliest valid trade price already observed in the session
-2. earliest valid snapshot last price already observed
-3. earliest valid non-cancel order price already observed
-4. previous close as a fallback, with the availability flag set to zero
+Before any trade or snapshot price has been observed, use previous close as a numerical fallback and set the session-anchor availability flag to zero. Orders are not used as the fixed anchor because an unexecuted quote is a weaker definition of session price than a trade or exchange snapshot.
 
-Auction-period events are eligible because they are part of the already observed event history. A later first trade must never be used for an earlier window.
+Auction-period trades and snapshots are eligible because they are part of the already observed event history. A future first trade or snapshot must never be used for an earlier window.
 
 The existing rolling-mid event-price normalization remains unchanged. The prefix therefore gives the model a fixed day-level coordinate while every event retains the local microstructure coordinate that has already been validated in the project.
 
@@ -120,7 +117,7 @@ The PR must cover these behaviors with synthetic data:
 - the prefix uses the latest snapshot strictly before the window and never a future snapshot
 - prefix mode keeps all public sample tensor shapes unchanged
 - the prefix target is the first real event and the following targets remain aligned
-- session-open fallback is causal and exposes availability flags
+- the fixed session anchor is causal, does not change after first observation, and exposes availability flags
 - materialized windows exactly match canonical source windows with representation switches enabled
 - incompatible materialized representation switches are rejected
 - VQ returns finite codes and loss, ignores prefix/pad positions, and leaves the default model parameter count unchanged
