@@ -29,9 +29,9 @@ def test_disabled_vq_preserves_legacy_model_state_shapes() -> None:
     legacy_count = sum(parameter.numel() for parameter in legacy.parameters())
     disabled_count = sum(parameter.numel() for parameter in disabled.parameters())
     assert legacy_count == disabled_count
-    assert {
-        name: tuple(value.shape) for name, value in legacy.state_dict().items()
-    } == {name: tuple(value.shape) for name, value in disabled.state_dict().items()}
+    assert {name: tuple(value.shape) for name, value in legacy.state_dict().items()} == {
+        name: tuple(value.shape) for name, value in disabled.state_dict().items()
+    }
 
 
 def test_vq_returns_codes_and_ignores_prefix_and_padding() -> None:

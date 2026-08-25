@@ -29,6 +29,12 @@
 
 训练入口为 `ticknet-eventstream-train`。每个 epoch 在训练窗口上完成多任务下一事件预测，验证阶段按日计算日级输出的 Rank IC。训练按 `selection_metric` 早停，保存 best 和 last checkpoint，并写出历史 JSON。恢复训练时会校验实验签名和数据集指纹。
 
+### M3-inspired 可选事件流表征
+
+事件流训练支持三个默认关闭的受控实验开关：`use_lob_prefix` 在窗口开头加入严格使用边界前快照构造的盘口状态位置，`use_session_anchors` 在此基础上提供固定且因果的日内价格坐标，`use_vq` 则把核心事件行为量化后作为连续事件 embedding 的残差。rolling-mid 坐标仍然保留，旧配置的 80 维张量、模型参数量和 checkpoint 默认行为不变。
+
+Prefix/session anchor 会写入 materialized dataset 与 close-cache 合同。VQ 参数会写入 checkpoint 实验身份。训练、冻结 embedding、预测导出、物化预测和梯度审计会按合同重建模型。联合微调仍使用旧的尾盘窗口合同，因此会显式拒绝带有上述新表征的 checkpoint。完整设计、因果边界、实验顺序和当前证据限制见 [M3-inspired 事件流表征实验](../research/m3-eventstream-representation.md)。
+
 `ticknet-eventstream-prepare-horizon-labels` 把 nextday 多周期长表转换成 H3 和 H5 宽表。转换时要求 `trading_date`、`entry_date` 和 `return_end_date` 同属 train、validation 或 OOS，跨边界标签会被清除。`ticknet-eventstream-benchmark` 在真实 pack 上执行前向、反向和 AdamW 更新，输出吞吐、显存和单 seed 耗时。基准不会读取 validation 和 OOS。
 
 ## 预测导出

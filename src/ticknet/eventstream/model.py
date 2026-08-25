@@ -54,9 +54,7 @@ class _RotaryCache(nn.Module):
 
     def __init__(self, dim: int, max_seq: int, base: float = 10000.0):
         super().__init__()
-        inverse: torch.Tensor = 1.0 / (
-            base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim)
-        )
+        inverse: torch.Tensor = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
         position: torch.Tensor = torch.arange(max_seq, dtype=torch.float32)
         freqs: torch.Tensor = position[:, None] * inverse[None, :]
         self.register_buffer("cos", freqs.cos(), persistent=False)
@@ -285,9 +283,7 @@ def compute_loss_components(
         day_valid,
         mode=day_supervision_mode,
     )
-    day_err = F.smooth_l1_loss(
-        out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none"
-    )
+    day_err = F.smooth_l1_loss(out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none")
     day_loss = (day_err * day_mask).sum() / day_mask.sum().clamp(min=1)
 
     return {
