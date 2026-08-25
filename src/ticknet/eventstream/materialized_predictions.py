@@ -218,6 +218,28 @@ def _checkpoint_experiment(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return experiment
 
 
+def _representation_contract(experiment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "use_lob_prefix": bool(experiment.get("use_lob_prefix", False)),
+        "use_session_anchors": bool(experiment.get("use_session_anchors", False)),
+        "use_vq": bool(experiment.get("use_vq", False)),
+        "vq_codebook_size": int(experiment.get("vq_codebook_size", 1024)),
+        "vq_dim": int(experiment.get("vq_dim", 64)),
+    }
+
+
+def _validate_checkpoint_representation(
+    experiment: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    representation = _representation_contract(experiment)
+    contract = manifest["contract"]
+    for name in ("use_lob_prefix", "use_session_anchors"):
+        if representation[name] != bool(contract.get(name, False)):
+            raise ValueError(f"checkpoint 与物化缓存的 {name} 不一致")
+    return representation
+
+
 @torch.no_grad()
 def _score_partition(
     *,
@@ -308,8 +330,14 @@ def export_materialized_predictions(
         raise ValueError("checkpoint 与物化缓存的数据指纹不同")
     if experiment.get("model") != model_name:
         raise ValueError("checkpoint 与请求的模型配置不同")
+    representation = _validate_checkpoint_representation(experiment, manifest)
 
-    model = build_eventstream_model(model_name).to(device)
+    model = build_eventstream_model(
+        model_name,
+        use_vq=representation["use_vq"],
+        vq_codebook_size=representation["vq_codebook_size"],
+        vq_dim=representation["vq_dim"],
+    ).to(device)
     model.load_state_dict(checkpoint["model"])
     root = output_dir.expanduser().resolve()
     artifacts: list[dict[str, Any]] = []
@@ -345,6 +373,7 @@ def export_materialized_predictions(
         "partitions": list(selected),
         "locked_start": manifest["contract"]["locked_start"],
         "pooling": "last_valid_day_head",
+        "representation": representation,
     }
     report = {
         "schema_version": SCHEMA_VERSION,
