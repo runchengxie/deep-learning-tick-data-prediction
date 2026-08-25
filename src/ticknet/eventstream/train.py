@@ -80,8 +80,14 @@ class EventstreamConfig:
         "test_start",
         "train_end",
         "train_start",
+        "use_lob_prefix",
+        "use_session_anchors",
+        "use_vq",
         "val_end",
         "val_start",
+        "vq_codebook_size",
+        "vq_dim",
+        "vq_loss_weight",
         "weight_decay",
     )
 
@@ -106,6 +112,12 @@ class EventstreamConfig:
         eval_tickers: int = 200,
         evaluate_test: bool = True,
         day_supervision_mode: str = "all",
+        use_lob_prefix: bool = False,
+        use_session_anchors: bool = False,
+        use_vq: bool = False,
+        vq_codebook_size: int = 1024,
+        vq_dim: int = 64,
+        vq_loss_weight: float = 0.25,
         epochs: int = 20,
         batch_size: int = 8,
         lr: float = 3e-4,
@@ -144,6 +156,12 @@ class EventstreamConfig:
         self.eval_tickers = eval_tickers
         self.evaluate_test = evaluate_test
         self.day_supervision_mode = day_supervision_mode
+        self.use_lob_prefix = bool(use_lob_prefix)
+        self.use_session_anchors = bool(use_session_anchors)
+        self.use_vq = bool(use_vq)
+        self.vq_codebook_size = int(vq_codebook_size)
+        self.vq_dim = int(vq_dim)
+        self.vq_loss_weight = float(vq_loss_weight)
         self.epochs = epochs
         self.batch_size = batch_size
         self.lr = lr
@@ -181,6 +199,14 @@ class EventstreamConfig:
             raise ValueError("device 应为 cpu 或 cuda")
         if self.day_supervision_mode not in DAY_SUPERVISION_MODES:
             raise ValueError(f"day_supervision_mode 应为 {sorted(DAY_SUPERVISION_MODES)} 之一")
+        if self.use_session_anchors and not self.use_lob_prefix:
+            raise ValueError("use_session_anchors 需要同时启用 use_lob_prefix")
+        if self.vq_codebook_size < 2:
+            raise ValueError("vq_codebook_size 至少为 2")
+        if self.vq_dim < 2:
+            raise ValueError("vq_dim 至少为 2")
+        if self.vq_loss_weight < 0:
+            raise ValueError("vq_loss_weight 不能为负数")
         if self.min_symbols_per_day < 2:
             raise ValueError("min_symbols_per_day 至少为 2")
         if self.monitor_label_path and not self.monitor_name:
@@ -231,6 +257,13 @@ def _resolve_days(config: EventstreamConfig, root: Path) -> list[int]:
     if config.days:
         return list(config.days)
     return list_packed_days(config.train_start, config.train_end, root)
+
+
+def _window_dataset_kwargs(config: EventstreamConfig) -> dict[str, bool]:
+    return {
+        "use_lob_prefix": config.use_lob_prefix,
+        "use_session_anchors": config.use_session_anchors,
+    }
 
 
 def make_dataloaders(
@@ -290,6 +323,7 @@ def make_dataloaders(
         root=root,
         label_path=label_path,
         seed=config.seed,
+        **_window_dataset_kwargs(config),
     )
     train_loader = DataLoader(
         train_ds,
@@ -311,6 +345,7 @@ def make_dataloaders(
             label_path=label_path,
             eval_mode=True,
             eval_tickers=config.eval_tickers,
+            **_window_dataset_kwargs(config),
         )
         val_loader = DataLoader(
             val_ds,
@@ -329,6 +364,7 @@ def make_dataloaders(
             label_path=label_path,
             eval_mode=True,
             eval_tickers=0,
+            **_window_dataset_kwargs(config),
         )
         test_loader = DataLoader(
             test_ds,
@@ -383,6 +419,7 @@ def make_monitor_dataloaders(
             label_path=label_path,
             eval_mode=True,
             eval_tickers=eval_tickers,
+            **_window_dataset_kwargs(config),
         )
         return DataLoader(
             dataset,
@@ -575,6 +612,12 @@ def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[st
     normalized = dict(experiment)
     normalized.setdefault("day_supervision_mode", "all")
     normalized.setdefault("day_supervision_weight_version", DAY_SUPERVISION_WEIGHT_VERSION)
+    normalized.setdefault("use_lob_prefix", False)
+    normalized.setdefault("use_session_anchors", False)
+    normalized.setdefault("use_vq", False)
+    normalized.setdefault("vq_codebook_size", 1024)
+    normalized.setdefault("vq_dim", 64)
+    normalized.setdefault("vq_loss_weight", 0.25)
     return normalized == expected
 
 
@@ -631,7 +674,12 @@ def train(
     if target_overlay_fingerprint is not None:
         signature["target_overlay_fingerprint"] = target_overlay_fingerprint
 
-    model = build_eventstream_model(config.model).to(device)
+    model = build_eventstream_model(
+        config.model,
+        use_vq=config.use_vq,
+        vq_codebook_size=config.vq_codebook_size,
+        vq_dim=config.vq_dim,
+    ).to(device)
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     if expected_parameter_count is not None and parameter_count != expected_parameter_count:
         raise ValueError(f"事件流参数量不匹配：{parameter_count} != {expected_parameter_count}")
@@ -686,6 +734,7 @@ def train(
                     day_valid,
                     valid,
                     day_supervision_mode=config.day_supervision_mode,
+                    vq_loss_weight=config.vq_loss_weight,
                 )
             scaled_loss = loss / config.gradient_accumulation_steps
             scaler.scale(scaled_loss).backward()
