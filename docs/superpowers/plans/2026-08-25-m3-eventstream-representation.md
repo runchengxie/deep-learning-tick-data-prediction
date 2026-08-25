@@ -94,6 +94,6 @@
 
 - [x] 记录新配置、因果边界、VQ 角色和实验解释。
 - [x] 明确说明新表征尚未经过真实滚动窗口性能验证。
-- [ ] 运行 PR CI，并确认 Python 3.10、Python 3.12、ruff、format、ty、pytest、coverage 和依赖审计通过。
+- [x] 运行 PR CI，并确认 Python 3.10、Python 3.12、ruff、format、ty、pytest、coverage 和依赖审计通过。
 - [x] 审查最终 diff，确认没有 matching engine、simulator raw-ID 合同、2026 锁定数据访问或未经验证的性能声明。
-- [ ] 把 draft PR 更新为可审查状态，并写明 RED 与 GREEN 验证证据。
+- [x] 把 draft PR 更新为可审查状态，并写明 RED 与 GREEN 验证证据。
