@@ -117,7 +117,13 @@ class _Block(nn.Module):
 class VectorQuantizer(nn.Module):
     """把核心订单行为映射到可学习 codebook，并用 straight-through 回传梯度。"""
 
-    def __init__(self, codebook_size: int, dim: int, *, commitment_beta: float = 0.25):
+    def __init__(
+        self,
+        codebook_size: int,
+        dim: int,
+        *,
+        commitment_beta: float = 0.25,
+    ):
         super().__init__()
         self.codebook = nn.Embedding(codebook_size, dim)
         self.commitment_beta = float(commitment_beta)
@@ -228,15 +234,17 @@ class L2FoundationModel(nn.Module):
         self, x: torch.Tensor, sid: torch.Tensor, oid: torch.Tensor
     ) -> dict[str, torch.Tensor]:
         h, vq_loss, vq_codes = self._backbone_and_vq(x, sid, oid)
-        return {
+        output = {
             "stream": self.head_stream(h),
             "otype": self.head_otype(h),
             "reg": self.head_reg(h),
             "day": self.head_day(h).squeeze(-1),
             "hidden": h,
-            "vq_loss": vq_loss,
-            "vq_codes": vq_codes,
         }
+        if self.use_vq:
+            output["vq_loss"] = vq_loss
+            output["vq_codes"] = vq_codes
+        return output
 
 
 def compute_loss_components(
@@ -316,18 +324,19 @@ def compute_loss(
     total = components["stream"] * LOSS_WEIGHTS["stream"]
     for name in ("otype", "reg", "day"):
         total = total + components[name] * LOSS_WEIGHTS[name]
-    vq_loss = out.get("vq_loss")
-    if vq_loss is None:
-        vq_loss = out["stream"].sum() * 0.0
-    total = total + vq_loss * float(vq_loss_weight)
-    return total, {
-        "loss": float(total.detach()),
+    metrics = {
+        "loss": 0.0,
         "ce_stream": float(components["stream"].detach()),
         "ce_otype": float(components["otype"].detach()),
         "reg": float(components["reg"].detach()),
         "day": float(components["day"].detach()),
-        "vq": float(vq_loss.detach()),
     }
+    vq_loss = out.get("vq_loss")
+    if vq_loss is not None:
+        total = total + vq_loss * float(vq_loss_weight)
+        metrics["vq"] = float(vq_loss.detach())
+    metrics["loss"] = float(total.detach())
+    return total, metrics
 
 
 def day_supervision_weights(
