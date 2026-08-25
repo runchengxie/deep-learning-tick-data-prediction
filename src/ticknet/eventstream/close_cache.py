@@ -563,11 +563,24 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--batch-size", type=int, default=64)
     build.add_argument("--num-workers", type=int, default=4)
     build.add_argument("--source-revision", default="")
-    build.add_argument("--use-lob-prefix", action=argparse.BooleanOptionalAction, default=False)
-    build.add_argument("--use-session-anchors", action=argparse.BooleanOptionalAction, default=False)
+    build.add_argument(
+        "--use-lob-prefix",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    build.add_argument(
+        "--use-session-anchors",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     verify = commands.add_parser("verify", help="逐文件核对尾盘窗口缓存")
     verify.add_argument("--root", type=Path, required=True)
-    verify.add_argument("--partition", action="append", choices=PARTITIONS, dest="partitions")
+    verify.add_argument(
+        "--partition",
+        action="append",
+        choices=PARTITIONS,
+        dest="partitions",
+    )
     return parser
 
 
