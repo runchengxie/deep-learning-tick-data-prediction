@@ -120,6 +120,8 @@ def _materialization_contract(
         raise ValueError("H5 标签与正式存储清单不一致")
     if monitor_label_sha256 != _storage_artifact_hash(storage, "fold-labels/h3.parquet"):
         raise ValueError("H3 监控标签与正式存储清单不一致")
+    use_lob_prefix = bool(getattr(config, "use_lob_prefix", False))
+    use_session_anchors = bool(getattr(config, "use_session_anchors", False))
     return {
         "source_inventory_sha256": storage["inventory_sha256"],
         "source_revision": source_revision,
@@ -135,7 +137,11 @@ def _materialization_contract(
         "label_sha256": label_sha256,
         "monitor_label_sha256": monitor_label_sha256,
         "monitor_name": config.monitor_name,
-        "sampling_policy": "seeded_fixed_window_v1",
+        "use_lob_prefix": use_lob_prefix,
+        "use_session_anchors": use_session_anchors,
+        "sampling_policy": (
+            "seeded_fixed_window_v2" if use_lob_prefix else "seeded_fixed_window_v1"
+        ),
         "arrays": _array_contract(config.seq_len),
     }
 
@@ -203,7 +209,12 @@ def validate_materialized_manifest(
         raise ValueError("物化清单缺少合同、分片或汇总")
     if contract.get("arrays") != _array_contract(int(contract.get("seq_len", 0))):
         raise ValueError("物化清单张量合同无效")
-    if contract.get("sampling_policy") != "seeded_fixed_window_v1":
+    use_lob_prefix = bool(contract.get("use_lob_prefix", False))
+    use_session_anchors = bool(contract.get("use_session_anchors", False))
+    if use_session_anchors and not use_lob_prefix:
+        raise ValueError("物化清单 session anchor 缺少 LOB prefix")
+    expected_policy = "seeded_fixed_window_v2" if use_lob_prefix else "seeded_fixed_window_v1"
+    if contract.get("sampling_policy") != expected_policy:
         raise ValueError("物化清单采样策略无效")
     if manifest.get("contract_sha256") != _canonical_sha256(contract):
         raise ValueError("物化合同指纹不匹配")
@@ -430,6 +441,8 @@ def build_source_datasets(
             eval_mode=eval_mode,
             eval_tickers=eval_tickers,
             fixed_windows=True,
+            use_lob_prefix=bool(getattr(config, "use_lob_prefix", False)),
+            use_session_anchors=bool(getattr(config, "use_session_anchors", False)),
         )
 
     return {
@@ -580,7 +593,7 @@ def build_materialized_dataset(
 
 
 def assert_materialized_compatible(manifest: dict[str, Any], config: Any) -> None:
-    """拒绝与训练配置不一致的 seed、日期或窗口合同。"""
+    """拒绝与训练配置不一致的 seed、日期、窗口或表征合同。"""
     contract = manifest["contract"]
     expected = {
         "seed": config.seed,
@@ -597,6 +610,13 @@ def assert_materialized_compatible(manifest: dict[str, Any], config: Any) -> Non
     }
     for name, value in expected.items():
         if contract.get(name) != value:
+            raise ValueError(f"物化训练集与配置的 {name} 不一致")
+    representation = {
+        "use_lob_prefix": bool(getattr(config, "use_lob_prefix", False)),
+        "use_session_anchors": bool(getattr(config, "use_session_anchors", False)),
+    }
+    for name, value in representation.items():
+        if bool(contract.get(name, False)) != value:
             raise ValueError(f"物化训练集与配置的 {name} 不一致")
     expected_source_revision = config.materialized_source_revision or config.source_revision
     if expected_source_revision and contract.get("source_revision") != expected_source_revision:
