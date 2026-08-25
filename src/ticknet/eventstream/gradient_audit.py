@@ -67,6 +67,35 @@ def _load_checkpoint(path: Path) -> dict[str, Any]:
     return checkpoint
 
 
+def _representation_identity(config: EventstreamConfig) -> dict[str, Any]:
+    return {
+        "use_lob_prefix": config.use_lob_prefix,
+        "use_session_anchors": config.use_session_anchors,
+        "use_vq": config.use_vq,
+        "vq_codebook_size": config.vq_codebook_size,
+        "vq_dim": config.vq_dim,
+    }
+
+
+def _checkpoint_representation(experiment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "use_lob_prefix": bool(experiment.get("use_lob_prefix", False)),
+        "use_session_anchors": bool(experiment.get("use_session_anchors", False)),
+        "use_vq": bool(experiment.get("use_vq", False)),
+        "vq_codebook_size": int(experiment.get("vq_codebook_size", 1024)),
+        "vq_dim": int(experiment.get("vq_dim", 64)),
+    }
+
+
+def _build_model(config: EventstreamConfig) -> L2FoundationModel:
+    return build_eventstream_model(
+        config.model,
+        use_vq=config.use_vq,
+        vq_codebook_size=config.vq_codebook_size,
+        vq_dim=config.vq_dim,
+    )
+
+
 def _fixed_indices(length: int, *, batch_size: int, batches: int) -> list[int]:
     if length < 1 or batch_size < 1 or batches < 1:
         raise ValueError("数据集、batch_size 和 batches 应为正数")
@@ -330,7 +359,7 @@ def run_gradient_audit(
         )
 
     set_seed(config.seed)
-    initial_model = build_eventstream_model(config.model).to(device)
+    initial_model = _build_model(config).to(device)
     parameter_count = sum(parameter.numel() for parameter in initial_model.parameters())
     backbone_parameter_count = sum(
         parameter.numel() for parameter in _backbone_parameters(initial_model)
@@ -356,7 +385,14 @@ def run_gradient_audit(
         raise ValueError(
             f"事件流 checkpoint 实验身份不匹配：{actual_identity} != {expected_identity}"
         )
-    trained_model = build_eventstream_model(config.model)
+    expected_representation = _representation_identity(config)
+    actual_representation = _checkpoint_representation(checkpoint_experiment)
+    if actual_representation != expected_representation:
+        raise ValueError(
+            "事件流 checkpoint 表征身份不匹配："
+            f"{actual_representation} != {expected_representation}"
+        )
+    trained_model = _build_model(config)
     trained_model.load_state_dict(checkpoint["model"], strict=True)
     trained_model = trained_model.to(device)
     trained = _audit_state(trained_model, fixed_batches, device=device, amp=use_amp)
@@ -379,6 +415,7 @@ def run_gradient_audit(
             "batch_size": batch_size,
             "requested_batches": batches,
             "amp": use_amp,
+            **expected_representation,
         },
         "environment": {
             "python": platform.python_version(),
@@ -402,6 +439,7 @@ def run_gradient_audit(
             "epoch": checkpoint.get("epoch"),
             "experiment_source_revision": (checkpoint_experiment.get("source_revision")),
             "experiment_identity": actual_identity,
+            "representation_identity": actual_representation,
         },
         "loss_weights": LOSS_WEIGHTS,
         "states": {"initialization": initial, "best_checkpoint": trained},
