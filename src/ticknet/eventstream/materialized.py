@@ -185,6 +185,16 @@ def _validate_shard_record(record: dict[str, Any], contract: dict[str, Any]) -> 
         raise ValueError("物化分片张量集合不完整")
 
 
+def _validate_representation_contract(contract: dict[str, Any]) -> None:
+    use_lob_prefix = bool(contract.get("use_lob_prefix", False))
+    use_session_anchors = bool(contract.get("use_session_anchors", False))
+    if use_session_anchors and not use_lob_prefix:
+        raise ValueError("物化清单 session anchor 缺少 LOB prefix")
+    expected_policy = "seeded_fixed_window_v2" if use_lob_prefix else "seeded_fixed_window_v1"
+    if contract.get("sampling_policy") != expected_policy:
+        raise ValueError("物化清单采样策略无效")
+
+
 def validate_materialized_manifest(
     manifest: dict[str, Any],
     *,
@@ -209,13 +219,7 @@ def validate_materialized_manifest(
         raise ValueError("物化清单缺少合同、分片或汇总")
     if contract.get("arrays") != _array_contract(int(contract.get("seq_len", 0))):
         raise ValueError("物化清单张量合同无效")
-    use_lob_prefix = bool(contract.get("use_lob_prefix", False))
-    use_session_anchors = bool(contract.get("use_session_anchors", False))
-    if use_session_anchors and not use_lob_prefix:
-        raise ValueError("物化清单 session anchor 缺少 LOB prefix")
-    expected_policy = "seeded_fixed_window_v2" if use_lob_prefix else "seeded_fixed_window_v1"
-    if contract.get("sampling_policy") != expected_policy:
-        raise ValueError("物化清单采样策略无效")
+    _validate_representation_contract(contract)
     if manifest.get("contract_sha256") != _canonical_sha256(contract):
         raise ValueError("物化合同指纹不匹配")
     seen: set[tuple[str, str]] = set()
