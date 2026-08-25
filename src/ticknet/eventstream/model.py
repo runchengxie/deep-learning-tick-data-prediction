@@ -26,6 +26,7 @@ N_STREAMS = 4  # 0 pad, 1 snap, 2 order, 3 trade
 LOSS_WEIGHTS = {"stream": 1.0, "otype": 0.5, "reg": 1.0, "day": 1.0}
 DAY_SUPERVISION_MODES = frozenset({"all", "last", "tail_weighted"})
 DAY_SUPERVISION_WEIGHT_VERSION = "linear-v1"
+VQ_CORE_FEATURES = (0, 1, 2, 3, 4)
 
 
 @dataclass
@@ -53,7 +54,9 @@ class _RotaryCache(nn.Module):
 
     def __init__(self, dim: int, max_seq: int, base: float = 10000.0):
         super().__init__()
-        inverse: torch.Tensor = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
+        inverse: torch.Tensor = 1.0 / (
+            base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim)
+        )
         position: torch.Tensor = torch.arange(max_seq, dtype=torch.float32)
         freqs: torch.Tensor = position[:, None] * inverse[None, :]
         self.register_buffer("cos", freqs.cos(), persistent=False)
@@ -111,12 +114,58 @@ class _Block(nn.Module):
         return x
 
 
+class VectorQuantizer(nn.Module):
+    """把核心订单行为映射到可学习 codebook，并用 straight-through 回传梯度。"""
+
+    def __init__(self, codebook_size: int, dim: int, *, commitment_beta: float = 0.25):
+        super().__init__()
+        self.codebook = nn.Embedding(codebook_size, dim)
+        self.commitment_beta = float(commitment_beta)
+
+    def forward(
+        self,
+        encoded: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if encoded.ndim != 3 or valid.shape != encoded.shape[:2]:
+            raise ValueError("VQ 输入形状不一致")
+        codes = torch.full(valid.shape, -1, dtype=torch.long, device=encoded.device)
+        quantized = torch.zeros_like(encoded)
+        if not valid.any():
+            return quantized, codes, encoded.sum() * 0.0
+
+        selected = encoded[valid]
+        embeddings = self.codebook.weight
+        distances = (
+            selected.square().sum(dim=-1, keepdim=True)
+            + embeddings.square().sum(dim=-1)[None, :]
+            - 2.0 * selected @ embeddings.transpose(0, 1)
+        )
+        selected_codes = distances.argmin(dim=-1)
+        nearest = self.codebook(selected_codes)
+        codebook_loss = F.mse_loss(nearest, selected.detach())
+        commitment_loss = F.mse_loss(selected, nearest.detach())
+        loss = codebook_loss + self.commitment_beta * commitment_loss
+        straight_through = selected + (nearest - selected).detach()
+        quantized[valid] = straight_through
+        codes[valid] = selected_codes
+        return quantized, codes, loss
+
+
 class L2FoundationModel(nn.Module):
     """事件流因果 Transformer，输出多任务头与 day 头。"""
 
-    def __init__(self, cfg: ModelConfig):
+    def __init__(
+        self,
+        cfg: ModelConfig,
+        *,
+        use_vq: bool = False,
+        vq_codebook_size: int = 1024,
+        vq_dim: int = 64,
+    ):
         super().__init__()
         self.cfg = cfg
+        self.use_vq = bool(use_vq)
         self.feat_proj = nn.Sequential(
             nn.Linear(N_FEATURES, cfg.d_model),
             nn.GELU(),
@@ -124,6 +173,14 @@ class L2FoundationModel(nn.Module):
         )
         self.stream_emb = nn.Embedding(N_STREAMS, cfg.d_model)
         self.otype_emb = nn.Embedding(N_ORDER_TYPES, cfg.d_model)
+        if self.use_vq:
+            self.vq_encoder = nn.Sequential(
+                nn.Linear(len(VQ_CORE_FEATURES), vq_dim),
+                nn.GELU(),
+                nn.Linear(vq_dim, vq_dim),
+            )
+            self.vector_quantizer = VectorQuantizer(vq_codebook_size, vq_dim)
+            self.vq_proj = nn.Linear(vq_dim, cfg.d_model, bias=False)
         self.rope = _RotaryCache(cfg.d_model // cfg.n_heads, cfg.max_seq)
         self.blocks = nn.ModuleList(_Block(cfg) for _ in range(cfg.n_layers))
         self.norm_f = nn.LayerNorm(cfg.d_model)
@@ -144,23 +201,41 @@ class L2FoundationModel(nn.Module):
         elif isinstance(m, nn.Embedding):
             nn.init.normal_(m.weight, std=0.02)
 
-    def backbone(self, x: torch.Tensor, sid: torch.Tensor, oid: torch.Tensor) -> torch.Tensor:
+    def _backbone_and_vq(
+        self,
+        x: torch.Tensor,
+        sid: torch.Tensor,
+        oid: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         h = self.feat_proj(x) + self.stream_emb(sid) + self.otype_emb(oid)
+        vq_loss = x.sum() * 0.0
+        vq_codes = torch.full(sid.shape, -1, dtype=torch.long, device=sid.device)
+        if self.use_vq:
+            core = x[..., list(VQ_CORE_FEATURES)]
+            encoded = self.vq_encoder(core)
+            quantized, vq_codes, vq_loss = self.vector_quantizer(encoded, sid != 0)
+            h = h + self.vq_proj(quantized)
         cos, sin = self.rope(x.shape[1])
         for blk in self.blocks:
             h = blk(h, cos, sin)
-        return self.norm_f(h)
+        return self.norm_f(h), vq_loss, vq_codes
+
+    def backbone(self, x: torch.Tensor, sid: torch.Tensor, oid: torch.Tensor) -> torch.Tensor:
+        h, _vq_loss, _vq_codes = self._backbone_and_vq(x, sid, oid)
+        return h
 
     def forward(
         self, x: torch.Tensor, sid: torch.Tensor, oid: torch.Tensor
     ) -> dict[str, torch.Tensor]:
-        h = self.backbone(x, sid, oid)
+        h, vq_loss, vq_codes = self._backbone_and_vq(x, sid, oid)
         return {
             "stream": self.head_stream(h),
             "otype": self.head_otype(h),
             "reg": self.head_reg(h),
             "day": self.head_day(h).squeeze(-1),
             "hidden": h,
+            "vq_loss": vq_loss,
+            "vq_codes": vq_codes,
         }
 
 
@@ -202,7 +277,9 @@ def compute_loss_components(
         day_valid,
         mode=day_supervision_mode,
     )
-    day_err = F.smooth_l1_loss(out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none")
+    day_err = F.smooth_l1_loss(
+        out["day"], tgt_day[:, None].expand_as(out["day"]), reduction="none"
+    )
     day_loss = (day_err * day_mask).sum() / day_mask.sum().clamp(min=1)
 
     return {
@@ -223,8 +300,9 @@ def compute_loss(
     valid: torch.Tensor,
     *,
     day_supervision_mode: str = "all",
+    vq_loss_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """多任务损失：stream CE + otype CE + reg SmoothL1 + day SmoothL1。"""
+    """多任务损失加可选 VQ 正则。"""
     components = compute_loss_components(
         out,
         tgt_sid,
@@ -238,12 +316,17 @@ def compute_loss(
     total = components["stream"] * LOSS_WEIGHTS["stream"]
     for name in ("otype", "reg", "day"):
         total = total + components[name] * LOSS_WEIGHTS[name]
+    vq_loss = out.get("vq_loss")
+    if vq_loss is None:
+        vq_loss = out["stream"].sum() * 0.0
+    total = total + vq_loss * float(vq_loss_weight)
     return total, {
         "loss": float(total.detach()),
         "ce_stream": float(components["stream"].detach()),
         "ce_otype": float(components["otype"].detach()),
         "reg": float(components["reg"].detach()),
         "day": float(components["day"].detach()),
+        "vq": float(vq_loss.detach()),
     }
 
 
@@ -275,10 +358,21 @@ def day_supervision_weights(
     return base * positions[None, :] / lengths[:, None]
 
 
-def build_eventstream_model(name: str) -> L2FoundationModel:
+def build_eventstream_model(
+    name: str,
+    *,
+    use_vq: bool = False,
+    vq_codebook_size: int = 1024,
+    vq_dim: int = 64,
+) -> L2FoundationModel:
     if name not in CONFIGS:
         raise ValueError(f"未知模型配置：{name}，可用 {sorted(CONFIGS)}")
-    model = L2FoundationModel(CONFIGS[name])
+    model = L2FoundationModel(
+        CONFIGS[name],
+        use_vq=use_vq,
+        vq_codebook_size=vq_codebook_size,
+        vq_dim=vq_dim,
+    )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[model] {name}: {n_params / 1e6:.1f}M params")
     return model
