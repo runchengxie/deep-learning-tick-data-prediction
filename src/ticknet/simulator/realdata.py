@@ -80,9 +80,7 @@ def _read_snapshots(path: Path, day: int) -> list[SimulatorEvent]:
         return []
     t = pq.read_table(path)
     d = t.to_pydict()
-    # snapshot 按月整文件，按日过滤
-    day_str = str(int(day))
-    iso = f"{day_str[:4]}-{day_str[4:6]}-{day_str[6:]}"
+    # snapshot 按月整文件；真实数据的当日过滤字段待数据到位后补充，这里全量返回
     out: list[SimulatorEvent] = []
     times = d["time_ms"]
     for i in range(len(times)):
