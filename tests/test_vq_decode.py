@@ -4,12 +4,13 @@
 未启用时降级到连续特征通路。无真实 VQ 权重时用构造的 mock 模型验证
 代码路径，不要求语义正确。
 """
+
 from __future__ import annotations
 
 import torch
 
-from ticknet.eventstream.model import L2FoundationModel, ModelConfig, VectorQuantizer
-from ticknet.simulator.generator import OrderGenerator, GenerationContext
+from ticknet.eventstream.model import L2FoundationModel, ModelConfig
+from ticknet.simulator.generator import GenerationContext, OrderGenerator
 from ticknet.simulator.replay import BackgroundOrder
 
 
