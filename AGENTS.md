@@ -45,7 +45,9 @@ pre-commit run --all-files
 python scripts/check.py
 ```
 
-`pre-commit` 检查基础文件卫生、Ruff、ty 和 notebook。`scripts/check.py` 运行 Ruff 静态检查、Ruff 格式检查、ty、带覆盖率的 pytest 和冒烟检查。GitHub Actions 在 Python 3.12 上运行完整门禁，在 Python 3.10 上补充运行时兼容性检查，并审计两个版本的锁定依赖。
+`pre-commit` 检查基础文件卫生、Ruff、ty 和 notebook。`scripts/check.py` 运行 Ruff 静态检查、Ruff 格式检查、ty、带覆盖率的 pytest 和冒烟检查。
+
+质量门禁只在本地运行。GitHub Actions 的质量门禁 workflow 已于 2026-08 移除以节省 Actions 配额，远端不再有任何自动检查，合并前必须在本地完整跑通上述两条命令并确认全绿。Python 3.10 兼容性和依赖安全审计不再由 CI 覆盖，涉及相关风险时（如改动依赖版本或使用新语法特性）手动用 Python 3.10 环境验证一次。
 
 涉及数据协议时，增加能识别错误选段、标签错列或跨文件窗口的回归测试。涉及检查点时，测试恢复位置和配置冲突。涉及文档命令时，用 `--help` 核对参数名再落笔。
 
