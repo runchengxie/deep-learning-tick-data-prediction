@@ -305,3 +305,11 @@ batch-size sweep 目录包含每档的 `batch-NN.json`、汇总
 事件流输入分析目录包含 `gpu-only.json`、每个 worker 的 data-only 与 end-to-end JSON、汇总 `input-profile.json`、`colab-run-summary.json` 和 `execution.ipynb`。
 
 执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。
+
+## 事件流 VQ 续训
+
+现有 eventstream checkpoint 训练时未启用 VQ。`EventstreamConfig` 的 `init_checkpoint` 支持把这类 checkpoint 热启动为启用 VQ 的新实验：主干权重原样加载，VQ 模块（vq_encoder、vector_quantizer、vq_proj）随机初始化，训练配置里同时设置 `use_vq: true`。
+
+热启动与 `resume` 的关系：本实验自己的 last checkpoint 存在时优先 resume，否则才读 `init_checkpoint`。两者都不存在时从零训练。
+
+便宜路线的推荐步骤：先用小模型配置和几天打包数据在本地或免费档 GPU 验证整条管线，确认 vq_loss 收敛后再用 A100 跑 capacity100m 配置。A100 消耗约每小时 15 个 compute unit。
