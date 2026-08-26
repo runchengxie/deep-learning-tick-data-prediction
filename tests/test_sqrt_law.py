@@ -20,7 +20,7 @@ def test_sqrt_law_runs_and_monotonic():
     )
     assert len(result.impacts) == 4
     # 单调性：participation 越大，冲击不减
-    for a, b in zip(result.impacts, result.impacts[1:]):
+    for a, b in zip(result.impacts, result.impacts[1:], strict=False):
         assert b >= a
     assert isinstance(result.slope, float)
 

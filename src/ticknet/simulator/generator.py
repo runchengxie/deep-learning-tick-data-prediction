@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import torch.nn as nn
 
@@ -31,7 +30,7 @@ class GenerationContext:
 class OrderGenerator:
     """从 replay 上下文生成背景订单。"""
 
-    def __init__(self, model: Optional[nn.Module] = None, stub: bool = False) -> None:
+    def __init__(self, model: nn.Module | None = None, stub: bool = False) -> None:
         self.model = model
         self.stub = stub or model is None
 
