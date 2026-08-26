@@ -5,7 +5,8 @@
 在每个快照处对比重建盘口与真实盘口。
 
 用法：
-    python scripts/verify_realdata.py --day 20210104 --ticker 000001 [--root ROOT]
+    python scripts/verify_realdata.py --day 20210104 --ticker 000001 \
+        [--root ROOT] [--mode continuous|interval]
 """
 
 from __future__ import annotations
@@ -25,19 +26,30 @@ def main() -> int:
     ap.add_argument("--day", type=int, required=True, help="交易日，如 20210104")
     ap.add_argument("--ticker", required=True, help="股票代码，如 000001")
     ap.add_argument("--root", type=Path, default=RAW_L2_ROOT, help="raw L2 根目录")
+    ap.add_argument(
+        "--mode",
+        choices=("continuous", "interval"),
+        default="continuous",
+        help="continuous=全天连续回放；interval=每个快照后重新校准",
+    )
     args = ap.parse_args()
 
-    results = verify_day_correctness(args.day, args.root, args.ticker)
-    n = len(results)
-    ok = sum(r.matched for r in results)
-    bid_ok = sum(1 - r.bid_error for r in results)
-    ask_ok = sum(1 - r.ask_error for r in results)
-    print(f"[{args.ticker} @ {args.day}] 快照对比 {n} 个")
+    results = verify_day_correctness(args.day, args.root, args.ticker, mode=args.mode)
+    comparable = [r for r in results if r.comparable]
+    skipped = len(results) - len(comparable)
+    n = len(comparable)
+    ok = sum(r.matched for r in comparable)
+    bad = n - ok
+    bid_ok = sum(1 - r.bid_error for r in comparable)
+    ask_ok = sum(1 - r.ask_error for r in comparable)
+    print(f"[{args.ticker} @ {args.day}] mode={args.mode}")
+    print(f"  快照结果: {len(results)}（可比较 {n}，跳过 {skipped}）")
     print(f"  完全一致: {ok}/{n}")
+    print(f"  不一致: {bad}/{n}")
     print(f"  买一一致: {bid_ok}/{n}  卖一一致: {ask_ok}/{n}")
-    if ok < n:
+    if bad:
         print("  前 5 个不一致样本:")
-        for r in [x for x in results if not x.matched][:5]:
+        for r in [x for x in comparable if not x.matched][:5]:
             print(f"    {r.detail}")
     return 0
 

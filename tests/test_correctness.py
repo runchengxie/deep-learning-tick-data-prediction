@@ -75,3 +75,13 @@ def test_replay_detects_mismatch():
     pack.snapshots[1].expected_bid = (999, 999)
     result = replay_and_compare(pack, init_snapshot_idx=0, target_snapshot_idx=1)
     assert not result.matched
+
+
+def test_replay_marks_missing_target_as_not_comparable():
+    pack = _synthetic_pack()
+    pack.snapshots[1].expected_ask = None
+
+    result = replay_and_compare(pack, init_snapshot_idx=0, target_snapshot_idx=1)
+
+    assert result.status == "not_comparable"
+    assert result.matched is False

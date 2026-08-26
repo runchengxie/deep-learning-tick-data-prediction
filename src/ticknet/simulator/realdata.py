@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pyarrow.parquet as pq
 
@@ -64,47 +65,79 @@ def verify_day_correctness(
     day: int,
     raw_root: Path = RAW_L2_ROOT,
     ticker: str = "",
+    mode: Literal["continuous", "interval"] = "continuous",
 ) -> list[CorrectnessResult]:
-    """全天连续回放，在每个 snapshot 处对比重建盘口与真实盘口。
+    """回放订单流，并在每个 snapshot 处对比重建盘口与真实盘口。
 
     协议（与真实数据语义对齐，见模块 docstring）：
     - 委托流不含集合竞价期订单，竞价段快照为指示性价格，跳过不比
     - 以开盘后第一个快照的十档注入初始账本（每档一个聚合单）
     - 撤单优先按 OrderID 回链；账本外订单（竞价残留）按消息自带的
       价格与数量匿名扣减对应档位
+    - continuous 模式只在首个快照初始化；interval 模式每次对比后按
+      当前真实快照重新初始化，用于隔离单个快照区间的局部重建误差
     """
     pack = load_day_pack(day, raw_root, ticker)
     results: list[CorrectnessResult] = []
     engine: MatchingEngine | None = None
+    interval_baseline_comparable = False
+
+    def seed_engine(snapshot: SimulatorEvent) -> MatchingEngine:
+        seeded = MatchingEngine()
+        lob = seeded.lob
+        for i, (p, v) in enumerate(snapshot.bid_levels or ()):
+            lob.seed_level(1, p, v, f"INIT-B{i}")
+        for i, (p, v) in enumerate(snapshot.ask_levels or ()):
+            lob.seed_level(-1, p, v, f"INIT-A{i}")
+        return seeded
     for ev in pack.events:
         if engine is None:
             # 开盘后首个快照之前的委托属于集合竞价（其成交不在委托流），
             # 全部忽略，从该快照的十档注入干净的初始账本
             if ev.kind == "snapshot" and ev.time_ms >= 0:
-                engine = MatchingEngine()
-                lob = engine.lob
-                for i, (p, v) in enumerate(ev.bid_levels or ()):
-                    lob.seed_level(1, p, v, f"INIT-B{i}")
-                for i, (p, v) in enumerate(ev.ask_levels or ()):
-                    lob.seed_level(-1, p, v, f"INIT-A{i}")
+                engine = seed_engine(ev)
+                interval_baseline_comparable = (
+                    ev.expected_bid is not None and ev.expected_ask is not None
+                )
             continue
         if ev.kind == "snapshot":
             bid = engine.lob.best_bid()
             ask = engine.lob.best_ask()
             exp_bid, exp_ask = ev.expected_bid, ev.expected_ask
-            if exp_bid is None or exp_ask is None:
-                results.append(CorrectnessResult(True, 0, 0, f"t={ev.time_ms} 快照缺档，跳过"))
-                continue
-            bid_error = 0 if bid == exp_bid else 1
-            ask_error = 0 if ask == exp_ask else 1
-            results.append(
-                CorrectnessResult(
-                    bid_error == 0 and ask_error == 0,
-                    bid_error,
-                    ask_error,
-                    f"t={ev.time_ms} 重建买一={bid} 期望={exp_bid}；卖一={ask} 期望={exp_ask}",
+            if mode == "interval" and not interval_baseline_comparable:
+                results.append(
+                    CorrectnessResult(
+                        False,
+                        0,
+                        0,
+                        f"t={ev.time_ms} 上一快照缺档，无法建立 interval 起点",
+                        comparable=False,
+                    )
                 )
-            )
+            elif exp_bid is None or exp_ask is None:
+                results.append(
+                    CorrectnessResult(
+                        False,
+                        0,
+                        0,
+                        f"t={ev.time_ms} 快照缺档，跳过",
+                        comparable=False,
+                    )
+                )
+            else:
+                bid_error = 0 if bid == exp_bid else 1
+                ask_error = 0 if ask == exp_ask else 1
+                results.append(
+                    CorrectnessResult(
+                        bid_error == 0 and ask_error == 0,
+                        bid_error,
+                        ask_error,
+                        f"t={ev.time_ms} 重建买一={bid} 期望={exp_bid}；卖一={ask} 期望={exp_ask}",
+                    )
+                )
+            if mode == "interval":
+                engine = seed_engine(ev)
+                interval_baseline_comparable = exp_bid is not None and exp_ask is not None
             continue
         if ev.kind == "cancel":
             if not engine.cancel_order(ev.order_id):
@@ -140,7 +173,9 @@ def _read_order_events(path: Path, ticker: str) -> list[SimulatorEvent]:
             out.append(SimulatorEvent(kind="cancel", order_id=oid, order_type=ot, **common))
         else:
             side = -1 if ot >= 10 else 1
-            out.append(SimulatorEvent(kind="order", order_id=oid, side=side, **common))
+            out.append(
+                SimulatorEvent(kind="order", order_id=oid, side=side, order_type=ot, **common)
+            )
     return out
 
 

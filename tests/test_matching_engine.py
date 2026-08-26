@@ -45,3 +45,16 @@ def test_time_priority_within_same_price():
     assert trade is not None
     assert trade.buy_id == "O1"
     assert engine.lob.best_bid() == (1000, 500)  # O2 剩
+
+
+def test_sell_order_matches_highest_bid_first():
+    engine = MatchingEngine()
+    engine.apply_order(order_id="B1", side=1, price=1000, volume=100)
+    engine.apply_order(order_id="B2", side=1, price=999, volume=100)
+
+    trade = engine.apply_order(order_id="S1", side=-1, price=999, volume=100)
+
+    assert trade is not None
+    assert trade.buy_id == "B1"
+    assert trade.price == 1000
+    assert engine.lob.best_bid() == (999, 100)

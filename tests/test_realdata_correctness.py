@@ -119,6 +119,8 @@ def test_load_day_pack_maps_real_schema(realdata_root: Path):
     assert sides["A"] == 1
     assert sides["C"] == -1
     assert sides["D"] == -1
+    order_types = {e.order_id: e.order_type for e in pack.events if e.kind == "order"}
+    assert order_types["D"] == 12
     # snapshot 宽表组装为十档 levels + L1 期望值
     assert len(pack.snapshots) == 3
     s0 = pack.snapshots[0]
@@ -144,6 +146,55 @@ def test_verify_day_detects_mismatch(realdata_root: Path):
     results = verify_day_correctness(DAY, realdata_root, TICKER)
     assert results[0].matched is False
     assert results[0].bid_error == 1
+
+
+def test_verify_day_marks_missing_snapshot_not_comparable(tmp_path: Path):
+    orders, snaps = _day_events()
+    snaps[2]["AskPrice1"] = None
+    snaps[2]["AskVolume1"] = 0
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(DAY, tmp_path, TICKER)
+
+    assert results[-1].status == "not_comparable"
+    assert results[-1].matched is False
+
+
+def test_verify_day_interval_mode_resets_at_each_snapshot(tmp_path: Path):
+    orders = [
+        _order_row(130, "A", 10.00, 50, ot=1),
+        _order_row(150, "B", 10.00, 50, ot=1),
+    ]
+    snaps = [
+        _snap_row(125, [(10.00, 100)], [(10.10, 100)]),
+        # 第一段故意漏掉 A，形成 mismatch；interval 模式应以这张快照重新校准。
+        _snap_row(140, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(160, [(10.00, 150)], [(10.10, 100)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval")
+
+    assert [r.status for r in results] == ["mismatched", "matched"]
+
+
+def test_verify_day_interval_mode_does_not_seed_from_incomplete_snapshot(tmp_path: Path):
+    orders = [_order_row(170, "B", 10.00, 50, ot=2)]
+    snaps = [
+        _snap_row(125, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(140, [(10.00, 100)], []),
+        _snap_row(160, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(180, [(10.00, 150)], [(10.10, 100)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval")
+
+    assert [r.status for r in results] == [
+        "not_comparable",
+        "not_comparable",
+        "matched",
+    ]
 
 
 def test_verify_day_skips_auction_and_handles_ghost_cancel(tmp_path: Path):
