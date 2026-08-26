@@ -57,6 +57,7 @@ class EventstreamConfig:
         "eval_tickers",
         "evaluate_test",
         "gradient_accumulation_steps",
+        "init_checkpoint",
         "label_path",
         "lr",
         "materialized_root",
@@ -114,6 +115,7 @@ class EventstreamConfig:
         day_supervision_mode: str = "all",
         use_lob_prefix: bool = False,
         use_session_anchors: bool = False,
+        init_checkpoint: str = "",
         use_vq: bool = False,
         vq_codebook_size: int = 1024,
         vq_dim: int = 64,
@@ -158,6 +160,7 @@ class EventstreamConfig:
         self.day_supervision_mode = day_supervision_mode
         self.use_lob_prefix = bool(use_lob_prefix)
         self.use_session_anchors = bool(use_session_anchors)
+        self.init_checkpoint = str(init_checkpoint)
         self.use_vq = bool(use_vq)
         self.vq_codebook_size = int(vq_codebook_size)
         self.vq_dim = int(vq_dim)
@@ -555,6 +558,35 @@ def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
         return torch.load(path, map_location=device)
 
 
+def _warm_start_from_checkpoint(
+    model: torch.nn.Module,
+    path: Path,
+    device: torch.device,
+    *,
+    use_vq: bool,
+) -> None:
+    """从异构 checkpoint 热启动（strict=False）。
+
+    典型场景：已训练的连续通路模型（无 VQ 权重）作为启用 VQ 的
+    新实验初始化。要求主干权重完全对齐；缺失键必须全部属于 VQ
+    模块（use_vq=True 时），否则视为架构不匹配直接报错。
+    """
+    checkpoint = _load_checkpoint(path, device)
+    result = model.load_state_dict(checkpoint["model"], strict=False)
+    unexpected = list(result.unexpected_keys)
+    if unexpected:
+        raise ValueError(f"{path} 存在无法对齐的权重键：{unexpected[:8]}")
+    missing = list(result.missing_keys)
+    allowed_prefixes = ("vq_encoder", "vector_quantizer", "vq_proj") if use_vq else ()
+    bad = [k for k in missing if not k.startswith(allowed_prefixes)]
+    if bad:
+        raise ValueError(f"{path} 缺失非 VQ 主干权重：{bad[:8]}")
+    print(
+        f"热启动自 {path}：加载主干 {len(checkpoint['model']) - len(missing)} 项，"
+        f"随机初始化 {len(missing)} 项（{sorted({k.split('.')[0] for k in missing})}）"
+    )
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
@@ -683,13 +715,17 @@ def train(
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     if expected_parameter_count is not None and parameter_count != expected_parameter_count:
         raise ValueError(f"事件流参数量不匹配：{parameter_count} != {expected_parameter_count}")
+    _stem, last_path, best_path, history_path, result_path = _checkpoint_paths(config)
+    if config.init_checkpoint and not (config.resume and last_path.exists()):
+        _warm_start_from_checkpoint(
+            model, Path(config.init_checkpoint), device, use_vq=config.use_vq
+        )
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.lr, weight_decay=config.weight_decay, betas=(0.9, 0.95)
     )
     use_amp = config.amp and device.type == "cuda"
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
 
-    _stem, last_path, best_path, history_path, result_path = _checkpoint_paths(config)
     start_epoch = 0
     best_selection_value = -math.inf
     epochs_without_improvement = 0
