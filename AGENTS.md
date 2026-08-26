@@ -51,12 +51,14 @@ python scripts/check.py
 
 ## 分支与合并
 
-每次改动都在独立的 worktree 上进行，避免多个代理同时改同一份文件互相竞争。
+每个改动都在独立 worktree 上进行。多 agent 并行修改项目时，这是强制约束：每个 agent 独占一个 worktree 和一条 `agent/<topic>` 分支，绝不在主工作区或其他 agent 的 worktree 里直接改文件，避免多个 agent 竞争同一份文件或互相覆盖未提交的改动。
 
-1. 从 `main` 新建 worktree 和 `agent/<topic>` 分支
-2. 在 worktree 里实现改动，跑通上面的门禁
-3. 提交、推送、开 PR 并把 PR 合并到 main
-4. 删除已合并的分支和对应的 worktree，拉取最新 main
+1. 从最新 `main` 新建 worktree 和 `agent/<topic>` 分支
+2. 在该 worktree 里独立完成改动，跑通上面的门禁
+3. 提交、推送到 `origin`、开 PR 并合并到 `main`
+4. 合并后删除该分支和对应的 worktree，拉取最新 `main` 再启动下一个任务
+
+合并顺序由 PR 评审决定，不要为了抢合并而跳过门禁。若多个 agent 的 PR 出现冲突，后合并的一方负责把自己 worktree 的 `main` 更新到最新后解决冲突，再重新推送。
 
 worktree 里没有 `.venv`，跑 ty 前先建立软链：
 

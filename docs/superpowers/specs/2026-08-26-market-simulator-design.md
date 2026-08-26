@@ -17,16 +17,16 @@
 - 不修改 `eventstream` 预测主链路（第一阶段已完成 LOB prefix / 双锚点 / VQ）
 - 不做跨资产、跨市场相关性联动
 - 不扩模型到 150M/1B（Scaling 实验单独排期）
-- 不直接替换 next-day Alpha 信号；模拟器先作为独立成本估计 / 沙盒工具
+- 不直接替换 next-day Alpha 信号，模拟器先作为独立成本估计 / 沙盒工具
 
 ## 为什么需要新数据契约
 
-`eventstream/config.py` 明确说明：原始 OrderID / DealID / BuyID / SellID 已丢弃，关联信息提炼为撤单年龄等派生特征。预测任务下这是合理取舍。但撮合引擎需要精确识别撤单对应的挂单（含时间优先队列），没有原始 ID 无法重建。因此 simulator 必须读取或重建一套保留 ID 的"simulator pack"，与预测用的 eventstream pack 解耦，互不污染。
+`eventstream/config.py` 明确说明：原始 OrderID / DealID / BuyID / SellID 已丢弃，关联信息提炼为撤单年龄等派生特征。预测任务下这是合理取舍。但撮合引擎需要精确识别撤单对应的挂单（含时间优先队列），没有原始 ID 无法重建。因此 simulator 必须读取或重建一套保留 ID 的 simulator pack，与预测用的 eventstream pack 解耦，互不污染。
 
 ## 模块边界（遵循 AGENTS.md）
 
 - `src/ticknet/simulator/` 新模块，负责撮合引擎、生成式回放、冲击估计
-- 不直接 import `nextday` 实现；通过 CLI / 配置与 `eventstream` 解耦，可复用其 tokenizer / model 加载
+- 不直接 import `nextday` 实现，通过 CLI / 配置与 `eventstream` 解耦，可复用其 tokenizer / model 加载
 - 测试用合成数据，不依赖真实 L2 全量数据
 
 ## 实施顺序
