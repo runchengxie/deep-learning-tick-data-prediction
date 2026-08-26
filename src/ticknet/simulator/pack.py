@@ -24,6 +24,9 @@ class SimulatorEvent:
     buy_id: str = ""
     sell_id: str = ""
     deal_id: str = ""
+    # snapshot 自有字段：盘口期望值，用于 correctness 验证
+    expected_bid: tuple[int, int] | None = None
+    expected_ask: tuple[int, int] | None = None
 
 
 @dataclass
@@ -68,10 +71,14 @@ def build_simulator_pack(
         events.append(ev)
 
     for s in raw_snapshots:
+        bid = s.get("bid")
+        ask = s.get("ask")
         ev = SimulatorEvent(
             time_ms=int(s["time_ms"]),
             kind="snapshot",
             price=int(s.get("last_price", 0)),
+            expected_bid=tuple(bid[0]) if bid else None,
+            expected_ask=tuple(ask[0]) if ask else None,
         )
         events.append(ev)
         snapshots.append(ev)
