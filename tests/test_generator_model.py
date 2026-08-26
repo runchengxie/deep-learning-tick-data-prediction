@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 import torch
 
 from ticknet.eventstream.model import L2FoundationModel, ModelConfig
@@ -16,6 +19,9 @@ CHECKPOINT = (
     "artifacts/eventstream-h5-recent-fold/training/seed0/"
     "eventstream-top400-h5-capacity100m-recent.seed0.last.pt"
 )
+
+if not Path(CHECKPOINT).exists():
+    pytest.skip("需要本地 eventstream 100M checkpoint，CI 环境不提供", allow_module_level=True)
 
 
 def _dummy_batch(seq_len: int = 8) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

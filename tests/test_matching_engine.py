@@ -42,5 +42,6 @@ def test_time_priority_within_same_price():
     engine.apply_order(order_id="O2", side=1, price=1000, volume=500)
     # 卖单 1000 先吃先到者 O1
     trade = engine.apply_order(order_id="O3", side=-1, price=1000, volume=500)
+    assert trade is not None
     assert trade.buy_id == "O1"
     assert engine.lob.best_bid() == (1000, 500)  # O2 剩
