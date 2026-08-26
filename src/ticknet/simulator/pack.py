@@ -27,6 +27,9 @@ class SimulatorEvent:
     # snapshot 自有字段：盘口期望值，用于 correctness 验证
     expected_bid: tuple[int, int] | None = None
     expected_ask: tuple[int, int] | None = None
+    # 真实数据可携带完整十档（价格分, 量股），供初始盘口注入或深度对比
+    bid_levels: tuple[tuple[int, int], ...] | None = None
+    ask_levels: tuple[tuple[int, int], ...] | None = None
 
 
 @dataclass

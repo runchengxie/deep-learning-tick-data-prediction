@@ -18,11 +18,15 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
 
-RAW_L2_ROOT = Path("/mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2")
+# 可用环境变量 TICKNET_RAW_L2_ROOT 指向其他数据位置（如挂载点或子集拷贝）
+RAW_L2_ROOT = Path(
+    os.environ.get("TICKNET_RAW_L2_ROOT", "/mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2")
+)
 PACK_ROOT = Path("/mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/v2")
 
 # ms 相对 09:30:00；集合竞价成交在原始数据里以 -300_000 记录。
