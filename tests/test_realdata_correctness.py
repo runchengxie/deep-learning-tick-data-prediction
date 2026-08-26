@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from ticknet.simulator.realdata import load_day_pack, verify_day_correctness
+from ticknet.eventstream.config import MARKET_END_MS
+from ticknet.simulator.realdata import (
+    default_snapshot_event_lag_ms,
+    load_day_pack,
+    verify_day_correctness,
+)
 
 DAY = 20210104
 TICKER = "000001"
@@ -97,6 +102,13 @@ def _day_events() -> tuple[list[dict], list[dict]]:
     return orders, snaps
 
 
+def test_default_snapshot_event_lag_is_market_aware():
+    assert default_snapshot_event_lag_ms("000001") == 140
+    assert default_snapshot_event_lag_ms("300001") == 140
+    assert default_snapshot_event_lag_ms("600000") == 0
+    assert default_snapshot_event_lag_ms("688001") == 0
+
+
 @pytest.fixture
 def realdata_root(tmp_path: Path) -> Path:
     orders, snaps = _day_events()
@@ -132,7 +144,7 @@ def test_load_day_pack_maps_real_schema(realdata_root: Path):
 
 
 def test_verify_day_correctness_matches(realdata_root: Path):
-    results = verify_day_correctness(DAY, realdata_root, TICKER)
+    results = verify_day_correctness(DAY, realdata_root, TICKER, event_lag_ms=0)
     # 首个开盘快照用于注入初始账本，不参与对比
     assert len(results) == 2
     assert all(r.matched for r in results), [r.detail for r in results]
@@ -143,7 +155,7 @@ def test_verify_day_detects_mismatch(realdata_root: Path):
     # 篡改第二个快照的买一量，回放结果应对不上
     snaps[1]["BidVolume1"] = 299
     _write_parquets(realdata_root, orders, snaps)
-    results = verify_day_correctness(DAY, realdata_root, TICKER)
+    results = verify_day_correctness(DAY, realdata_root, TICKER, event_lag_ms=0)
     assert results[0].matched is False
     assert results[0].bid_error == 1
 
@@ -154,7 +166,7 @@ def test_verify_day_marks_missing_snapshot_not_comparable(tmp_path: Path):
     snaps[2]["AskVolume1"] = 0
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(DAY, tmp_path, TICKER)
+    results = verify_day_correctness(DAY, tmp_path, TICKER, event_lag_ms=0)
 
     assert results[-1].status == "not_comparable"
     assert results[-1].matched is False
@@ -173,9 +185,58 @@ def test_verify_day_interval_mode_resets_at_each_snapshot(tmp_path: Path):
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval")
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
 
     assert [r.status for r in results] == ["mismatched", "matched"]
+
+
+def test_verify_day_uses_own_side_best_price_for_type3_buy(tmp_path: Path):
+    orders = [_order_row(130, "B", 20.00, 50, ot=3)]
+    snaps = [
+        _snap_row(125, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(140, [(10.00, 150)], [(10.10, 100)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(
+        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
+    )
+
+    assert results[0].status == "matched"
+
+
+def test_verify_day_uses_own_side_best_price_for_type13_sell(tmp_path: Path):
+    orders = [_order_row(130, "S", 1.00, 50, ot=13)]
+    snaps = [
+        _snap_row(125, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(140, [(10.00, 100)], [(10.10, 150)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(
+        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
+    )
+
+    assert results[0].status == "matched"
+
+
+def test_verify_day_interval_mode_uses_snapshot_event_lag(tmp_path: Path):
+    orders = [_order_row(150, "B", 10.00, 50, ot=2)]
+    snaps = [
+        _snap_row(125, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(140, [(10.00, 150)], [(10.10, 100)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    without_lag = verify_day_correctness(
+        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
+    )
+    with_lag = verify_day_correctness(
+        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=10
+    )
+
+    assert without_lag[0].status == "mismatched"
+    assert with_lag[0].status == "matched"
 
 
 def test_verify_day_interval_mode_does_not_seed_from_incomplete_snapshot(tmp_path: Path):
@@ -188,13 +249,31 @@ def test_verify_day_interval_mode_does_not_seed_from_incomplete_snapshot(tmp_pat
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval")
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
 
     assert [r.status for r in results] == [
         "not_comparable",
         "not_comparable",
         "matched",
     ]
+
+
+def test_verify_day_excludes_closing_auction_snapshots(tmp_path: Path):
+    orders: list[dict] = []
+    snaps = [
+        _snap_row(MARKET_END_MS - 20, [(10.00, 100)], [(10.10, 100)]),
+        _snap_row(MARKET_END_MS - 10, [(10.00, 100)], [(10.10, 100)]),
+        # 14:57 后进入收盘集合竞价，买卖指示价可相同，不属于连续撮合协议。
+        _snap_row(MARKET_END_MS + 10, [(10.05, 500)], [(10.05, 500)]),
+    ]
+    _write_parquets(tmp_path, orders, snaps)
+
+    results = verify_day_correctness(
+        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "matched"
 
 
 def test_verify_day_skips_auction_and_handles_ghost_cancel(tmp_path: Path):
@@ -211,7 +290,7 @@ def test_verify_day_skips_auction_and_handles_ghost_cancel(tmp_path: Path):
         _snap_row(135, [(10.00, 700), (9.95, 700)], [(10.10, 300)]),
     ]
     _write_parquets(tmp_path, orders, snaps)
-    results = verify_day_correctness(DAY, tmp_path, TICKER)
+    results = verify_day_correctness(DAY, tmp_path, TICKER, event_lag_ms=0)
     assert len(results) == 1
     assert results[0].matched, results[0].detail
 

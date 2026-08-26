@@ -29,8 +29,8 @@ def test_cli_passes_mode_and_reports_comparable_counts(
     module = _load_script_module()
     called: dict[str, object] = {}
 
-    def fake_verify(day: int, root: Path, ticker: str, mode: str):
-        called.update(day=day, root=root, ticker=ticker, mode=mode)
+    def fake_verify(day: int, root: Path, ticker: str, mode: str, event_lag_ms: int):
+        called.update(day=day, root=root, ticker=ticker, mode=mode, event_lag_ms=event_lag_ms)
         return [
             CorrectnessResult(True, 0, 0, "ok"),
             CorrectnessResult(False, 1, 0, "bad"),
@@ -51,6 +51,8 @@ def test_cli_passes_mode_and_reports_comparable_counts(
             str(tmp_path),
             "--mode",
             "interval",
+            "--event-lag-ms",
+            "25",
         ],
     )
 
@@ -60,9 +62,11 @@ def test_cli_passes_mode_and_reports_comparable_counts(
         "root": tmp_path,
         "ticker": "000001",
         "mode": "interval",
+        "event_lag_ms": 25,
     }
     output = capsys.readouterr().out
     assert "mode=interval" in output
+    assert "event_lag_ms=25" in output
     assert "可比较 2" in output
     assert "跳过 1" in output
     assert "完全一致: 1/2" in output
