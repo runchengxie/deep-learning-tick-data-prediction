@@ -107,6 +107,40 @@ class LimitOrderBook:
             book.pop(resting.price, None)
         return True
 
+    def seed_level(self, side: int, price: int, volume: int, order_id: str) -> None:
+        """注入初始盘口档位（不撮合）。用于从真实快照重建起始账本。"""
+        if volume <= 0 or price <= 0:
+            return
+        book = self._bids if side == 1 else self._asks
+        resting = RestingOrder(order_id, side, price, volume, self._seq)
+        self._seq += 1
+        book.setdefault(price, []).append(resting)
+        self._by_id[order_id] = resting
+
+    def reduce_level(self, side: int, price: int, volume: int) -> bool:
+        """匿名扣减指定档位数量（FIFO）。
+
+        用于真实数据里撤单指向账本外订单的场景（如集合竞价残留单）：
+        撤单消息自带价格与数量，无需订单 ID 即可对齐账本。
+        """
+        if volume <= 0:
+            return False
+        book = self._bids if side == 1 else self._asks
+        queue = book.get(price)
+        if not queue:
+            return False
+        remaining = volume
+        for top in queue:
+            fill = min(top.volume, remaining)
+            top.volume -= fill
+            remaining -= fill
+            if top.volume == 0:
+                self._by_id.pop(top.order_id, None)
+        queue[:] = [o for o in queue if o.volume > 0]
+        if not queue:
+            book.pop(price, None)
+        return remaining < volume
+
     def best_bid(self) -> tuple[int, int] | None:
         if not self._bids:
             return None
