@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .matching import MatchingEngine
 from .pack import SimulatorEvent, SimulatorPack
@@ -18,6 +19,13 @@ class CorrectnessResult:
     bid_error: int
     ask_error: int
     detail: str = ""
+    comparable: bool = True
+
+    @property
+    def status(self) -> Literal["matched", "mismatched", "not_comparable"]:
+        if not self.comparable:
+            return "not_comparable"
+        return "matched" if self.matched else "mismatched"
 
 
 def _apply_event(engine: MatchingEngine, ev: SimulatorEvent) -> None:
@@ -67,10 +75,11 @@ def replay_and_compare(
     if exp_bid is None or exp_ask is None:
         # 无法对比（数据未携带期望值），返回重建结果供人工检查
         return CorrectnessResult(
-            True,
+            False,
             0,
             0,
             f"重建买一={bid} 卖一={ask}（target 无期望值，跳过严格对比）",
+            comparable=False,
         )
 
     bid_error = 0 if bid == exp_bid else 1

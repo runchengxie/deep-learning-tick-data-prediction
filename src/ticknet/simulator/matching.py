@@ -64,8 +64,11 @@ class LimitOrderBook:
         price: int,
         volume: int,
     ) -> Trade | None:
-        # 买单吃卖单价 <= price；卖单吃买单价 >= price
-        counterparty_prices = sorted(p for p in book if (p <= price if side == 1 else p >= price))
+        # 买单从最低卖价向上吃；卖单从最高买价向下吃
+        counterparty_prices = sorted(
+            (p for p in book if (p <= price if side == 1 else p >= price)),
+            reverse=side == -1,
+        )
         if not counterparty_prices:
             return None
         remaining = volume
