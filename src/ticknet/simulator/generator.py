@@ -133,13 +133,20 @@ class OrderGenerator:
             sids = np.asarray(
                 ctx.stream_ids
                 if ctx.stream_ids is not None
-                else np.zeros(feats.shape[0], dtype=np.int64)
+                else np.zeros(feats.shape[-2], dtype=np.int64)
             )
             oids = np.asarray(
                 ctx.order_ids
                 if ctx.order_ids is not None
-                else np.zeros(feats.shape[0], dtype=np.int64)
+                else np.zeros(feats.shape[-2], dtype=np.int64)
             )
+            # 兼容调用方直接传带 batch 维的张量：(1, seq, f) -> (seq, f)
+            if feats.ndim == 3 and feats.shape[0] == 1:
+                feats = feats[0]
+            if sids.ndim == 2 and sids.shape[0] == 1:
+                sids = sids[0]
+            if oids.ndim == 2 and oids.shape[0] == 1:
+                oids = oids[0]
         else:
             feats, sids, oids = events_to_features(ctx.history, ctx.initial_bid, ctx.initial_ask)
 
