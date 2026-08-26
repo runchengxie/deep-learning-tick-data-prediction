@@ -1,36 +1,20 @@
-"""RED: generator 从历史事件自主构造 80 维特征（端到端自回归）。
+"""generator 从历史事件自主构造 80 维特征（端到端自回归）。
 
 验证 model 模式不再依赖外部手塞 features，而是从 history + 初始盘口
-自动构造模型输入并生成订单。
+自动构造模型输入并生成订单。接线测试用小规模随机初始化模型，
+不依赖本地 checkpoint。
 """
 
 from __future__ import annotations
-
-import torch
 
 from ticknet.eventstream.model import L2FoundationModel, ModelConfig
 from ticknet.simulator.generator import GenerationContext, OrderGenerator
 from ticknet.simulator.replay import BackgroundOrder
 
-CHECKPOINT = (
-    "artifacts/eventstream-h5-recent-fold/training/seed0/"
-    "eventstream-top400-h5-capacity100m-recent.seed0.last.pt"
-)
 
-
-def _load_model():
-    sd = torch.load(CHECKPOINT, map_location="cpu", weights_only=False)
-    cfg = ModelConfig(
-        d_model=sd["model"]["feat_proj.0.weight"].shape[0],
-        n_layers=sum(
-            1 for k in sd["model"] if k.startswith("blocks.") and k.endswith("norm1.weight")
-        ),
-        n_heads=sd["model"]["feat_proj.0.weight"].shape[0] // 64,
-        d_ff=sd["model"]["feat_proj.0.weight"].shape[0] * 4,
-        max_seq=512,
-    )
+def _tiny_model():
+    cfg = ModelConfig(d_model=64, n_layers=2, n_heads=4, d_ff=128, max_seq=512)
     model = L2FoundationModel(cfg)
-    model.load_state_dict(sd["model"], strict=True)
     model.eval()
     return model
 
@@ -51,7 +35,7 @@ def test_events_to_features_shape():
 
 
 def test_generator_autonomous_from_history():
-    model = _load_model()
+    model = _tiny_model()
     gen = OrderGenerator(model=model, stub=False)
     ctx = GenerationContext(
         initial_bid=(1000, 500),

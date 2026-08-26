@@ -32,7 +32,8 @@ def test_intervention_order_injected_into_stream():
     )
     session.run()
     # 卖一被吃完，买一 1000 剩 500，买一 1001 挂 200
-    assert engine.lob.best_ask() is None or engine.lob.best_ask()[0] > 1001
+    best_ask = engine.lob.best_ask()
+    assert best_ask is None or best_ask[0] > 1001
     assert engine.lob.best_bid() == (1001, 200)
 
 
