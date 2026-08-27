@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import pyarrow.parquet as pq
 
@@ -56,10 +57,15 @@ def scan_preopen_coverage(
     raw_root: Path = RAW_L2_ROOT,
     *,
     limit_days: int | None = None,
+    preopen_paths: Sequence[Path] | None = None,
 ) -> tuple[CoverageRow, ...]:
     """扫描所有盘前文件，并关联订单、成交和快照文件。"""
     preopen_root = Path(raw_root) / "order_preopen"
-    paths = sorted(preopen_root.glob("*/order_*.parquet"))
+    paths = (
+        sorted(preopen_paths)
+        if preopen_paths is not None
+        else sorted(preopen_root.glob("*/order_*.parquet"))
+    )
     paths = paths[:limit_days] if limit_days is not None else paths
     rows: list[CoverageRow] = []
     for preopen_path in paths:
@@ -118,6 +124,66 @@ def scan_preopen_coverage(
     return tuple(rows)
 
 
+def load_or_build_coverage_index(
+    raw_root: Path,
+    index_path: Path,
+    *,
+    limit_days: int | None = None,
+    force: bool = False,
+) -> tuple[CoverageRow, ...]:
+    """加载覆盖索引，只重新扫描源文件发生变化的交易日。"""
+    raw_root = Path(raw_root).resolve()
+    index_path = Path(index_path)
+    preopen_root = raw_root / "order_preopen"
+    paths = sorted(preopen_root.glob("*/order_*.parquet"))
+    if limit_days is not None:
+        paths = paths[:limit_days]
+
+    payload = _read_coverage_index(index_path)
+    cached_days = (
+        payload.get("days", {}) if payload and payload.get("raw_root") == str(raw_root) else {}
+    )
+    changed_paths: list[Path] = []
+    day_sources: dict[str, dict[str, dict | None]] = {}
+    for path in paths:
+        parsed = _parse_day(path)
+        if parsed is None:
+            continue
+        day = str(parsed[0])
+        sources = _coverage_sources(raw_root, path)
+        day_sources[day] = sources
+        if force or day not in cached_days or cached_days[day].get("sources") != sources:
+            changed_paths.append(path)
+
+    rescanned = (
+        scan_preopen_coverage(raw_root, preopen_paths=changed_paths) if changed_paths else ()
+    )
+    rescanned_by_day: dict[str, list[dict]] = defaultdict(list)
+    for row in rescanned:
+        rescanned_by_day[str(row.day)].append(asdict(row))
+
+    days = {}
+    for path in paths:
+        parsed = _parse_day(path)
+        if parsed is None:
+            continue
+        day = str(parsed[0])
+        if day in rescanned_by_day:
+            rows = rescanned_by_day[day]
+        elif day in cached_days:
+            rows = cached_days[day].get("rows", [])
+        else:
+            rows = []
+        days[day] = {"sources": day_sources[day], "rows": rows}
+
+    _write_coverage_index(index_path, {"version": 1, "raw_root": str(raw_root), "days": days})
+    return tuple(
+        CoverageRow(**row)
+        for day in sorted(days)
+        for row in cast(list[dict[str, Any]], days[day]["rows"])
+    )
+
+
 def summarize_coverage(rows: Sequence[CoverageRow]) -> dict[str, dict[str, dict[str, int]]]:
     """按年份、月份、市场和文件批次汇总覆盖行。"""
     summary: dict[str, dict[str, dict[str, int]]] = {}
@@ -147,6 +213,39 @@ def summarize_coverage(rows: Sequence[CoverageRow]) -> dict[str, dict[str, dict[
 def coverage_row_dict(row: CoverageRow) -> dict:
     """返回适合 JSON 或 CSV 的稳定字段字典。"""
     return asdict(row)
+
+
+def _coverage_sources(raw_root: Path, preopen_path: Path) -> dict[str, dict | None]:
+    parsed = _parse_day(preopen_path)
+    if parsed is None:
+        raise ValueError(f"无法从盘前文件名解析交易日: {preopen_path}")
+    related = _related_paths(raw_root, parsed[0])
+    paths = {"preopen": preopen_path, **related}
+    return {name: _file_fingerprint(path) for name, path in paths.items()}
+
+
+def _file_fingerprint(path: Path | None) -> dict | None:
+    if path is None or not path.exists():
+        return None
+    stat = path.stat()
+    return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _read_coverage_index(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) and payload.get("version") == 1 else {}
+
+
+def _write_coverage_index(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def _empty_group() -> dict[str, int]:

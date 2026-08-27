@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-from ticknet.simulator.coverage import CoverageRow
+from ticknet.simulator.coverage import CoverageRow, load_or_build_coverage_index
 from ticknet.simulator.eligibility import classify_coverage, summarize_eligibility
 
 
@@ -98,3 +98,79 @@ def test_manifest_cli_writes_json_and_csv(tmp_path: Path, monkeypatch):
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["summary"]["primary_eligible"] == 1
     assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith("day,ticker,")
+
+
+def test_coverage_index_reuses_unchanged_day_without_scanning(tmp_path: Path, monkeypatch):
+    raw_root = tmp_path / "raw"
+    index_path = tmp_path / "coverage-index.json"
+    preopen_path = raw_root / "order_preopen" / "202401" / "order_2024-01-02.parquet"
+    preopen_path.parent.mkdir(parents=True)
+    preopen_path.write_bytes(b"preopen-v1")
+    row = _row()
+    calls = []
+
+    def fake_scan(root, *, preopen_paths=None, limit_days=None):
+        calls.append(tuple(preopen_paths or ()))
+        return (row,)
+
+    monkeypatch.setattr("ticknet.simulator.coverage.scan_preopen_coverage", fake_scan)
+
+    first = load_or_build_coverage_index(raw_root, index_path)
+    second = load_or_build_coverage_index(raw_root, index_path)
+
+    assert first == (row,)
+    assert second == (row,)
+    assert len(calls) == 1
+    assert calls[0] == (preopen_path,)
+
+
+def test_coverage_index_rescans_day_when_source_changes(tmp_path: Path, monkeypatch):
+    raw_root = tmp_path / "raw"
+    index_path = tmp_path / "coverage-index.json"
+    preopen_path = raw_root / "order_preopen" / "202401" / "order_2024-01-02.parquet"
+    preopen_path.parent.mkdir(parents=True)
+    preopen_path.write_bytes(b"preopen-v1")
+    row = _row()
+    calls = []
+
+    def fake_scan(root, *, preopen_paths=None, limit_days=None):
+        calls.append(tuple(preopen_paths or ()))
+        return (row,)
+
+    monkeypatch.setattr("ticknet.simulator.coverage.scan_preopen_coverage", fake_scan)
+
+    load_or_build_coverage_index(raw_root, index_path)
+    preopen_path.write_bytes(b"preopen-v2")
+    load_or_build_coverage_index(raw_root, index_path)
+
+    assert len(calls) == 2
+
+
+def test_coverage_audit_cli_can_use_index(tmp_path: Path, monkeypatch):
+    script = Path(__file__).parents[1] / "scripts" / "audit_opening_coverage.py"
+    spec = importlib.util.spec_from_file_location("opening_coverage", script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "load_or_build_coverage_index", lambda *args, **kwargs: (_row(),))
+
+    json_path = tmp_path / "coverage.json"
+    csv_path = tmp_path / "coverage.csv"
+    assert (
+        module.main(
+            [
+                "--raw-root",
+                str(tmp_path),
+                "--index-path",
+                str(tmp_path / "index.json"),
+                "--json-output",
+                str(json_path),
+                "--csv-output",
+                str(csv_path),
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["summary"]["year"]["2024"]["samples"] == 1
