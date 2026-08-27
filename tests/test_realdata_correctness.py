@@ -89,8 +89,8 @@ def _day_events() -> tuple[list[dict], list[dict]]:
         _order_row(130, "X", 5.00, 100, ot=1, tk=OTHER),
         # D 市价吃 600 股：A 全成交 500，B 剩 300
         _order_row(140, "D", 10.00, 600, ot=12),
-        # 撤掉 B：真实数据中撤单行自带原订单的价格与剩余量
-        _order_row(160, "B", 10.00, 400, ot=-1),
+        # 撤掉 B 的剩余 300 股：撤单行自带原订单的价格与本次撤量
+        _order_row(160, "B", 10.00, 300, ot=-1),
     ]
     snaps = [
         _snap_row(125, [(10.00, 900), (9.95, 700)], [(10.10, 300)]),
@@ -198,9 +198,7 @@ def test_verify_day_uses_own_side_best_price_for_type3_buy(tmp_path: Path):
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(
-        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
-    )
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
 
     assert results[0].status == "matched"
 
@@ -213,9 +211,7 @@ def test_verify_day_uses_own_side_best_price_for_type13_sell(tmp_path: Path):
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(
-        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
-    )
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
 
     assert results[0].status == "matched"
 
@@ -228,12 +224,8 @@ def test_verify_day_interval_mode_uses_snapshot_event_lag(tmp_path: Path):
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    without_lag = verify_day_correctness(
-        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
-    )
-    with_lag = verify_day_correctness(
-        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=10
-    )
+    without_lag = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
+    with_lag = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=10)
 
     assert without_lag[0].status == "mismatched"
     assert with_lag[0].status == "matched"
@@ -268,9 +260,7 @@ def test_verify_day_excludes_closing_auction_snapshots(tmp_path: Path):
     ]
     _write_parquets(tmp_path, orders, snaps)
 
-    results = verify_day_correctness(
-        DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0
-    )
+    results = verify_day_correctness(DAY, tmp_path, TICKER, mode="interval", event_lag_ms=0)
 
     assert len(results) == 1
     assert results[0].status == "matched"

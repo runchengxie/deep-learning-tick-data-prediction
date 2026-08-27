@@ -125,9 +125,7 @@ def diagnose_day_intervals(
     if event_lag_ms is None:
         event_lag_ms = default_snapshot_event_lag_ms(ticker)
     pack = load_day_pack(day, raw_root, ticker)
-    snapshots = [
-        snapshot for snapshot in pack.snapshots if 0 <= snapshot.time_ms < MARKET_END_MS
-    ]
+    snapshots = [snapshot for snapshot in pack.snapshots if 0 <= snapshot.time_ms < MARKET_END_MS]
     if len(snapshots) < 2:
         return []
 
@@ -154,15 +152,12 @@ def diagnose_day_intervals(
 
         interval_trades: list[SimulatorEvent] = []
         while (
-            trade_index < len(real_trades)
-            and real_trades[trade_index].time_ms <= target_event_time
+            trade_index < len(real_trades) and real_trades[trade_index].time_ms <= target_event_time
         ):
             interval_trades.append(real_trades[trade_index])
             trade_index += 1
 
-        snapshot_trade_volume, snapshot_trade_count = snapshot_activity.get(
-            target.time_ms, (0, 0)
-        )
+        snapshot_trade_volume, snapshot_trade_count = snapshot_activity.get(target.time_ms, (0, 0))
         diagnostics.append(
             _diagnose_interval(
                 start,
@@ -274,7 +269,9 @@ def _diagnose_interval(
         engine = _seed_engine(start)
         for event in events:
             if event.kind == "cancel":
-                if not engine.cancel_order(event.order_id):
+                if engine.has_order(event.order_id):
+                    engine.cancel_order(event.order_id, event.volume)
+                else:
                     unresolved_cancel_count += 1
                     unresolved_cancel_volume += event.volume
                     side = 1 if event.order_type == -1 else -1
