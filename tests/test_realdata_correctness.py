@@ -1,6 +1,6 @@
 """真实 schema 的合成 parquet 验证 realdata 映射与 correctness 校验。
 
-字段名、单位（价格元）、snapshot 宽表布局与真实数据一致：
+字段名、单位（价格为乘 100 后的整数）、snapshot 宽表布局与真实数据一致：
 - order 表无 side 列，方向由 OrderType 推导，撤单行 OrderID 即被撤订单
 - snapshot 为月度宽表 BidPrice1..10 等 20 个标量列，按 TradingDay 过滤
 """
@@ -38,7 +38,7 @@ def _order_row(t: int, oid: str, px: float, vol: int, ot: int, tk: str = TICKER)
         "TradingDay": DAY,
         "time_ms": t,
         "OrderID": oid,
-        "Price": px,
+        "Price": round(px * 100),
         "Volume": vol,
         "OrderType": ot,
     }
@@ -52,9 +52,9 @@ def _snap_row(
 ) -> dict:
     row: dict = {"ticker": tk, "TradingDay": DAY, "time_ms": t}
     for k in range(1, 11):
-        row[f"BidPrice{k}"] = bids[k - 1][0] if k <= len(bids) else None
+        row[f"BidPrice{k}"] = round(bids[k - 1][0] * 100) if k <= len(bids) else None
         row[f"BidVolume{k}"] = bids[k - 1][1] if k <= len(bids) else 0
-        row[f"AskPrice{k}"] = asks[k - 1][0] if k <= len(asks) else None
+        row[f"AskPrice{k}"] = round(asks[k - 1][0] * 100) if k <= len(asks) else None
         row[f"AskVolume{k}"] = asks[k - 1][1] if k <= len(asks) else 0
     return row
 
@@ -76,6 +76,13 @@ def _write_parquets(root: Path, orders: list[dict], snaps: list[dict]) -> None:
     pq.write_table(to_table(orders, ORDER_COLS), odir / f"order_{order_name}.parquet")
     month = str(DAY)[:6]
     pq.write_table(to_table(snaps, SNAP_COLS), sdir / f"snapshot_{month}.parquet")
+
+
+def _write_order_file(path: Path, orders: list[dict]) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pq.write_table(pa.table({c: [row[c] for row in orders] for c in ORDER_COLS}), path)
 
 
 def _day_events() -> tuple[list[dict], list[dict]]:
@@ -141,6 +148,34 @@ def test_load_day_pack_maps_real_schema(realdata_root: Path):
     assert s0.bid_levels is not None
     assert s0.bid_levels[1] == (995, 700)
     assert pack.snapshots[-1].expected_bid == (995, 700)
+
+
+def test_load_day_pack_keeps_prices_already_scaled_in_raw_l2(tmp_path: Path):
+    orders = [_order_row(100, "B", 19.09, 500, ot=2)]
+    snaps = [_snap_row(0, [(19.08, 100)], [(19.09, 100)])]
+    _write_parquets(tmp_path, orders, snaps)
+
+    pack = load_day_pack(DAY, tmp_path, TICKER)
+
+    order = next(event for event in pack.events if event.kind == "order")
+    assert order.price == 1909
+    assert pack.snapshots[0].expected_bid == (1908, 100)
+
+
+def test_load_day_pack_includes_preopen_orders_when_file_exists(tmp_path: Path):
+    orders = [_order_row(100, "B", 10.00, 500, ot=2)]
+    snaps = [_snap_row(0, [(10.00, 100)], [(10.10, 100)])]
+    _write_parquets(tmp_path, orders, snaps)
+    preopen_dir = tmp_path / "order_preopen" / "202101"
+    preopen_dir.mkdir(parents=True)
+    _write_order_file(
+        preopen_dir / "order_2021-01-04.parquet",
+        [_order_row(-300000, "P", 10.00, 200, ot=2)],
+    )
+
+    pack = load_day_pack(DAY, tmp_path, TICKER)
+
+    assert any(event.order_id == "P" and event.time_ms == -300000 for event in pack.events)
 
 
 def test_verify_day_correctness_matches(realdata_root: Path):

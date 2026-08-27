@@ -4,7 +4,7 @@
 构造保留 OrderID 的 SimulatorPack，并逐 snapshot 校验撮合引擎重建精度。
 
 字段与单位约定与 eventstream.pack 对齐：
-- 价格原始单位为元，统一转分（round(x * 100)）
+- 价格在 raw L2 Parquet 中已经是整数分，直接转为 int
 - 订单方向由 OrderType 推导（dataset._featurize 同规则）：
   撤单 = OrderType 属于 (-1, -11)，其 OrderID 即被撤订单的 ID；
   非撤单 ot >= 10 为卖，否则为买
@@ -20,7 +20,7 @@ from typing import Literal
 
 import pyarrow.parquet as pq
 
-from ticknet.eventstream.config import MARKET_END_MS, RAW_L2_ROOT, day_input_files
+from ticknet.eventstream.config import MARKET_END_MS, RAW_L2_ROOT, day_input_files, day_preopen_file
 from ticknet.simulator.matching import MatchingEngine
 from ticknet.simulator.pack import SimulatorEvent, SimulatorPack
 
@@ -53,9 +53,9 @@ _SNAP_COLS = (
 )
 
 
-def _to_cents(values: list) -> list[int]:
-    """原始价格单位为元，转分。"""
-    return [round(float(v) * 100) for v in values]
+def _to_price_units(values: list) -> list[int]:
+    """读取 raw L2 已缩放的整数价格，保持为分。"""
+    return [round(float(v)) for v in values]
 
 
 def _apply_realdata_order(engine: MatchingEngine, event: SimulatorEvent):
@@ -132,12 +132,15 @@ def load_day_pack(
     """读取某交易日的真实 L2 parquet，构造单只股票的 SimulatorPack。
 
     ticker 为空时取当日全部股票（数据量大，慎用）。order 表无 side 列，
-    方向按 OrderType 规则推导；撤单行转为 kind="cancel" 事件。
+    order 和 order_preopen 均按 OrderType 推导方向；撤单行转为 kind="cancel" 事件。
     """
     if not ticker:
         raise ValueError("真实全市场数据必须指定 ticker 以过滤")
     paths = day_input_files(day, Path(raw_root))
-    orders = _read_order_events(paths["order"], ticker)
+    orders = [*_read_order_events(paths["order"], ticker)]
+    preopen_path = day_preopen_file(day, Path(raw_root))
+    if preopen_path.exists():
+        orders = [*_read_order_events(preopen_path, ticker), *orders]
     snapshots = _read_snapshot_events(paths["snap"], day, ticker)
     # 同一毫秒内订单先于快照结算：order=0, snapshot=1
     events = [*orders, *snapshots]
@@ -228,7 +231,7 @@ def _read_order_events(path: Path, ticker: str) -> list[SimulatorEvent]:
     d = t.to_pydict()
     out: list[SimulatorEvent] = []
     n = len(d["time_ms"])
-    prices = _to_cents(d["Price"])
+    prices = _to_price_units(d["Price"])
     for i in range(n):
         ot = int(d["OrderType"][i])
         oid = str(d["OrderID"][i])
@@ -280,7 +283,7 @@ def _read_snapshot_events(path: Path, day: int, ticker: str) -> list[SimulatorEv
         px, vol = d[px_key][i], d[vol_key][i]
         if px is None or float(px) <= 0:
             return None
-        return (round(float(px) * 100), int(vol))
+        return (round(float(px)), int(vol))
 
     for i in range(n):
         bid_levels = tuple(
