@@ -36,6 +36,22 @@ def test_cancel_removes_specific_order():
     assert engine.lob.best_bid() == (1000, 300)
 
 
+def test_cancel_can_remove_only_requested_remaining_volume():
+    engine = MatchingEngine()
+    engine.apply_order(order_id="O1", side=1, price=1000, volume=500)
+
+    assert engine.cancel_order(order_id="O1", volume=200) is True
+    assert engine.lob.best_bid() == (1000, 300)
+
+
+def test_cancel_larger_than_remaining_does_not_delete_order_silently():
+    engine = MatchingEngine()
+    engine.apply_order(order_id="O1", side=1, price=1000, volume=500)
+
+    assert engine.cancel_order(order_id="O1", volume=600) is False
+    assert engine.lob.best_bid() == (1000, 500)
+
+
 def test_time_priority_within_same_price():
     engine = MatchingEngine()
     engine.apply_order(order_id="O1", side=1, price=1000, volume=500)

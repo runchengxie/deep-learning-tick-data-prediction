@@ -80,7 +80,9 @@ def _seed_engine(snapshot: SimulatorEvent) -> MatchingEngine:
 
 def _apply_realdata_event(engine: MatchingEngine, event: SimulatorEvent) -> None:
     if event.kind == "cancel":
-        if not engine.cancel_order(event.order_id):
+        if engine.has_order(event.order_id):
+            engine.cancel_order(event.order_id, event.volume)
+        else:
             side = 1 if event.order_type == -1 else -1
             engine.lob.reduce_level(side, event.price, event.volume)
     elif event.kind == "order":
@@ -164,9 +166,7 @@ def verify_day_correctness(
     if event_lag_ms is None:
         event_lag_ms = default_snapshot_event_lag_ms(ticker)
     pack = load_day_pack(day, raw_root, ticker)
-    snapshots = [
-        snapshot for snapshot in pack.snapshots if 0 <= snapshot.time_ms < MARKET_END_MS
-    ]
+    snapshots = [snapshot for snapshot in pack.snapshots if 0 <= snapshot.time_ms < MARKET_END_MS]
     if len(snapshots) < 2:
         return []
 
@@ -174,8 +174,7 @@ def verify_day_correctness(
     event_index = 0
     first_event_time = snapshots[0].time_ms + event_lag_ms
     while (
-        event_index < len(stream_events)
-        and stream_events[event_index].time_ms <= first_event_time
+        event_index < len(stream_events) and stream_events[event_index].time_ms <= first_event_time
     ):
         event_index += 1
 
@@ -233,17 +232,32 @@ def _read_order_events(path: Path, ticker: str) -> list[SimulatorEvent]:
     for i in range(n):
         ot = int(d["OrderType"][i])
         oid = str(d["OrderID"][i])
-        common = {
-            "time_ms": int(d["time_ms"][i]),
-            "price": prices[i],
-            "volume": int(d["Volume"][i]),
-        }
+        time_ms = int(d["time_ms"][i])
+        price = prices[i]
+        volume = int(d["Volume"][i])
         if ot in CANCEL_TYPES:
-            out.append(SimulatorEvent(kind="cancel", order_id=oid, order_type=ot, **common))
+            out.append(
+                SimulatorEvent(
+                    time_ms=time_ms,
+                    kind="cancel",
+                    order_id=oid,
+                    price=price,
+                    volume=volume,
+                    order_type=ot,
+                )
+            )
         else:
             side = -1 if ot >= 10 else 1
             out.append(
-                SimulatorEvent(kind="order", order_id=oid, side=side, order_type=ot, **common)
+                SimulatorEvent(
+                    time_ms=time_ms,
+                    kind="order",
+                    order_id=oid,
+                    side=side,
+                    price=price,
+                    volume=volume,
+                    order_type=ot,
+                )
             )
     return out
 

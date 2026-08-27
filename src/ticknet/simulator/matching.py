@@ -99,16 +99,32 @@ class LimitOrderBook:
             )
         return None
 
-    def cancel_order(self, order_id: str) -> bool:
+    def cancel_order(self, order_id: str, volume: int | None = None) -> bool:
+        """撤销订单的全部或指定数量。
+
+        ``volume`` 为空时保持传统的全撤语义。传入数量时只允许撤销该订单
+        当前剩余量以内的数量，超量请求返回 False 且不修改账本。
+        """
         resting = self._by_id.pop(order_id, None)
         if resting is None:
             return False
+        if volume is not None and (volume <= 0 or volume > resting.volume):
+            self._by_id[order_id] = resting
+            return False
         book = self._bids if resting.side == 1 else self._asks
         queue = book.get(resting.price, [])
-        queue[:] = [o for o in queue if o.order_id != order_id]
+        if volume is None or volume == resting.volume:
+            queue[:] = [o for o in queue if o.order_id != order_id]
+        else:
+            resting.volume -= volume
+            self._by_id[order_id] = resting
         if not queue:
             book.pop(resting.price, None)
         return True
+
+    def has_order(self, order_id: str) -> bool:
+        """返回订单是否仍有可撤销的账面剩余量。"""
+        return order_id in self._by_id
 
     def seed_level(self, side: int, price: int, volume: int, order_id: str) -> None:
         """注入初始盘口档位（不撮合）。用于从真实快照重建起始账本。"""
@@ -168,8 +184,11 @@ class MatchingEngine:
     def apply_order(self, order_id: str, side: int, price: int, volume: int) -> Trade | None:
         return self.lob.apply_order(order_id, side, price, volume)
 
-    def cancel_order(self, order_id: str) -> bool:
-        return self.lob.cancel_order(order_id)
+    def cancel_order(self, order_id: str, volume: int | None = None) -> bool:
+        return self.lob.cancel_order(order_id, volume)
+
+    def has_order(self, order_id: str) -> bool:
+        return self.lob.has_order(order_id)
 
     def consume(self, event: SimulatorEvent) -> Trade | None:
         if event.kind == "order":

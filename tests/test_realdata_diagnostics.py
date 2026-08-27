@@ -219,3 +219,40 @@ def test_diagnose_day_intervals_excludes_closing_auction(tmp_path: Path):
 
     assert len(diagnostics) == 1
     assert diagnostics[0].status == "matched"
+
+
+def test_diagnose_day_does_not_fallback_to_anonymous_level_for_known_over_cancel(
+    tmp_path: Path,
+):
+    orders = [
+        {
+            "ticker": TICKER,
+            "TradingDay": DAY,
+            "time_ms": 130,
+            "OrderID": "B",
+            "Price": 10.00,
+            "Volume": 50,
+            "OrderType": 2,
+        },
+        {
+            "ticker": TICKER,
+            "TradingDay": DAY,
+            "time_ms": 135,
+            "OrderID": "B",
+            "Price": 10.00,
+            "Volume": 60,
+            "OrderType": -1,
+        },
+    ]
+    snapshots = [
+        _snap(125, 100, 100),
+        _snap(140, 100, 100),
+    ]
+    _write_fixture(tmp_path, snapshots=snapshots)
+    order_dir = tmp_path / "order" / "202101"
+    pq.write_table(_table(orders, ORDER_COLS), order_dir / "order_2021-01-04.parquet")
+
+    diagnostics = diagnose_day_intervals(DAY, tmp_path, TICKER, event_lag_ms=0)
+
+    assert diagnostics[0].unresolved_cancel_count == 0
+    assert diagnostics[0].unresolved_cancel_volume == 0

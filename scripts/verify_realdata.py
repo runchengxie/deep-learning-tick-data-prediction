@@ -59,10 +59,7 @@ def main() -> int:
     bad = n - ok
     bid_ok = sum(1 - r.bid_error for r in comparable)
     ask_ok = sum(1 - r.ask_error for r in comparable)
-    print(
-        f"[{args.ticker} @ {args.day}] mode={args.mode} "
-        f"event_lag_ms={event_lag_ms}"
-    )
+    print(f"[{args.ticker} @ {args.day}] mode={args.mode} event_lag_ms={event_lag_ms}")
     print(f"  快照结果: {len(results)}（可比较 {n}，跳过 {skipped}）")
     print(f"  完全一致: {ok}/{n}")
     print(f"  不一致: {bad}/{n}")
