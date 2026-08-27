@@ -6,7 +6,7 @@
 
 用法：
     python scripts/verify_realdata.py --day 20210104 --ticker 000001 \
-        [--root ROOT] [--mode continuous|interval]
+        [--root ROOT] [--mode continuous|interval] [--event-lag-ms N]
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ticknet.eventstream.config import RAW_L2_ROOT
-from ticknet.simulator.realdata import verify_day_correctness
+from ticknet.simulator.realdata import default_snapshot_event_lag_ms, verify_day_correctness
 
 
 def main() -> int:
@@ -32,9 +32,26 @@ def main() -> int:
         default="continuous",
         help="continuous=全天连续回放；interval=每个快照后重新校准",
     )
+    ap.add_argument(
+        "--event-lag-ms",
+        type=int,
+        default=None,
+        help="snapshot→event 毫秒偏移；不填则按市场使用已验证默认值",
+    )
     args = ap.parse_args()
+    event_lag_ms = (
+        args.event_lag_ms
+        if args.event_lag_ms is not None
+        else default_snapshot_event_lag_ms(args.ticker)
+    )
 
-    results = verify_day_correctness(args.day, args.root, args.ticker, mode=args.mode)
+    results = verify_day_correctness(
+        args.day,
+        args.root,
+        args.ticker,
+        mode=args.mode,
+        event_lag_ms=event_lag_ms,
+    )
     comparable = [r for r in results if r.comparable]
     skipped = len(results) - len(comparable)
     n = len(comparable)
@@ -42,7 +59,10 @@ def main() -> int:
     bad = n - ok
     bid_ok = sum(1 - r.bid_error for r in comparable)
     ask_ok = sum(1 - r.ask_error for r in comparable)
-    print(f"[{args.ticker} @ {args.day}] mode={args.mode}")
+    print(
+        f"[{args.ticker} @ {args.day}] mode={args.mode} "
+        f"event_lag_ms={event_lag_ms}"
+    )
     print(f"  快照结果: {len(results)}（可比较 {n}，跳过 {skipped}）")
     print(f"  完全一致: {ok}/{n}")
     print(f"  不一致: {bad}/{n}")
