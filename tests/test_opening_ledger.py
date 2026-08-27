@@ -8,10 +8,13 @@ import pyarrow.parquet as pq
 from ticknet.simulator.opening_ledger import (
     OpeningCancel,
     OpeningDayAudit,
+    OpeningLedgerAudit,
     OpeningOrder,
     OpeningTrade,
     audit_opening_ledger,
+    choose_best_lag,
     summarize_opening_audits,
+    trace_opening_level,
 )
 
 
@@ -222,3 +225,43 @@ def test_summarize_opening_audits_counts_identity_gap_samples_once():
     )
 
     assert summary.identity_gap_samples == 1
+
+
+def test_choose_best_lag_prefers_exact_match_then_smallest_absolute_lag():
+    empty = OpeningLedgerAudit(
+        status="mismatched",
+        bid_levels=((1000, 90),),
+        ask_levels=((1010, 100),),
+        expected_bid_levels=((1000, 100),),
+        expected_ask_levels=((1010, 100),),
+        unknown_trade_count=0,
+        unknown_trade_volume=0,
+        unknown_cancel_count=0,
+        unknown_cancel_volume=0,
+        overdrawn_count=0,
+        overdrawn_volume=0,
+    )
+    exact = audit_opening_ledger([], [], [], expected_bid_levels=(), expected_ask_levels=())
+
+    selected = choose_best_lag([(140, empty), (-10, exact), (10, exact)])
+
+    assert selected.lag_ms == -10
+    assert selected.audit.status == "matched"
+
+
+def test_trace_opening_level_explains_order_residuals():
+    rows = trace_opening_level(
+        [
+            OpeningOrder("B1", 1, 777, 10000),
+            OpeningOrder("B2", 1, 777, 5000),
+        ],
+        [OpeningTrade("B1", "A1", 4000)],
+        [OpeningCancel("B2", 2100)],
+        side=1,
+        price=777,
+    )
+
+    assert [
+        (row.order_id, row.traded_volume, row.cancelled_volume, row.remaining_volume)
+        for row in rows
+    ] == [("B1", 4000, 0, 6000), ("B2", 0, 2100, 2900)]
