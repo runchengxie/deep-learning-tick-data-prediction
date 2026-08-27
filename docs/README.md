@@ -61,6 +61,7 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 | [eventstream-label-scale.md](research/eventstream-label-scale.md) | 事件流标签尺度与监督位置实验的合同、结果和正式决策 |
 | [resource-strategy-and-pilot-gates.md](research/resource-strategy-and-pilot-gates.md) | 有限算力下的资源策略与门槛式实验原则 |
 | [external-l2-research-comparison.md](research/external-l2-research-comparison.md) | 外部 L2 研究路线对比、事实修正、待验证机制和实施顺序 |
+| [shanghai-opening-contract-audit-2026-08-27.md](research/shanghai-opening-contract-audit-2026-08-27.md) | 沪市开盘订单覆盖、事件时差和十档账本审计 |
 | [experiment-log.md](research/experiment-log.md) | 带日期的历史实验记录，含 TCN 对比、滚动验证、成本评估、审计归因与 Agent 闭环 |
 
 ### dev
