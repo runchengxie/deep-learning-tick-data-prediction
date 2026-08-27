@@ -54,9 +54,9 @@ def _snap(
         "DealNum": trade_count,
     }
     for level in range(1, 11):
-        row[f"BidPrice{level}"] = 10.00 if level == 1 else None
+        row[f"BidPrice{level}"] = 1000 if level == 1 else None
         row[f"BidVolume{level}"] = bid_volume if level == 1 else 0
-        row[f"AskPrice{level}"] = 10.10 if level == 1 else None
+        row[f"AskPrice{level}"] = 1010 if level == 1 else None
         row[f"AskVolume{level}"] = ask_volume if level == 1 else 0
     return row
 
@@ -80,7 +80,7 @@ def _write_fixture(
             "TradingDay": DAY,
             "time_ms": 130,
             "OrderID": "B",
-            "Price": 10.00,
+            "Price": 1000,
             "Volume": 50,
             "OrderType": 2,
         },
@@ -89,7 +89,7 @@ def _write_fixture(
             "TradingDay": DAY,
             "time_ms": 135,
             "OrderID": "MISSING",
-            "Price": 10.00,
+            "Price": 1000,
             "Volume": 20,
             "OrderType": -1,
         },
@@ -100,7 +100,7 @@ def _write_fixture(
             "TradingDay": DAY,
             "time_ms": 150,
             "DealID": "T1",
-            "Price": 10.10,
+            "Price": 1010,
             "Volume": 10,
             "Side": 1,
             "bsflag": 1,

@@ -113,3 +113,10 @@ def day_input_files(day: int, raw_root: Path = RAW_L2_ROOT) -> dict[str, Path]:
         "trades": raw_root / "trades" / month / f"trades_{iso}.parquet",
         "snap": raw_root / "snapshot" / f"snapshot_{month}.parquet",
     }
+
+
+def day_preopen_file(day: int, raw_root: Path = RAW_L2_ROOT) -> Path:
+    """返回可选的盘前逐笔委托文件，不改变主事件流输入契约。"""
+    d = str(int(day))
+    iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return raw_root / "order_preopen" / d[:6] / f"order_{iso}.parquet"

@@ -197,7 +197,7 @@ def _read_trade_events(path: Path, ticker: str) -> list[SimulatorEvent]:
             deal_id=str(deal_id),
             buy_id=str(buy_id),
             sell_id=str(sell_id),
-            price=round(float(price) * 100),
+            price=round(float(price)),
             volume=int(volume),
             side=int(side),
         )
