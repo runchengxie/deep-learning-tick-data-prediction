@@ -21,6 +21,14 @@ batch 使用盘前文件所在的月份目录作为当前可复现的原始文�
 
 扫描可用 --limit-days 分段执行。输出文件建议放在 /tmp 或硬盘盒上的非仓库目录，不提交到 Git。
 
+全量扫描建议指定 `--index-path` 保存覆盖索引。首次扫描仍会读取关联的原始文件，后续运行会按文件大小和修改时间复用未变化的交易日。需要强制重扫时增加 `--refresh-index`。
+
+    PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
+      --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+      --index-path /mnt/data/hdd6t/quant-data-lake/projects/level2-coverage-index.json \
+      --json-output /tmp/opening-coverage.json \
+      --csv-output /tmp/opening-coverage.csv
+
 ## 首个真实 smoke 结果
 
 使用 6TB raw L2 的 2021-01-04 盘前文件运行 --limit-days 1：
@@ -36,7 +44,7 @@ batch 使用盘前文件所在的月份目录作为当前可复现的原始文�
 | 开盘成交记录 | 200882 |
 | 开盘成交量 | 451384210 |
 
-这个日文件的扫描耗时约 26 秒。主要耗时来自关联的大型订单、成交和月度 snapshot 文件。全量 1282 个盘前日文件应按日期分段运行，避免单次任务长时间占用资源。
+这个日文件的扫描耗时约 26 秒。主要耗时来自关联的大型订单、成交和月度 snapshot 文件。全量 1282 个盘前日文件应按日期分段运行，避免单次任务长时间占用资源。覆盖索引可以把这次读取成本摊到后续审计中，但不会减少首次读取原始 orders 和 trades 的成本。
 
 ## 代码边界
 
