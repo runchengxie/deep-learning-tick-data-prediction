@@ -47,6 +47,20 @@ Prefix/session anchor 会写入 materialized dataset 与 close-cache 合同。VQ
 
 `ticknet-eventstream-export-predictions` 把日级分数与正式 open-to-following-open 收益、可交易状态和动态股票池合并，生成符合 `ticknet.research.prediction_contract` 的预测 Parquet。结果可以交给 `import_predictions` 登记，也可以由 `topk_cost_sweep` 直接消费。候选行使用模型分数，状态行的分数固定为 0.0，只用于跟踪已有持仓的可交易状态。
 
+### 导出到统一 alpha 信号契约
+
+正式 prediction artifact 也可以转换为 `alpha-research` 的 canonical signal 表：
+
+```bash
+ticknet-research-export-alpha-signals \
+  --predictions artifacts/predictions.parquet \
+  --output artifacts/signals.parquet \
+  --model-version eventstream-v1 \
+  --feature-set-id l2-clean-v1
+```
+
+适配器使用 `trading_date` 作为 `signal_date`，不使用未来的 `label_date`。原始 prediction parquet 仍可直接交给 `portfolio-backtester` 的预测输入接口；统一 signal parquet 用于 alpha-research 的 IC、滚动验证和后续证据流程。
+
 ## 最近折配置
 
 基础示例位于 `configs/eventstream.yaml`。2021 基础设施折使用 `configs/eventstream-h5-fold0-capacity100m.yaml`。最近折使用 `configs/eventstream-h5-recent-capacity100m.yaml`，日期如下：
