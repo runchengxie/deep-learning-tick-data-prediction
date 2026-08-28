@@ -464,6 +464,12 @@ def _eventstream_training_paths(
     arguments: argparse.Namespace,
     drive_root: str,
 ) -> tuple[str, str, str, str]:
+    def add_day_weight_suffix(name: str) -> str:
+        if arguments.day_loss_weight is None:
+            return name
+        weight = f"{arguments.day_loss_weight:g}".replace("-", "m").replace(".", "p")
+        return f"{name}-day-weight-{weight}"
+
     seed = int(arguments.seeds[0])
     if arguments.workflow in {
         "eventstream-rolling-train",
@@ -483,6 +489,7 @@ def _eventstream_training_paths(
             if arguments.day_supervision_mode != "all":
                 mode = arguments.day_supervision_mode.replace("_", "-")
                 run_name = f"{run_name}-day-{mode}"
+            run_name = add_day_weight_suffix(run_name)
         return run_name, run_name, feature_remote, feature_local
     run_name = "eventstream-top400-h5-capacity100m-recent"
     feature_remote = (
@@ -494,6 +501,7 @@ def _eventstream_training_paths(
         if arguments.day_supervision_mode != "all":
             mode = arguments.day_supervision_mode.replace("_", "-")
             run_name = f"{run_name}-day-{mode}"
+        run_name = add_day_weight_suffix(run_name)
     return run_name, run_name, feature_remote, feature_local
 
 
