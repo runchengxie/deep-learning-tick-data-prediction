@@ -304,9 +304,12 @@ def compute_loss(
     valid: torch.Tensor,
     *,
     day_supervision_mode: str = "all",
+    day_loss_weight: float = LOSS_WEIGHTS["day"],
     vq_loss_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """多任务损失加可选 VQ 正则。"""
+    if day_loss_weight < 0:
+        raise ValueError("day_loss_weight 不能为负数")
     components = compute_loss_components(
         out,
         tgt_sid,
@@ -318,8 +321,9 @@ def compute_loss(
         day_supervision_mode=day_supervision_mode,
     )
     total = components["stream"] * LOSS_WEIGHTS["stream"]
-    for name in ("otype", "reg", "day"):
+    for name in ("otype", "reg"):
         total = total + components[name] * LOSS_WEIGHTS[name]
+    total = total + components["day"] * float(day_loss_weight)
     metrics = {
         "loss": 0.0,
         "ce_stream": float(components["stream"].detach()),

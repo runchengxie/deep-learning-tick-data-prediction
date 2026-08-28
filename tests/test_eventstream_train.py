@@ -82,6 +82,13 @@ class TestConfig:
         with pytest.raises(ValueError, match="day_supervision_mode"):
             EventstreamConfig(days=(20210104,), day_supervision_mode="middle").validate()
 
+    def test_day_loss_weight_round_trip_and_validation(self):
+        cfg = EventstreamConfig(days=(20210104,), day_loss_weight=2.0)
+        cfg.validate()
+        assert EventstreamConfig.from_mapping(cfg.to_dict()).day_loss_weight == 2.0
+        with pytest.raises(ValueError, match="day_loss_weight"):
+            EventstreamConfig(days=(20210104,), day_loss_weight=-0.1).validate()
+
 
 class TestTrain:
     def test_smoke_train_writes_checkpoints(self, packed_day, tmp_path):

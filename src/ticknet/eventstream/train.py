@@ -50,6 +50,7 @@ class EventstreamConfig:
         "batch_size",
         "checkpoint_dir",
         "checkpoint_name",
+        "day_loss_weight",
         "day_supervision_mode",
         "days",
         "device",
@@ -113,6 +114,7 @@ class EventstreamConfig:
         eval_tickers: int = 200,
         evaluate_test: bool = True,
         day_supervision_mode: str = "all",
+        day_loss_weight: float = 1.0,
         use_lob_prefix: bool = False,
         use_session_anchors: bool = False,
         init_checkpoint: str = "",
@@ -158,6 +160,7 @@ class EventstreamConfig:
         self.eval_tickers = eval_tickers
         self.evaluate_test = evaluate_test
         self.day_supervision_mode = day_supervision_mode
+        self.day_loss_weight = float(day_loss_weight)
         self.use_lob_prefix = bool(use_lob_prefix)
         self.use_session_anchors = bool(use_session_anchors)
         self.init_checkpoint = str(init_checkpoint)
@@ -202,6 +205,8 @@ class EventstreamConfig:
             raise ValueError("device 应为 cpu 或 cuda")
         if self.day_supervision_mode not in DAY_SUPERVISION_MODES:
             raise ValueError(f"day_supervision_mode 应为 {sorted(DAY_SUPERVISION_MODES)} 之一")
+        if self.day_loss_weight < 0:
+            raise ValueError("day_loss_weight 不能为负数")
         if self.use_session_anchors and not self.use_lob_prefix:
             raise ValueError("use_session_anchors 需要同时启用 use_lob_prefix")
         if self.vq_codebook_size < 2:
@@ -642,6 +647,7 @@ def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[st
     if not isinstance(experiment, dict):
         return False
     normalized = dict(experiment)
+    normalized.setdefault("day_loss_weight", 1.0)
     normalized.setdefault("day_supervision_mode", "all")
     normalized.setdefault("day_supervision_weight_version", DAY_SUPERVISION_WEIGHT_VERSION)
     normalized.setdefault("use_lob_prefix", False)
@@ -770,6 +776,7 @@ def train(
                     day_valid,
                     valid,
                     day_supervision_mode=config.day_supervision_mode,
+                    day_loss_weight=config.day_loss_weight,
                     vq_loss_weight=config.vq_loss_weight,
                 )
             scaled_loss = loss / config.gradient_accumulation_steps
@@ -920,6 +927,7 @@ def main(argv: list[str] | None = None) -> None:
         "--day-supervision-mode",
         choices=sorted(DAY_SUPERVISION_MODES),
     )
+    parser.add_argument("--day-loss-weight", type=float)
     parser.add_argument("--checkpoint-dir")
     parser.add_argument("--checkpoint-name")
     parser.add_argument("--expected-parameter-count", type=int)
@@ -939,6 +947,7 @@ def main(argv: list[str] | None = None) -> None:
         "source_revision": args.source_revision,
         "evaluate_test": args.evaluate_test,
         "day_supervision_mode": args.day_supervision_mode,
+        "day_loss_weight": args.day_loss_weight,
         "checkpoint_dir": args.checkpoint_dir,
         "checkpoint_name": args.checkpoint_name,
     }

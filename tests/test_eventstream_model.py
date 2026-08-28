@@ -65,6 +65,44 @@ class TestModel:
         with pytest.raises(ValueError, match="未知模型配置"):
             build_eventstream_model("nope")
 
+    def test_day_loss_weight_scales_only_day_component(self):
+        model = build_eventstream_model("smoke")
+        batch, length = 2, 4
+        x = torch.randn(batch, length, N_FEATURES)
+        sid = torch.randint(1, 4, (batch, length))
+        oid = torch.randint(0, N_ORDER_TYPES, (batch, length))
+        targets = (
+            torch.randint(0, 4, (batch, length)),
+            torch.randint(0, N_ORDER_TYPES, (batch, length)),
+            torch.randn(batch, length, 3),
+            torch.randn(batch),
+            torch.ones(batch),
+            torch.ones(batch, length),
+        )
+        out = model(x, sid, oid)
+        components = compute_loss_components(out, *targets)
+        weighted, _ = compute_loss(out, *targets, day_loss_weight=2.0)
+        expected = components["stream"] + components["otype"] * 0.5 + components["reg"]
+        assert torch.allclose(weighted, expected + components["day"] * 2.0)
+
+    def test_rejects_negative_day_loss_weight(self):
+        with pytest.raises(ValueError, match="day_loss_weight"):
+            compute_loss(
+                {
+                    "stream": torch.zeros(1, 1, 4),
+                    "otype": torch.zeros(1, 1, N_ORDER_TYPES),
+                    "reg": torch.zeros(1, 1, 3),
+                    "day": torch.zeros(1, 1),
+                },
+                torch.zeros(1, 1, dtype=torch.long),
+                torch.zeros(1, 1, dtype=torch.long),
+                torch.zeros(1, 1, 3),
+                torch.zeros(1),
+                torch.ones(1),
+                torch.ones(1, 1),
+                day_loss_weight=-1.0,
+            )
+
 
 class TestDaySupervision:
     def test_all_preserves_every_valid_position(self):

@@ -152,6 +152,11 @@ def _parser() -> argparse.ArgumentParser:
         help="日级标签的监督位置，仅用于标签尺度训练",
     )
     parser.add_argument(
+        "--day-loss-weight",
+        type=float,
+        help="日级任务损失权重，仅用于标签尺度训练",
+    )
+    parser.add_argument(
         "--evaluate-test",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -293,6 +298,13 @@ def _validate_eventstream_arguments(arguments: argparse.Namespace) -> None:
         _gradient_audit_checkpoint_sha256(arguments)
     if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS and arguments.seeds != [0]:
         raise ValueError("标签尺度第一轮只允许运行 seed 0")
+    if arguments.day_loss_weight is not None and arguments.day_loss_weight < 0:
+        raise ValueError("--day-loss-weight 不能为负数")
+    if (
+        arguments.day_loss_weight is not None
+        and arguments.workflow not in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+    ):
+        raise ValueError("--day-loss-weight 只用于标签尺度训练")
     if (
         arguments.day_supervision_mode != "all"
         and arguments.workflow not in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
@@ -748,6 +760,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
             else None
         ),
+        "day_loss_weight": (
+            arguments.day_loss_weight if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS else None
+        ),
         "evaluate_test": arguments.evaluate_test,
         "expected_parameter_count": (
             1_033_383
@@ -806,6 +821,8 @@ def _validate_downloaded_summary(
         fields.append("eventstream_fold_id")
     if spec.get("day_supervision_mode") is not None:
         fields.append("day_supervision_mode")
+    if spec.get("day_loss_weight") is not None:
+        fields.append("day_loss_weight")
     for field in fields:
         if summary.get(field) != spec[field]:
             raise RuntimeError(

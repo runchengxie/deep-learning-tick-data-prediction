@@ -175,6 +175,7 @@ def _audit_batch(
     amp: bool,
     loss_scale: float,
     batch_index: int,
+    day_loss_weight: float,
 ) -> dict[str, Any]:
     values = tuple(tensor.to(device, non_blocking=True) for tensor in batch)
     x, sid, oid, tgt_sid, tgt_oid, tgt_reg, tgt_day, day_valid, valid, day = values
@@ -194,7 +195,8 @@ def _audit_batch(
     parameters = _backbone_parameters(model)
     gradients: dict[str, tuple[torch.Tensor | None, ...]] = {}
     for task_index, task in enumerate(TASKS):
-        weighted = components[task] * LOSS_WEIGHTS[task] * loss_scale
+        weight = day_loss_weight if task == "day" else LOSS_WEIGHTS[task]
+        weighted = components[task] * weight * loss_scale
         gradients[task] = torch.autograd.grad(
             weighted,
             parameters,
@@ -211,8 +213,13 @@ def _audit_batch(
     task_rows = {
         task: {
             "loss": float(components[task].detach().float().cpu()),
-            "weight": LOSS_WEIGHTS[task],
-            "weighted_loss": float((components[task] * LOSS_WEIGHTS[task]).detach().float().cpu()),
+            "weight": day_loss_weight if task == "day" else LOSS_WEIGHTS[task],
+            "weighted_loss": float(
+                (components[task] * (day_loss_weight if task == "day" else LOSS_WEIGHTS[task]))
+                .detach()
+                .float()
+                .cpu()
+            ),
             "gradient_norm": norms[task],
             "gradient_norm_fraction": norms[task] / norm_total if norm_total > 0 else None,
         }
@@ -302,6 +309,7 @@ def _audit_state(
     *,
     device: torch.device,
     amp: bool,
+    day_loss_weight: float,
 ) -> dict[str, Any]:
     model.eval()
     loss_scale = DEFAULT_LOSS_SCALE if amp else 1.0
@@ -313,6 +321,7 @@ def _audit_state(
             amp=amp,
             loss_scale=loss_scale,
             batch_index=index,
+            day_loss_weight=day_loss_weight,
         )
         for index, batch in enumerate(batches)
     ]
@@ -366,7 +375,13 @@ def run_gradient_audit(
     )
     if expected_parameter_count is not None and parameter_count != expected_parameter_count:
         raise ValueError(f"事件流参数量不匹配：{parameter_count} != {expected_parameter_count}")
-    initial = _audit_state(initial_model, fixed_batches, device=device, amp=use_amp)
+    initial = _audit_state(
+        initial_model,
+        fixed_batches,
+        device=device,
+        amp=use_amp,
+        day_loss_weight=config.day_loss_weight,
+    )
     del initial_model
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -395,7 +410,13 @@ def run_gradient_audit(
     trained_model = _build_model(config)
     trained_model.load_state_dict(checkpoint["model"], strict=True)
     trained_model = trained_model.to(device)
-    trained = _audit_state(trained_model, fixed_batches, device=device, amp=use_amp)
+    trained = _audit_state(
+        trained_model,
+        fixed_batches,
+        device=device,
+        amp=use_amp,
+        day_loss_weight=config.day_loss_weight,
+    )
     del trained_model
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -415,6 +436,7 @@ def run_gradient_audit(
             "batch_size": batch_size,
             "requested_batches": batches,
             "amp": use_amp,
+            "day_loss_weight": config.day_loss_weight,
             **expected_representation,
         },
         "environment": {
@@ -441,7 +463,7 @@ def run_gradient_audit(
             "experiment_identity": actual_identity,
             "representation_identity": actual_representation,
         },
-        "loss_weights": LOSS_WEIGHTS,
+        "loss_weights": {**LOSS_WEIGHTS, "day": config.day_loss_weight},
         "states": {"initialization": initial, "best_checkpoint": trained},
     }
     result["result_fingerprint"] = _canonical_sha256(result)

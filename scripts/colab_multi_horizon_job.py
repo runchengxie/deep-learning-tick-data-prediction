@@ -368,6 +368,8 @@ def _train_eventstream(spec: dict[str, Any]) -> None:
                     str(spec["checkpoint_name"]),
                 )
             )
+        if spec.get("day_loss_weight") is not None:
+            command.extend(("--day-loss-weight", str(float(spec["day_loss_weight"]))))
         _run(command)
 
 
@@ -714,6 +716,8 @@ def _write_summary(
         summary["eventstream_fold_id"] = spec["eventstream_fold_id"]
     if spec.get("day_supervision_mode") is not None:
         summary["day_supervision_mode"] = spec["day_supervision_mode"]
+    if spec.get("day_loss_weight") is not None:
+        summary["day_loss_weight"] = spec["day_loss_weight"]
     if error is not None:
         summary["error"] = error
     (output_dir / "colab-run-summary.json").write_text(
