@@ -57,6 +57,7 @@ ticknet-eventstream-target-overlay = "ticknet.eventstream.target_overlay:main"
 ticknet-eventstream-benchmark = "ticknet.eventstream.benchmark:main"
 ticknet-eventstream-train = "ticknet.eventstream.train:main"
 ticknet-eventstream-export-predictions = "ticknet.eventstream.export:main"
+ticknet-research-export-alpha-signals = "ticknet.research.alpha_signal_adapter:main"
 ticknet-embedding-compare = "ticknet.nextday.embedding_comparison:main"
 
 [tool.setuptools.packages.find]

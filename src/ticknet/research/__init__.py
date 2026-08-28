@@ -5,6 +5,11 @@ Locked Test。第一版不含 LLM Agent；未来的 Brainstorm Agent 通过生�
 ExperimentSpec 接入。
 """
 
+from ticknet.research.alpha_signal_adapter import (
+    ALPHA_SIGNAL_COLUMNS,
+    build_alpha_signal_table,
+    export_alpha_signal_artifact,
+)
 from ticknet.research.audit import AuditReport, PredictionTable, audit_predictions
 from ticknet.research.comparison import (
     ComparisonError,
@@ -58,6 +63,7 @@ from ticknet.research.spec import (
 )
 
 __all__ = [
+    "ALPHA_SIGNAL_COLUMNS",
     "DETERMINISTIC_EXECUTORS",
     "EXECUTORS",
     "EXECUTOR_EXPERIMENT_TYPES",
@@ -92,9 +98,11 @@ __all__ = [
     "RunnerError",
     "attach_formal_prediction_metadata",
     "audit_predictions",
+    "build_alpha_signal_table",
     "compare_registered_experiments",
     "evaluate_metric_gates",
     "evaluate_topk_portfolio",
+    "export_alpha_signal_artifact",
     "flatten_numeric_metrics",
     "issue_locked_test_approval",
     "load_portfolio_predictions",
