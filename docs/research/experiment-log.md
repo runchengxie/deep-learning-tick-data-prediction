@@ -2,6 +2,14 @@
 
 按日期记录带结论的实验，保留关键数字和交付物，供核对。最新结论汇总见 [topk-agentx-research-roadmap.md](topk-agentx-research-roadmap.md) 的当前证据一节，资源使用原则见 [resource-strategy-and-pilot-gates.md](resource-strategy-and-pilot-gates.md)。
 
+## 2026-08-29：无 GPU 条件下的 CPU 验收链路
+
+为避免把接口问题误当成 GPU 训练问题，新增 `ticknet.research.cpu_validation`。它用 NumPy 最小线性模型生成受控预测，再依次生成 formal prediction、alpha-research signal 和 fixed-K long-only 组合结果。测试覆盖 train/test 日期隔离、信号转换和差分摘要。当前 focused suite 为 22 个测试全部通过，Ruff 检查通过。
+
+同时检查了真实 raw order 文件 `order_20260424.parquet` 的首个 row group（1,048,576 行）。文件总量为 313,199,561 行，平台 profiler 已支持 `SecuCode → ticker` 和 `OrderTime → time_ms` 映射。样本检查发现 883 个非正价格和 206,009 个重复 `OrderID` 行，时间未倒序。重复 ID 可能是撤单或更新事件的正常事件语义，也可能是装载问题，需结合 `OrderType` 和 `BizIndex` 再判断，暂不直接删除。
+
+差分接口补充了 `digest_portfolio_backtester_result()` 和 `compare_portfolio_digests()`。前者读取 `portfolio-backtester` 的标准五元组，后者只比较 engine-neutral 的收益、成本、换手、回撤和逐日字段，因此两个仓库不需要共享 PyTorch 环境。
+
 ## 2026-08-07：Google Drive 目录整理
 
 Drive 上散落了本项目多代命名（旧名 `deeplob`）与个人文件。本轮只做移动改名，全部为 Drive 内元数据操作，可回退，不删除、不上传下载。项目相关全部归入新建的顶层目录 `deep-learning-tick-data-prediction/`：

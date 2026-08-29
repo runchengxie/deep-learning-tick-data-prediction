@@ -1,6 +1,6 @@
 # 项目现状
 
-本页汇总 2026-08-22 可以由代码、测试或实验产物核对的项目事实。路线图记录研究设计，实验日志保留历史数字，本页负责说明当前进度。状态变化时优先更新本页，再检查根目录 README 和相关专题文档。
+本页汇总 2026-08-29 可以由代码、测试或实验产物核对的项目事实。路线图记录研究设计，实验日志保留历史数字，本页负责说明当前进度。状态变化时优先更新本页，再检查根目录 README 和相关专题文档。
 
 ## 功能与进度
 
@@ -89,6 +89,14 @@ M3 v2 从 2021 年 7 月开始，54 个月共物化 436,800 个候选，完整�
 5. 获得带日期的行业分类数据后，补齐行业暴露归因
 6. 成本后主动收益形成跨窗口增量后，再评估 `probe150m` 的预算和 seed 0 门槛
 7. 所有新结论写入[实验日志](research/experiment-log.md)，并同步更新本页的状态摘要
+
+## CPU 验收链路（2026-08-29）
+
+在没有 A100 的情况下，已新增 `ticknet.research.cpu_validation` 小样本验收链路：
+`train rows -> NumPy 线性预测 -> formal prediction -> alpha-research signal -> fixed-K portfolio`。
+它只用于验证数据接口、日期隔离、信号转换和回测结果，不替代正式 PyTorch 训练。`compare_portfolio_evaluations()` 和 `compare_portfolio_digests()` 输出稳定的收益、回撤、成本、换手和逐日明细摘要。`digest_portfolio_backtester_result()` 可以把 `portfolio-backtester` 的五元组结果转换到同一摘要格式，两个仓库无需共享 PyTorch 运行环境即可做差分比较。
+
+本机发现一份真实 raw order 文件 `order_20260424.parquet`，共 313,199,561 行、299 个 row group。首个 1,048,576 行样本已完成 CPU 检查：`TradingDay` 单一且为 `20260424`，发现 883 个非正价格和 206,009 个重复 `OrderID` 行，未发现时间倒序。平台质量检查器现已把 `SecuCode` 映射为 `ticker`，把 `OrderTime` 映射为 `time_ms`，样本报告的 `missing_columns` 已为空。全量扫描暂不执行，以免无谓消耗大量 I/O。
 
 ## L2 开盘身份账本审计
 
