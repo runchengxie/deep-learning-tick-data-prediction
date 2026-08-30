@@ -43,6 +43,7 @@ Windows PowerShell 使用 `.\.venv\Scripts\Activate.ps1` 激活环境。修改 `
 - 想选择模型，阅读[模型清单](docs/model-catalog.md)
 - 想准备真实数据或运行训练，阅读[次日横截面预测规范](docs/nextday/cross-sectional-prediction.md)和[事件流说明](docs/nextday/eventstream.md)
 - 想了解实验边界与后续计划，阅读[AgentX 研究路线](docs/research/topk-agentx-research-roadmap.md)
+- 想确认数据清洗与模型输入的归属，阅读[数据边界](docs/architecture/data-boundary.md)
 - 想查找其他专题说明和命令，使用[文档索引](docs/README.md)
 
 ## 项目结构
