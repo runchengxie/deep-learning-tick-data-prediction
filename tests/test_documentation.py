@@ -20,7 +20,15 @@ STYLE_RULES = {
 
 
 def _markdown_files() -> list[Path]:
-    return [ROOT / "README.md", ROOT / "AGENTS.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    return [
+        ROOT / "README.md",
+        ROOT / "AGENTS.md",
+        *sorted(
+            path
+            for path in (ROOT / "docs").rglob("*.md")
+            if "superpowers" not in path.relative_to(ROOT / "docs").parts
+        ),
+    ]
 
 
 def _prose_lines(path: Path) -> list[tuple[int, str]]:

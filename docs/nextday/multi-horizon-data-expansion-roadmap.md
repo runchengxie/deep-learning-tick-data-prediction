@@ -79,7 +79,7 @@ target_horizon: 5
 
 阶段 B 不会用 H=3/5 重新训练。它加载现有一日 checkpoint 的分数，只替换验证目标来画 IC 衰减曲线。阶段 C 才使用上面的训练配置。
 
-阶段 B 已通过 CLI 完成，旧 notebook 已归档到 `legacy/notebooks/nextday_multi_horizon_validation_colab.ipynb`。Stage C 的 seed 0 入口为：
+阶段 B 已通过 CLI 完成，旧交互流程已转换为 `legacy/notebooks/nextday_multi_horizon_validation.py`。Stage C 的 seed 0 入口为：
 
 ```bash
 python scripts/run_colab_nextday.py \

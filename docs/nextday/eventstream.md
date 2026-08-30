@@ -59,7 +59,7 @@ ticknet-research-export-alpha-signals \
   --feature-set-id l2-clean-v1
 ```
 
-适配器使用 `trading_date` 作为 `signal_date`，不使用未来的 `label_date`。原始 prediction parquet 仍可直接交给 `portfolio-backtester` 的预测输入接口；统一 signal parquet 用于 alpha-research 的 IC、滚动验证和后续证据流程。
+适配器使用 `trading_date` 作为 `signal_date`，不使用未来的 `label_date`。原始 prediction parquet 仍可直接交给 `portfolio-backtester` 的预测输入接口。统一 signal parquet 用于 alpha-research 的 IC、滚动验证和后续证据流程。
 
 ## 最近折配置
 

@@ -1,7 +1,8 @@
 """真实 L2 数据的 simulator 接入与 correctness 校验通路。
 
 读取仓库约定的 order/trades/snapshot parquet（见 eventstream.config.day_input_files），
-构造保留 OrderID 与可用 exchange channel/sequence 的 SimulatorPack，并逐 snapshot 校验撮合引擎重建精度。
+构造保留 OrderID 与可用 exchange channel/sequence 的 SimulatorPack，并逐 snapshot
+校验撮合引擎重建精度。
 
 字段与单位约定与 eventstream.pack 对齐：
 - 价格在 raw L2 Parquet 中已经是整数分，直接转为 int
@@ -72,14 +73,10 @@ def _file_ordering(path: Path) -> dict[str, Any]:
 
 def _combined_ordering_columns(metadata: list[dict[str, Any]]) -> tuple[str | None, str | None]:
     channel_columns = {
-        str(row["channel_column"])
-        for row in metadata
-        if row.get("channel_column") is not None
+        str(row["channel_column"]) for row in metadata if row.get("channel_column") is not None
     }
     sequence_columns = {
-        str(row["sequence_column"])
-        for row in metadata
-        if row.get("sequence_column") is not None
+        str(row["sequence_column"]) for row in metadata if row.get("sequence_column") is not None
     }
     channel = next(iter(channel_columns)) if len(channel_columns) == 1 else None
     sequence = next(iter(sequence_columns)) if len(sequence_columns) == 1 else None

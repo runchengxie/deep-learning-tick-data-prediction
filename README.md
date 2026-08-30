@@ -58,7 +58,7 @@ configs/                本地与 Colab 配置
 docs/                   当前说明、路线图和实验记录
 docs/references/        论文与阅读笔记归档
 legacy/                 FI-2010 复现归档
-legacy/notebooks/       历史 Colab notebook
+legacy/notebooks/       已退休 Colab 流程的 Python 快照
 ```
 
 维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。

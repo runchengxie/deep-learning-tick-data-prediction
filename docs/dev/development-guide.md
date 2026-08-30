@@ -31,7 +31,7 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 
 ## Colab 与 notebook 边界
 
-现行 Colab 任务全部使用 Python 入口。顶层 `notebooks/` 已移除，两个旧 notebook 保存在 `legacy/notebooks/`，只用于追溯早期交互流程。
+现行 Colab 任务全部使用 Python 入口。顶层 `notebooks/` 已移除，旧 notebook 已转换为 `legacy/notebooks/` 下的 Python 快照，只用于追溯早期交互流程。
 
 | 旧 notebook 能力 | 现行 Python 入口 |
 |---|---|
@@ -40,7 +40,7 @@ FI-2010 论文复现（DeepLOB 在 FI-2010 上的训练、评估、Colab 入口�
 | Colab 会话、数据暂存和产物回传 | `scripts/run_colab_nextday.py` |
 | Colab 远端任务执行 | `scripts/colab_multi_horizon_job.py` |
 
-旧 notebook 的生成脚本和专属结构测试已经删除。现行入口继续由 CLI 契约测试、`tests/test_horizon_cli.py` 和 `tests/test_colab_nextday.py` 覆盖。主代码和文档不得重新依赖 `legacy/notebooks/`。
+旧 notebook 文件已经退休，原有流程的 Python 快照不作为运行入口。现行入口继续由 CLI 契约测试、`tests/test_horizon_cli.py` 和 `tests/test_colab_nextday.py` 覆盖。主代码和文档不得重新依赖旧 notebook 文件。
 
 旧版按 `folds.npy` 排除某一折训练的兼容路径已经移除。该路径与 FI-2010 预制切分的含义不符，也增加了配置分支和泄漏风险。真实数据缺少元数据时，训练会直接停止。
 
@@ -129,7 +129,7 @@ python scripts/smoke_test.py
 
 Ruff 检查 pycodestyle、Pyflakes、导入顺序、现代语法、常见缺陷、推导式、pytest 写法和简化规则。`RUF001`、`RUF002`、`RUF003` 只因中文字符串、文档字符串和注释需要中文标点而关闭。
 
-`ty` 的全局未解析导入忽略已经移除。Colab 笔记本保留单独覆盖，因为本地环境通常没有 `google.colab`。
+`ty` 的全局未解析导入忽略已经移除。历史 Colab Python 快照保留单独覆盖，因为本地环境通常没有 `google.colab`。
 
 pre-commit 在提交前运行 Ruff 自动修复、Ruff 格式化和 ty。运行 `pre-commit install` 会同时安装 pre-push hook，在每次推送前调用 `scripts/check.py`。完整门禁包含格式检查、静态检查、类型检查、带覆盖率的测试和冒烟检查。核心包分支覆盖率低于 80% 时测试失败。
 
