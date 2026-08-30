@@ -30,6 +30,12 @@ A 股 Level-2 研究普遍需要处理集合竞价、连续竞价、快照和逐
 
 当前证据没有显示 2021 至 2025 年 orders 和 trades 在已检查样本中普遍随机损坏。更接近的判断是文件覆盖、时间标签和统计窗口没有形成统一的数据契约。
 
+## 事件排序边界
+
+真实 order Parquet 若保留 `ChannelNo` 与 `ApplSeqNum`、`BizIndex` 等 exchange sequence 字段，simulator 会把这些字段保留到 `SimulatorEvent`。同一 `time_ms` 内，只有事件都具备 sequence 且属于单一 channel 时才按 sequence 重排；snapshot 仍放在同毫秒 order/cancel 之后。
+
+如果同毫秒出现多个 channel，simulator 保留文件 source order，并在 `SimulatorPack.ordering_provenance` 中记录 `cross_channel_total_order=false`。如果数据源没有 sequence，则明确记录 `timestamp_fallback`。因此时间戳始终是跨 channel 时间坐标，sequence 只在有证据支持的范围内增强局部顺序，不能把供应商文件推断成交易所全局总序。
+
 ## 使用边界
 
 深市 2021 至 2025 的合格股票日可用于主事件流研究，但必须使用准入清单和已验证的时间配置。沪市 2022 至 2025 的合格股票日可用于 lag 和数据契约研究，不能直接与深市共用撮合配置。2026 年先排除，待 order 和 trades 补齐后重新建清单。
