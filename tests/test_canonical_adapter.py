@@ -9,7 +9,7 @@ def test_adapt_order_maps_names_and_integer_cents_to_yuan() -> None:
         {
             "SecuCode": [2202],
             "TradingDay": [20260424],
-            "OrderTime": [123],
+                "OrderTime": [93000123],
             "OrderID": [7],
             "Price": [1234],
             "LastPrice": [1200],
@@ -32,7 +32,7 @@ def test_adapt_snapshot_scales_book_prices_and_keeps_zero_sentinels() -> None:
         {
             "SecuCode": [2202],
             "TradingDay": [20260424],
-            "TickTime": [123],
+                "TickTime": [93000123],
             "Price": [1234],
             "Volume": [100],
             "DealNum": [2],
@@ -69,3 +69,19 @@ def test_adapt_canonical_file_streams_and_reports_manifest(tmp_path) -> None:
     report = adapt_canonical_file(str(source), str(target), "order", batch_size=1)
     assert report["rows"] == 2
     assert pq.read_table(target)["Price"].to_pylist() == [10.0, 11.0]
+
+
+def test_adapt_deal_derives_explicit_bsflag_from_known_side() -> None:
+    source = pa.table(
+        {
+            "SecuCode": [2202, 2202, 2202],
+            "TradingDay": [20260424] * 3,
+            "DealTime": [93000000] * 3,
+            "DealID": [1, 2, 3],
+            "Price": [1000, 1000, 1000],
+            "Volume": [1, 1, 1],
+            "Side": [0, 1, -1],
+        }
+    )
+    output = adapt_canonical_table(source, "deal")
+    assert output["bsflag"].to_pylist() == [1, 2, 0]
