@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -75,7 +76,8 @@ def adapt_canonical_table(table: pa.Table, kind: str, *, market: str | None = No
         elif output_name == "time_ms":
             column = _to_relative_time(column)
         elif _is_price(name):
-            column = pc.divide(column.cast(pa.float64()), 100.0)
+            # pyarrow's runtime compute namespace is broader than its stubs.
+            column = cast(Any, pc).divide(column.cast(pa.float64()), 100.0)
         arrays.append(column)
         names.append(output_name)
     if kind == "deal" and "bsflag" not in names:

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pyarrow.parquet as pq
 
@@ -89,7 +89,7 @@ def _optional_int(value: object | None) -> int | None:
     if isinstance(value, float) and not value.is_integer():
         return None
     try:
-        return int(value)
+        return int(cast(Any, value))
     except (TypeError, ValueError):
         return None
 
@@ -311,21 +311,38 @@ def _read_order_events(
             if isinstance(sequence_column, str) and sequence_column in d
             else None
         )
-        event_kwargs = {
-            "time_ms": time_ms,
-            "order_id": oid,
-            "price": price,
-            "volume": volume,
-            "order_type": ot,
-            "channel": str(channel_value) if channel_value is not None else "",
-            "sequence": _optional_int(sequence_value),
-            "source_index": source_offset + i,
-        }
+        channel = str(channel_value) if channel_value is not None else ""
+        sequence = _optional_int(sequence_value)
         if ot in CANCEL_TYPES:
-            out.append(SimulatorEvent(kind="cancel", **event_kwargs))
+            out.append(
+                SimulatorEvent(
+                    time_ms=time_ms,
+                    kind="cancel",
+                    order_id=oid,
+                    price=price,
+                    volume=volume,
+                    order_type=ot,
+                    channel=channel,
+                    sequence=sequence,
+                    source_index=source_offset + i,
+                )
+            )
         else:
             side = -1 if ot >= 10 else 1
-            out.append(SimulatorEvent(kind="order", side=side, **event_kwargs))
+            out.append(
+                SimulatorEvent(
+                    time_ms=time_ms,
+                    kind="order",
+                    order_id=oid,
+                    side=side,
+                    price=price,
+                    volume=volume,
+                    order_type=ot,
+                    channel=channel,
+                    sequence=sequence,
+                    source_index=source_offset + i,
+                )
+            )
     return out
 
 

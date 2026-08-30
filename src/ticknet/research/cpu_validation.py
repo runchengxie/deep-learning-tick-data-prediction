@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pyarrow as pa
@@ -236,7 +236,9 @@ def compare_portfolio_digests(
         left_values = left_digest[section]
         right_values = right_digest[section]
         if isinstance(left_values, list):
-            if len(left_values) != len(right_values):
+            left_rows = cast(list[dict[str, Any]], left_values)
+            right_rows = cast(list[dict[str, Any]], right_values)
+            if len(left_rows) != len(right_rows):
                 mismatches.append(
                     {
                         "field": f"{section}.length",
@@ -246,14 +248,15 @@ def compare_portfolio_digests(
                 )
                 continue
             pairs = []
-            for index, (lrow, rrow) in enumerate(zip(left_values, right_values, strict=True)):
+            for index, (lrow, rrow) in enumerate(zip(left_rows, right_rows, strict=True)):
                 pairs.extend(
                     (f"{section}[{index}].{key}", lrow.get(key), rrow.get(key)) for key in lrow
                 )
         else:
+            left_map = cast(Mapping[str, Any], left_values)
+            right_map = cast(Mapping[str, Any], right_values)
             pairs = [
-                (f"{section}.{key}", value, right_values.get(key))
-                for key, value in left_values.items()
+                (f"{section}.{key}", value, right_map.get(key)) for key, value in left_map.items()
             ]
         for field, left_value, right_value in pairs:
             equal = (
