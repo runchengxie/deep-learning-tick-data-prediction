@@ -33,6 +33,20 @@ def _is_price(name: str) -> bool:
     )
 
 
+def _to_relative_time(values: pa.ChunkedArray | pa.Array) -> pa.Array:
+    """Convert canonical HHMMSSmmm integers to ms relative to 09:30."""
+    output = []
+    for value in values.to_pylist():
+        if value is None:
+            output.append(None)
+            continue
+        text = str(int(value)).zfill(9)
+        hour, minute = int(text[:2]), int(text[2:4])
+        second, millisecond = int(text[4:6]), int(text[6:])
+        output.append(((hour * 60 + minute) * 60 + second) * 1000 + millisecond - 34_200_000)
+    return pa.array(output, type=pa.int64())
+
+
 def adapt_canonical_table(table: pa.Table, kind: str) -> pa.Table:
     """Return a renamed/unit-adapted table without changing the input table."""
     if kind not in _TIME_COLUMNS:
@@ -48,10 +62,23 @@ def adapt_canonical_table(table: pa.Table, kind: str) -> pa.Table:
         column = table[name]
         if name == "SecuCode":
             column = pa.array([_ticker(value) for value in column.to_pylist()])
+        elif output_name == "time_ms":
+            column = _to_relative_time(column)
         elif _is_price(name):
             column = pc.divide(column.cast(pa.float64()), 100.0)
         arrays.append(column)
         names.append(output_name)
+    if kind == "deal" and "bsflag" not in names:
+        # Canonical data preserves Side (0=active buy, 1=active sell for SZ).
+        # Keep other/special values explicitly unknown instead of guessing.
+        side = (
+            table["Side"].to_pylist()
+            if "Side" in table.column_names
+            else [None] * table.num_rows
+        )
+        bsflag = [1 if value == 0 else 2 if value == 1 else 0 for value in side]
+        arrays.append(pa.array(bsflag, type=pa.int8()))
+        names.append("bsflag")
     return pa.table(dict(zip(names, arrays, strict=True)))
 
 
