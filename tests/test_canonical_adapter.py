@@ -9,7 +9,7 @@ def test_adapt_order_maps_names_and_integer_cents_to_yuan() -> None:
         {
             "SecuCode": [2202],
             "TradingDay": [20260424],
-                "OrderTime": [93000123],
+            "OrderTime": [93000123],
             "OrderID": [7],
             "Price": [1234],
             "LastPrice": [1200],
@@ -19,7 +19,14 @@ def test_adapt_order_maps_names_and_integer_cents_to_yuan() -> None:
     )
     output = adapt_canonical_table(source, "order")
     assert output.column_names == [
-        "ticker", "TradingDay", "time_ms", "OrderID", "Price", "LastPrice", "Volume", "OrderType"
+        "ticker",
+        "TradingDay",
+        "time_ms",
+        "OrderID",
+        "Price",
+        "LastPrice",
+        "Volume",
+        "OrderType",
     ]
     assert output["ticker"].to_pylist() == ["002202"]
     assert output["time_ms"].to_pylist() == [123]
@@ -32,7 +39,7 @@ def test_adapt_snapshot_scales_book_prices_and_keeps_zero_sentinels() -> None:
         {
             "SecuCode": [2202],
             "TradingDay": [20260424],
-                "TickTime": [93000123],
+            "TickTime": [93000123],
             "Price": [1234],
             "Volume": [100],
             "DealNum": [2],
@@ -85,3 +92,19 @@ def test_adapt_deal_derives_explicit_bsflag_from_known_side() -> None:
     )
     output = adapt_canonical_table(source, "deal")
     assert output["bsflag"].to_pylist() == [1, 2, 0]
+
+
+def test_adapt_deal_does_not_assume_shanghai_direction_mapping() -> None:
+    source = pa.table(
+        {
+            "SecuCode": [600000],
+            "TradingDay": [20260424],
+            "DealTime": [93000000],
+            "DealID": [1],
+            "Price": [1000],
+            "Volume": [1],
+            "Side": [0],
+        }
+    )
+    output = adapt_canonical_table(source, "deal")
+    assert output["bsflag"].to_pylist() == [0]

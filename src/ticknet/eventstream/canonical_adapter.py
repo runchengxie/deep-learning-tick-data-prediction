@@ -27,6 +27,16 @@ def _ticker(value: object) -> str:
     return str(int(value)).zfill(6) if isinstance(value, (int, float)) else str(value).zfill(6)
 
 
+def _market_for_ticker(ticker: str, market: str | None) -> str:
+    if market is not None:
+        return market.upper()
+    if ticker[:1] in {"0", "1", "2", "3"}:
+        return "SZ"
+    if ticker[:1] in {"6", "9"}:
+        return "SH"
+    return "UNKNOWN"
+
+
 def _is_price(name: str) -> bool:
     return name in {"Price", "LastPrice", "WeightBidPrice", "WeightAskPrice"} or bool(
         _PRICE_RE.match(name)
@@ -47,7 +57,7 @@ def _to_relative_time(values: pa.ChunkedArray | pa.Array) -> pa.Array:
     return pa.array(output, type=pa.int64())
 
 
-def adapt_canonical_table(table: pa.Table, kind: str) -> pa.Table:
+def adapt_canonical_table(table: pa.Table, kind: str, *, market: str | None = None) -> pa.Table:
     """Return a renamed/unit-adapted table without changing the input table."""
     if kind not in _TIME_COLUMNS:
         raise ValueError(f"unsupported canonical L2 kind: {kind!r}")
@@ -72,11 +82,17 @@ def adapt_canonical_table(table: pa.Table, kind: str) -> pa.Table:
         # Canonical data preserves Side (0=active buy, 1=active sell for SZ).
         # Keep other/special values explicitly unknown instead of guessing.
         side = (
-            table["Side"].to_pylist()
-            if "Side" in table.column_names
-            else [None] * table.num_rows
+            table["Side"].to_pylist() if "Side" in table.column_names else [None] * table.num_rows
         )
-        bsflag = [1 if value == 0 else 2 if value == 1 else 0 for value in side]
+        tickers = [_ticker(value) for value in table["SecuCode"].to_pylist()]
+        bsflag = [
+            1
+            if _market_for_ticker(ticker, market) == "SZ" and value == 0
+            else 2
+            if _market_for_ticker(ticker, market) == "SZ" and value == 1
+            else 0
+            for ticker, value in zip(tickers, side, strict=True)
+        ]
         arrays.append(pa.array(bsflag, type=pa.int8()))
         names.append("bsflag")
     return pa.table(dict(zip(names, arrays, strict=True)))
@@ -95,6 +111,7 @@ def adapt_canonical_file(
     kind: str,
     *,
     batch_size: int = 262_144,
+    market: str | None = None,
 ) -> dict[str, object]:
     """Convert one canonical parquet file with bounded memory usage."""
     source_path, target_path = Path(source), Path(target)
@@ -103,7 +120,7 @@ def adapt_canonical_file(
     rows = 0
     try:
         for batch in reader.iter_batches(batch_size=batch_size):
-            adapted = adapt_canonical_table(pa.Table.from_batches([batch]), kind)
+            adapted = adapt_canonical_table(pa.Table.from_batches([batch]), kind, market=market)
             validate_adapter_schema(adapted, kind)
             if writer is None:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,5 +136,7 @@ def adapt_canonical_file(
         "target": str(target_path),
         "rows": rows,
         "price_unit_conversion": "integer_cent_to_yuan (divide by 100)",
+        "market": market or "inferred_from_ticker",
+        "trade_direction_policy": "SZ Side 0/1 -> bsflag 1/2; SH/unknown -> 0",
         "columns": pq.ParquetFile(target_path).schema_arrow.names,
     }
