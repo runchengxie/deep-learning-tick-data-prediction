@@ -246,12 +246,9 @@ def compare_portfolio_digests(
                 )
                 continue
             pairs = []
-            for index, (lrow, rrow) in enumerate(
-                zip(left_values, right_values, strict=True)
-            ):
+            for index, (lrow, rrow) in enumerate(zip(left_values, right_values, strict=True)):
                 pairs.extend(
-                    (f"{section}[{index}].{key}", lrow.get(key), rrow.get(key))
-                    for key in lrow
+                    (f"{section}[{index}].{key}", lrow.get(key), rrow.get(key)) for key in lrow
                 )
         else:
             pairs = [
