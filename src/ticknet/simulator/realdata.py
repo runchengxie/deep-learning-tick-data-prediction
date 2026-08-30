@@ -1,13 +1,14 @@
 """真实 L2 数据的 simulator 接入与 correctness 校验通路。
 
 读取仓库约定的 order/trades/snapshot parquet（见 eventstream.config.day_input_files），
-构造保留 OrderID 的 SimulatorPack，并逐 snapshot 校验撮合引擎重建精度。
+构造保留 OrderID 与可用 exchange channel/sequence 的 SimulatorPack，并逐 snapshot 校验撮合引擎重建精度。
 
 字段与单位约定与 eventstream.pack 对齐：
 - 价格在 raw L2 Parquet 中已经是整数分，直接转为 int
 - 订单方向由 OrderType 推导（dataset._featurize 同规则）：
   撤单 = OrderType 属于 (-1, -11)，其 OrderID 即被撤订单的 ID；
   非撤单 ot >= 10 为卖，否则为买
+- 可用时保留 ChannelNo/ApplSeqNum/BizIndex 等排序字段；多 channel 同毫秒不伪造交易所全序
 - snapshot 为月度宽表，按 TradingDay + ticker 过滤后组装十档数组
 - trades 不进入回放：成交已由撮合引擎在订单流内自行结算
 """
@@ -16,12 +17,17 @@ from __future__ import annotations
 
 from itertools import pairwise
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pyarrow.parquet as pq
 
 from ticknet.eventstream.config import MARKET_END_MS, RAW_L2_ROOT, day_input_files, day_preopen_file
 from ticknet.simulator.matching import MatchingEngine
+from ticknet.simulator.ordering import (
+    detect_ordering_columns,
+    ordering_provenance,
+    sort_simulator_events,
+)
 from ticknet.simulator.pack import SimulatorEvent, SimulatorPack
 
 from .correctness import CorrectnessResult
@@ -51,11 +57,44 @@ _SNAP_COLS = (
     + [f"AskPrice{i}" for i in range(1, 11)]
     + [f"AskVolume{i}" for i in range(1, 11)]
 )
+_ORDER_BASE_COLS = ["ticker", "time_ms", "OrderID", "Price", "Volume", "OrderType"]
 
 
 def _to_price_units(values: list) -> list[int]:
     """读取 raw L2 已缩放的整数价格，保持为分。"""
     return [round(float(v)) for v in values]
+
+
+def _file_ordering(path: Path) -> dict[str, Any]:
+    parquet = pq.ParquetFile(path)
+    return detect_ordering_columns(parquet.schema.names)
+
+
+def _combined_ordering_columns(metadata: list[dict[str, Any]]) -> tuple[str | None, str | None]:
+    channel_columns = {
+        str(row["channel_column"])
+        for row in metadata
+        if row.get("channel_column") is not None
+    }
+    sequence_columns = {
+        str(row["sequence_column"])
+        for row in metadata
+        if row.get("sequence_column") is not None
+    }
+    channel = next(iter(channel_columns)) if len(channel_columns) == 1 else None
+    sequence = next(iter(sequence_columns)) if len(sequence_columns) == 1 else None
+    return channel, sequence
+
+
+def _optional_int(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and not value.is_integer():
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _apply_realdata_order(engine: MatchingEngine, event: SimulatorEvent):
@@ -133,19 +172,34 @@ def load_day_pack(
 
     ticker 为空时取当日全部股票（数据量大，慎用）。order 表无 side 列，
     order 和 order_preopen 均按 OrderType 推导方向；撤单行转为 kind="cancel" 事件。
+    同毫秒、单 channel 且 sequence 完整时使用 exchange sequence；跨 channel 保留 source order。
     """
     if not ticker:
         raise ValueError("真实全市场数据必须指定 ticker 以过滤")
     paths = day_input_files(day, Path(raw_root))
-    orders = [*_read_order_events(paths["order"], ticker)]
+    ordering_sources = [_file_ordering(paths["order"])]
     preopen_path = day_preopen_file(day, Path(raw_root))
+
+    preopen_orders: list[SimulatorEvent] = []
     if preopen_path.exists():
-        orders = [*_read_order_events(preopen_path, ticker), *orders]
-    snapshots = _read_snapshot_events(paths["snap"], day, ticker)
-    # 同一毫秒内订单先于快照结算：order=0, snapshot=1
-    events = [*orders, *snapshots]
-    events.sort(key=lambda e: (e.time_ms, 0 if e.kind != "snapshot" else 1))
-    return SimulatorPack(events=events, snapshots=snapshots)
+        ordering_sources.insert(0, _file_ordering(preopen_path))
+        preopen_orders = _read_order_events(preopen_path, ticker, source_offset=0)
+    orders = _read_order_events(paths["order"], ticker, source_offset=len(preopen_orders))
+    orders = [*preopen_orders, *orders]
+    snapshots = _read_snapshot_events(paths["snap"], day, ticker, source_offset=len(orders))
+    events = sort_simulator_events([*orders, *snapshots])
+    channel_column, sequence_column = _combined_ordering_columns(ordering_sources)
+    provenance = ordering_provenance(
+        orders,
+        channel_column=channel_column,
+        sequence_column=sequence_column,
+    )
+    provenance["sources"] = ordering_sources
+    return SimulatorPack(
+        events=events,
+        snapshots=snapshots,
+        ordering_provenance=provenance,
+    )
 
 
 def verify_day_correctness(
@@ -220,52 +274,71 @@ def verify_day_correctness(
     return results
 
 
-def _read_order_events(path: Path, ticker: str) -> list[SimulatorEvent]:
+def _read_order_events(
+    path: Path,
+    ticker: str,
+    *,
+    source_offset: int = 0,
+) -> list[SimulatorEvent]:
     if not Path(path).exists():
         raise FileNotFoundError(f"order parquet 不存在: {path}")
+    ordering = _file_ordering(Path(path))
+    columns = list(_ORDER_BASE_COLS)
+    for optional in (ordering.get("channel_column"), ordering.get("sequence_column")):
+        if isinstance(optional, str) and optional not in columns:
+            columns.append(optional)
     t = pq.read_table(
         path,
-        columns=["ticker", "time_ms", "OrderID", "Price", "Volume", "OrderType"],
+        columns=columns,
         filters=[("ticker", "=", ticker)],
     )
     d = t.to_pydict()
     out: list[SimulatorEvent] = []
     n = len(d["time_ms"])
     prices = _to_price_units(d["Price"])
+    channel_column = ordering.get("channel_column")
+    sequence_column = ordering.get("sequence_column")
     for i in range(n):
         ot = int(d["OrderType"][i])
         oid = str(d["OrderID"][i])
         time_ms = int(d["time_ms"][i])
         price = prices[i]
         volume = int(d["Volume"][i])
+        channel_value = (
+            d[channel_column][i]
+            if isinstance(channel_column, str) and channel_column in d
+            else None
+        )
+        sequence_value = (
+            d[sequence_column][i]
+            if isinstance(sequence_column, str) and sequence_column in d
+            else None
+        )
+        event_kwargs = {
+            "time_ms": time_ms,
+            "order_id": oid,
+            "price": price,
+            "volume": volume,
+            "order_type": ot,
+            "channel": str(channel_value) if channel_value is not None else "",
+            "sequence": _optional_int(sequence_value),
+            "source_index": source_offset + i,
+        }
         if ot in CANCEL_TYPES:
-            out.append(
-                SimulatorEvent(
-                    time_ms=time_ms,
-                    kind="cancel",
-                    order_id=oid,
-                    price=price,
-                    volume=volume,
-                    order_type=ot,
-                )
-            )
+            out.append(SimulatorEvent(kind="cancel", **event_kwargs))
         else:
             side = -1 if ot >= 10 else 1
-            out.append(
-                SimulatorEvent(
-                    time_ms=time_ms,
-                    kind="order",
-                    order_id=oid,
-                    side=side,
-                    price=price,
-                    volume=volume,
-                    order_type=ot,
-                )
-            )
+            out.append(SimulatorEvent(kind="order", side=side, **event_kwargs))
     return out
 
 
-def _read_snapshot_events(path: Path, day: int, ticker: str) -> list[SimulatorEvent]:
+def _read_snapshot_events(
+    path: Path,
+    day: int,
+    ticker: str,
+    *,
+    source_offset: int = 0,
+) -> list[SimulatorEvent]:
     if not Path(path).exists():
         raise FileNotFoundError(f"snapshot parquet 不存在: {path}")
     t = pq.read_table(
@@ -301,6 +374,7 @@ def _read_snapshot_events(path: Path, day: int, ticker: str) -> list[SimulatorEv
                 time_ms=int(d["time_ms"][i]),
                 kind="snapshot",
                 price=bid_levels[0][0] if bid_levels else 0,
+                source_index=source_offset + i,
                 expected_bid=bid_levels[0] if bid_levels else None,
                 expected_ask=ask_levels[0] if ask_levels else None,
                 bid_levels=bid_levels or None,
