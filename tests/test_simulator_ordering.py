@@ -3,7 +3,7 @@ from ticknet.simulator.ordering import (
     ordering_provenance,
     sort_simulator_events,
 )
-from ticknet.simulator.pack import SimulatorEvent
+from ticknet.simulator.pack import SimulatorEvent, build_simulator_pack
 
 
 def test_detects_channel_and_sequence_aliases() -> None:
@@ -53,3 +53,33 @@ def test_missing_sequence_uses_source_order_fallback() -> None:
 
     assert [event.order_id for event in sort_simulator_events(events)] == ["c", "o"]
     assert ordering_provenance(events)["ordering_mode"] == "timestamp_fallback"
+
+
+def test_build_pack_preserves_optional_sequence_metadata() -> None:
+    pack = build_simulator_pack(
+        [
+            {
+                "time_ms": 100,
+                "order_id": "later",
+                "side": 1,
+                "price": 100,
+                "volume": 10,
+                "channel": "7",
+                "sequence": 12,
+            },
+            {
+                "time_ms": 100,
+                "order_id": "earlier",
+                "side": 1,
+                "price": 100,
+                "volume": 10,
+                "channel": "7",
+                "sequence": 11,
+            },
+        ],
+        [],
+        [],
+    )
+
+    assert [event.order_id for event in pack.events] == ["earlier", "later"]
+    assert pack.ordering_provenance["ordering_mode"] == "timestamp_then_channel_sequence"
