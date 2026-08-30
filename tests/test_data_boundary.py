@@ -35,3 +35,25 @@ def test_ticknet_does_not_import_market_data_platform_business_code() -> None:
         "ticknet should consume published/canonical data through an adapter, not import "
         "market-data-platform business code:\n" + "\n".join(violations)
     )
+
+
+def test_nextday_sources_do_not_reenter_legacy_snapshot_facade() -> None:
+    violations: list[str] = []
+    for path in sorted((ROOT / "src" / "ticknet").rglob("*.py")):
+        if path.name == "raw_snapshot.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            if "ticknet.nextday.raw_snapshot" in names:
+                violations.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+
+    assert violations == [], (
+        "nextday implementation must import split modules directly; keep raw_snapshot "
+        "for external compatibility only:\n" + "\n".join(violations)
+    )

@@ -16,7 +16,7 @@ from ticknet.nextday.config import DEFAULT_CONV_CHANNELS, DEFAULT_INCEPTION_CHAN
 from ticknet.nextday.dataset import manifest_fingerprint
 from ticknet.nextday.io import pack_events
 from ticknet.nextday.model import ChunkedDeepLOB, build_nextday_model
-from ticknet.nextday.raw_snapshot import normalize_lob_events, valid_lob_event_rows
+from ticknet.nextday.snapshot_features import normalize_lob_events, valid_lob_event_rows
 
 
 @dataclass(frozen=True)
