@@ -26,15 +26,16 @@ class SimulatorEvent:
     buy_id: str = ""
     sell_id: str = ""
     deal_id: str = ""
-    channel: str = ""
-    sequence: int | None = None
-    source_index: int = 0
     # snapshot 自有字段：盘口期望值，用于 correctness 验证
     expected_bid: tuple[int, int] | None = None
     expected_ask: tuple[int, int] | None = None
     # 真实数据可携带完整十档（价格分, 量股），供初始盘口注入或深度对比
     bid_levels: tuple[tuple[int, int], ...] | None = None
     ask_levels: tuple[tuple[int, int], ...] | None = None
+    # 可选交易所事件排序元数据，放在尾部以保持旧位置参数兼容。
+    channel: str = ""
+    sequence: int | None = None
+    source_index: int = 0
 
 
 @dataclass
