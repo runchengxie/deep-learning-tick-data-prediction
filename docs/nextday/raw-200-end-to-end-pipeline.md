@@ -131,4 +131,4 @@ python scripts/run_colab_nextday.py \
 
 项目整体工作顺序见[项目现状](../project-status.md)。
 
-参考：`configs/nextday-raw-pilot.yaml`、`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、[Colab CLI 自动化](../dev/colab-cli-automation.md)和[原始数据扩容路线](raw-data-expansion-roadmap.md)。历史交互入口归档在 `legacy/notebooks/nextday_end_to_end_colab.ipynb`。
+参考：`configs/nextday-raw-pilot.yaml`、`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、[Colab CLI 自动化](../dev/colab-cli-automation.md)和[原始数据扩容路线](raw-data-expansion-roadmap.md)。历史交互入口已转换为 `legacy/notebooks/nextday_end_to_end.py`。

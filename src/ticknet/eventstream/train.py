@@ -656,7 +656,17 @@ def _checkpoint_matches_experiment(checkpoint: dict[str, Any], expected: dict[st
     normalized.setdefault("vq_codebook_size", 1024)
     normalized.setdefault("vq_dim", 64)
     normalized.setdefault("vq_loss_weight", 0.25)
-    return normalized == expected
+    expected_normalized = dict(expected)
+    expected_normalized.setdefault("day_loss_weight", 1.0)
+    expected_normalized.setdefault("day_supervision_mode", "all")
+    expected_normalized.setdefault("day_supervision_weight_version", DAY_SUPERVISION_WEIGHT_VERSION)
+    expected_normalized.setdefault("use_lob_prefix", False)
+    expected_normalized.setdefault("use_session_anchors", False)
+    expected_normalized.setdefault("use_vq", False)
+    expected_normalized.setdefault("vq_codebook_size", 1024)
+    expected_normalized.setdefault("vq_dim", 64)
+    expected_normalized.setdefault("vq_loss_weight", 0.25)
+    return normalized == expected_normalized
 
 
 def _checkpoint_paths(config: EventstreamConfig) -> tuple[str, Path, Path, Path, Path]:

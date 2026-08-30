@@ -32,7 +32,7 @@ A 股 Level-2 研究普遍需要处理集合竞价、连续竞价、快照和逐
 
 ## 事件排序边界
 
-真实 order Parquet 若保留 `ChannelNo` 与 `ApplSeqNum`、`BizIndex` 等 exchange sequence 字段，simulator 会把这些字段保留到 `SimulatorEvent`。同一 `time_ms` 内，只有事件都具备 sequence 且属于单一 channel 时才按 sequence 重排；snapshot 仍放在同毫秒 order/cancel 之后。
+真实 order Parquet 若保留 `ChannelNo` 与 `ApplSeqNum`、`BizIndex` 等 exchange sequence 字段，simulator 会把这些字段保留到 `SimulatorEvent`。同一 `time_ms` 内，只有事件都具备 sequence 且属于单一 channel 时才按 sequence 重排。snapshot 仍放在同毫秒 order/cancel 之后。
 
 如果同毫秒出现多个 channel，simulator 保留文件 source order，并在 `SimulatorPack.ordering_provenance` 中记录 `cross_channel_total_order=false`。如果数据源没有 sequence，则明确记录 `timestamp_fallback`。因此时间戳始终是跨 channel 时间坐标，sequence 只在有证据支持的范围内增强局部顺序，不能把供应商文件推断成交易所全局总序。
 
