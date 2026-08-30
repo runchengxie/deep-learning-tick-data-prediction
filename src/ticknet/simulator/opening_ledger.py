@@ -436,7 +436,7 @@ def _coverage_status(
     return "covered"
 
 
-def audit_opening_ledger(
+def _audit_opening_ledger_local(
     orders: Sequence[OpeningOrder],
     trades: Sequence[OpeningTrade],
     cancels: Sequence[OpeningCancel],
@@ -513,6 +513,28 @@ def audit_opening_ledger(
         unknown_cancel_volume=unknown_cancel_volume,
         overdrawn_count=overdrawn_count,
         overdrawn_volume=overdrawn_volume,
+    )
+
+
+def audit_opening_ledger(
+    orders: Sequence[OpeningOrder],
+    trades: Sequence[OpeningTrade],
+    cancels: Sequence[OpeningCancel],
+    *,
+    expected_bid_levels: Sequence[Level] | None,
+    expected_ask_levels: Sequence[Level] | None,
+    depth: int = 10,
+) -> OpeningLedgerAudit:
+    """Use the shared platform accounting core when it is available."""
+    from .quality_compat import audit_opening_ledger_compat
+
+    return audit_opening_ledger_compat(
+        orders,
+        trades,
+        cancels,
+        expected_bid_levels=expected_bid_levels,
+        expected_ask_levels=expected_ask_levels,
+        depth=depth,
     )
 
 

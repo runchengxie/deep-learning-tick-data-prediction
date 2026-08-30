@@ -298,10 +298,11 @@ def _validate_eventstream_arguments(arguments: argparse.Namespace) -> None:
         _gradient_audit_checkpoint_sha256(arguments)
     if arguments.workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS and arguments.seeds != [0]:
         raise ValueError("标签尺度第一轮只允许运行 seed 0")
-    if arguments.day_loss_weight is not None and arguments.day_loss_weight < 0:
+    day_loss_weight = getattr(arguments, "day_loss_weight", None)
+    if day_loss_weight is not None and day_loss_weight < 0:
         raise ValueError("--day-loss-weight 不能为负数")
     if (
-        arguments.day_loss_weight is not None
+        day_loss_weight is not None
         and arguments.workflow not in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
     ):
         raise ValueError("--day-loss-weight 只用于标签尺度训练")
@@ -465,7 +466,7 @@ def _eventstream_training_paths(
     drive_root: str,
 ) -> tuple[str, str, str, str]:
     def add_day_weight_suffix(name: str) -> str:
-        if arguments.day_loss_weight is None:
+        if getattr(arguments, "day_loss_weight", None) is None:
             return name
         weight = f"{arguments.day_loss_weight:g}".replace("-", "m").replace(".", "p")
         return f"{name}-day-weight-{weight}"
@@ -769,7 +770,9 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
             else None
         ),
         "day_loss_weight": (
-            arguments.day_loss_weight if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS else None
+            getattr(arguments, "day_loss_weight", None)
+            if workflow in EVENTSTREAM_LABEL_SCALE_WORKFLOWS
+            else None
         ),
         "evaluate_test": arguments.evaluate_test,
         "expected_parameter_count": (

@@ -100,11 +100,19 @@ M3 v2 从 2021 年 7 月开始，54 个月共物化 436,800 个候选，完整�
 
 ## L2 开盘身份账本审计
 
+原始 L2 的通用结构质量检查逐步归入 `research-workspace/market-data-platform` 的
+`market_data_platform.quality`，入口为 `marketdata quality profile`。本项目继续保留兼容
+实现，负责事件流输入、标签、泄漏和模型训练相关检查；在平台包被下游稳定依赖前，不删除本地入口。
+
 历史数据准入入口为 scripts/build_historical_data_manifest.py。当前冻结 2026 年数据，深市 2021 至 2025 年合格股票日作为主数据，沪市合格股票日只进入 lag 研究。准入规则和 A 股市场共性与当前数据源特性之间的区分见[历史 raw L2 数据准入边界](research/historical-data-eligibility-2026-08-27.md)。
 
 raw L2 覆盖清单入口为 scripts/audit_opening_coverage.py。它扫描所有 order_preopen 日文件，按交易日和股票统计盘前委托、order、trades、snapshot 的文件和股票覆盖，以及 time_ms <= 0 的开盘成交量。首个真实日文件的 smoke 结果和统计口径见[raw L2 盘前覆盖清单](research/opening-coverage-inventory-2026-08-27.md)。全量报告应输出到仓库外目录。
 
-已新增盘前订单身份账本审计器 `ticknet.simulator.opening_ledger`。它使用盘前委托、开盘结算窗口内的委托、成交和撤单，按订单 ID 扣减剩余量，聚合前十档并和首张完整连续竞价快照逐档比较。审计结果区分精确匹配、数量或价格不一致、快照不可比较、盘前文件缺失、股票没有盘前记录、未知成交身份、未知撤单身份和超额扣减。
+盘前订单身份账本的通用扣减和盘口聚合核心已迁入 `market_data_platform.quality_opening`。
+本项目通过 `ticknet.simulator.quality_compat.audit_opening_ledger_compat` 复用该核心，
+同时保留 `ticknet.simulator.opening_ledger` 作为兼容入口。原始文件发现、开盘结算窗口、
+交易所差异化 lag、快照对齐和研究报告仍由本项目负责，因为这些规则依赖市场和实验。
+审计结果区分精确匹配、数量或价格不一致、快照不可比较、盘前文件缺失、股票没有盘前记录、未知成交身份、未知撤单身份和超额扣减。
 
 首张 `time_ms=0` 快照不能简单解释为盘前剩余订单的直接聚合。深市样本需要把快照时间映射到事件时钟的 `0 + 140ms` 结算窗口。沪市目前没有可以跨日期复用的固定偏移，默认使用 `0ms`，并允许命令行显式扫参。
 
