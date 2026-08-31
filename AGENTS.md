@@ -77,3 +77,9 @@ worktree 里没有 `.venv`，跑 ty 前先建立软链：
 FI-2010 数据、检查点、日志和图片不提交到 Git。`uv.lock` 应提交，用于固定开发和实验依赖。修改 `pyproject.toml` 后运行 `uv lock` 并检查锁文件变化。
 
 不要修改 `docs/references/1808.03668v6.pdf`。阅读笔记可以修正文句和事实，但保留原论文的章节结构与引用信息。
+
+## Worktree-first 目录规范
+
+开发和实验使用 `/home/richard/code/.worktrees/` 下的独立 worktree。生产或定时任务使用
+`/home/richard/code/production/` 下固定版本目录，不直接使用实验 worktree。训练数据、检查点、
+日志和大体量产物放在仓库外的专用数据目录。清理 worktree 前必须确认没有定时任务引用该路径。
