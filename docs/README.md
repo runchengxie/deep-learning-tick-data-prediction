@@ -17,6 +17,7 @@
 9. [research/eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) 说明多任务梯度审计、决策门槛和正式运行方式
 10. [research/eventstream-label-scale.md](research/eventstream-label-scale.md) 记录标签尺度和监督位置实验的合同、结果与决策
 11. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
+12. [operations/systemd-workflows.md](operations/systemd-workflows.md) 记录历史 ticknet systemd 工作流和清理结果
 
 `project-status.md` 和路线总览用于判断当前状态。M0、M1、M2a 至 M2d 文档记录对应里程碑完成时的设计和结论，后续功能可能已经继续扩展。`reports/` 与 `baselines/` 是冻结产物。
 
@@ -74,6 +75,14 @@ Top-K 可交易组合与 AgentX 自动量化研究闭环。
 |---|---|
 | [development-guide.md](dev/development-guide.md) | 模块划分、测试范围、质量门禁与依赖管理 |
 | [colab-cli-automation.md](dev/colab-cli-automation.md) | Colab 无人值守训练与评估的自动化入口 |
+
+### operations
+
+本节记录本机运行基础设施和历史调度配置。
+
+| 文档 | 内容 |
+|---|---|
+| [systemd-workflows.md](operations/systemd-workflows.md) | 历史 ticknet systemd 工作流、路径约定和清理记录 |
 
 ### 复现与产物
 
