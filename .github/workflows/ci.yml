@@ -1,0 +1,42 @@
+name: Pull request quality
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "config/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-learning-tick-data-prediction-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.11"
+
+      - name: Run Ruff without the training environment
+        run: |
+          uvx --from 'ruff>=0.16,<0.17' ruff check src tests scripts
+          uvx --from 'ruff>=0.16,<0.17' ruff format --check src tests scripts
+
+      - name: Compile public Python sources
+        run: python -m compileall -q src scripts
