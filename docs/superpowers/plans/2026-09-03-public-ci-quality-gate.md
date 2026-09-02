@@ -6,7 +6,7 @@
 
 **Architecture:** Keep one lightweight workflow for pull requests and `main` pushes. It installs the locked development environment, runs static checks and the synthetic CPU test suite, and reports coverage without adding a new threshold. GPU, training, slow, and real-data jobs remain manual or scheduled.
 
-**Tech Stack:** GitHub Actions, uv, Python 3.11, Ruff, ty, pytest, pytest-cov.
+**Tech Stack:** GitHub Actions, uv, Python 3.12, Ruff, ty, pytest, pytest-cov.
 
 **Spec:** `AGENTS.md` and `docs/dev/development-guide.md` quality-gate requirements.
 
