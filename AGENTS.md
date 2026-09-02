@@ -51,6 +51,17 @@ python scripts/check.py
 
 涉及数据协议时，增加能识别错误选段、标签错列或跨文件窗口的回归测试。涉及检查点时，测试恢复位置和配置冲突。涉及文档命令时，用 `--help` 核对参数名再落笔。
 
+## GitHub Actions 策略
+
+工作区统一采用以下默认规则：
+
+- public 仓库默认启用 GitHub Actions，用于拉取请求的轻量自动检查。
+- private 仓库默认关闭 GitHub Actions，避免持续占用私有仓库的 Actions 额度。
+- private 仓库如需启用远端 CI，应在仓库文档中记录原因、检查范围和资源成本，并由维护者明确批准。
+- 本地完整门禁继续由仓库自身检查和工作区共享 `pre-push` 承担。
+
+本仓库是 public 仓库，`.github/workflows/ci.yml` 运行轻量 PR 检查。远端 CI 提供快速反馈，本地检查继续覆盖完整训练环境之外的工程门禁。
+
 ## 分支与合并
 
 每个改动都在独立 worktree 上进行。多 agent 并行修改项目时，这是强制约束：每个 agent 独占一个 worktree 和一条 `agent/<topic>` 分支，绝不在主工作区或其他 agent 的 worktree 里直接改文件，避免多个 agent 竞争同一份文件或互相覆盖未提交的改动。
