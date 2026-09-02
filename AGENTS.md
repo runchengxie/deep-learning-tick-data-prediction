@@ -47,7 +47,7 @@ python scripts/check.py
 
 `pre-commit` 检查基础文件卫生、Ruff、ty 和 notebook。`scripts/check.py` 运行 Ruff 静态检查、Ruff 格式检查、ty、带覆盖率的 pytest 和冒烟检查。
 
-公开合成数据质量门禁由 GitHub Actions PR workflow 运行，本地 `pre-commit` 与 `scripts/check.py` 继续用于提交前反馈。Python 3.10 兼容性和依赖安全审计不由该轻量 workflow 覆盖，涉及相关风险时手动用 Python 3.10 环境验证一次。
+公开合成数据质量门禁由 GitHub Actions 在拉取请求和 `main` 推送时运行，包含 Ruff、格式检查、`ty`、带覆盖率的 pytest 和 Python 编译检查。本地 `pre-commit` 与 `scripts/check.py` 继续用于提交前反馈。Python 3.10 兼容性和依赖安全审计不由该 workflow 覆盖，涉及相关风险时手动用 Python 3.10 环境验证一次。
 
 涉及数据协议时，增加能识别错误选段、标签错列或跨文件窗口的回归测试。涉及检查点时，测试恢复位置和配置冲突。涉及文档命令时，用 `--help` 核对参数名再落笔。
 
@@ -60,7 +60,7 @@ python scripts/check.py
 - private 仓库如需启用远端 CI，应在仓库文档中记录原因、检查范围和资源成本，并由维护者明确批准。
 - 本地完整门禁继续由仓库自身检查和工作区共享 `pre-push` 承担。
 
-本仓库是 public 仓库，`.github/workflows/ci.yml` 运行轻量 PR 检查。远端 CI 提供快速反馈，本地检查继续覆盖完整训练环境之外的工程门禁。
+本仓库是 public 仓库，`.github/workflows/ci.yml` 在拉取请求和 `main` 推送时运行公开合成数据质量门禁。远端 CI 不需要私有凭证、真实行情或 GPU。完整训练、慢测试和 GPU 检查继续手动或按需运行。
 
 ## 分支与合并
 

@@ -1,6 +1,16 @@
 name: Pull request quality
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - "config/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
   pull_request:
     paths:
       - "src/**"
@@ -31,12 +41,21 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Run Ruff without the training environment
+      - name: Install locked development environment
+        run: uv sync --locked --extra dev
+
+      - name: Run Ruff
         run: |
-          uvx --from 'ruff>=0.16,<0.17' ruff check src tests scripts
-          uvx --from 'ruff>=0.16,<0.17' ruff format --check src tests scripts
+          uv run --locked --extra dev ruff check .
+          uv run --locked --extra dev ruff format --check .
+
+      - name: Run ty
+        run: uv run --locked --extra dev ty check
+
+      - name: Run tests with coverage
+        run: uv run --locked --extra dev pytest --cov --cov-report=term-missing
 
       - name: Compile public Python sources
         run: python -m compileall -q src scripts
