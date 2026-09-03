@@ -34,10 +34,7 @@ def _project_dependencies() -> set[str]:
     assert match is not None
     dependencies = ast.literal_eval(match.group(1))
     return {
-        re.split(r"[<>=!~;\[]", dependency, maxsplit=1)[0]
-        .strip()
-        .lower()
-        .replace("_", "-")
+        re.split(r"[<>=!~;\[]", dependency, maxsplit=1)[0].strip().lower().replace("_", "-")
         for dependency in dependencies
     }
 
