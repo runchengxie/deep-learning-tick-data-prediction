@@ -54,6 +54,9 @@ jobs:
       - name: Run ty
         run: uv run --locked --extra dev ty check
 
+      - name: Run shared code-quality metrics
+        run: uv run --locked --extra dev research-code-quality --scope src --scope scripts --scope tests --json
+
       - name: Run tests with coverage
         run: uv run --locked --extra dev pytest --cov --cov-report=term-missing
 
