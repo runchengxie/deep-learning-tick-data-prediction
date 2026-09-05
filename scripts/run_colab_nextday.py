@@ -814,6 +814,25 @@ def build_job_spec(arguments: argparse.Namespace, source_revision: str) -> dict[
     }
 
 
+def _output_download_command(
+    arguments: argparse.Namespace, spec: dict[str, Any], rclone: str
+) -> list[str]:
+    command = [
+        rclone,
+        "--config",
+        str(arguments.rclone_config),
+        "copy",
+        f"{spec['rclone_remote']}:{spec['output_remote']}",
+        str(arguments.local_output_dir),
+        "--checksum",
+    ]
+    if spec["workflow"] in EVENTSTREAM_TRAIN_WORKFLOWS:
+        for seed in spec["seeds"]:
+            command.extend(["--filter", f"+ **.seed{int(seed)}.*"])
+        command.extend(["--filter", "- **.seed*.*"])
+    return command
+
+
 def _validate_downloaded_summary(
     output_dir: Path,
     spec: dict[str, Any],
@@ -909,7 +928,16 @@ def _dry_run_plan(
                 "--timeout",
                 str(arguments.timeout),
             ),
-            ["rclone", "copy", f"{arguments.rclone_remote}:<drive-output>", "<local-output>"],
+            _output_download_command(
+                arguments,
+                {
+                    "workflow": arguments.workflow,
+                    "seeds": arguments.seeds,
+                    "rclone_remote": arguments.rclone_remote,
+                    "output_remote": "<drive-output>",
+                },
+                "rclone",
+            ),
             _colab_command(colab, "log", "-s", arguments.session, "-o", "<execution.ipynb>"),
             _colab_command(colab, "rm", "-s", arguments.session, REMOTE_RCLONE_CONFIG),
         ]
@@ -1026,17 +1054,7 @@ def run(arguments: argparse.Namespace) -> None:
                     str(arguments.timeout),
                 )
             )
-            _run(
-                [
-                    rclone,
-                    "--config",
-                    str(arguments.rclone_config),
-                    "copy",
-                    f"{spec['rclone_remote']}:{spec['output_remote']}",
-                    str(arguments.local_output_dir),
-                    "--checksum",
-                ]
-            )
+            _run(_output_download_command(arguments, spec, rclone))
             _validate_downloaded_summary(arguments.local_output_dir, spec)
             succeeded = True
         finally:
