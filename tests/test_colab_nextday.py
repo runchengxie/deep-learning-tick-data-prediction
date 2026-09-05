@@ -1009,6 +1009,15 @@ def test_executable_falls_back_to_user_local_bin(
     assert _require_executable("colab", home=tmp_path) == str(executable)
 
 
+def test_dry_run_download_shows_seed_scope(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments.workflow = "eventstream-recent-train"
+    arguments.seeds = [2]
+    plan = _dry_run_plan(arguments, colab="colab", revision="abc123")
+    download = next(command for command in plan if command[0] == "rclone")
+    assert download[-4:] == ["--filter", "+ **.seed2.*", "--filter", "- **.seed*.*"]
+
+
 def test_colab_rclone_copy_uses_ubuntu_compatible_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -43,6 +43,8 @@ runner 也会在非登录 SSH 环境中查找 `/home/richard/.local/bin`，不�
 
 ## Linux 调度入口
 
+事件流训练下载按本次 `--seeds` 过滤带 `.seedN.` 的文件名。共享摘要照常下载，其他 seed 的 checkpoint 和结果留在 Drive 原目录。`--dry-run` 会显示相同过滤规则。已有本地副本不会自动删除，清理时需要单独核对内容、引用和恢复训练需求。
+
 先做不申请 GPU 的 dry run：
 
     python scripts/run_colab_nextday.py \
