@@ -107,7 +107,7 @@ show_missing = true
 skip_covered = true
 
 [tool.uv.sources]
-research-code-quality = { git = "https://github.com/runchengxie/research-code-quality.git", rev = "3ff7580" }
+research-code-quality = { git = "https://github.com/runchengxie/research-code-quality.git", rev = "1c754c3" }
 
 [[tool.ty.overrides]]
 include = ["legacy/notebooks/**"]
