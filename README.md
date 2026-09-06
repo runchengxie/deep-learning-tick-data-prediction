@@ -62,4 +62,4 @@ legacy/                 FI-2010 复现归档
 legacy/notebooks/       已退休 Colab 流程的 Python 快照
 ```
 
-维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。
+维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。编码代理默认读取根 README、[文档索引](docs/README.md) 和一个与任务相关的主题目录。

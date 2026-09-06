@@ -1,5 +1,12 @@
 # 文档索引
 
+> status: active
+> owner: deep-learning-tick-data-prediction
+> audience: human and agent
+> last_verified: 2026-09-06
+> source_of_truth: yes
+> superseded_by: n/a
+
 本目录收录项目现状、专题说明、研究记录和冻结产物。先看当前状态，再按主题阅读，可以区分现行结论、阶段记录和历史快照。
 
 ## 阅读路径
@@ -16,7 +23,7 @@
 8. [research/eventstream-signal-trading-diagnostics.md](research/eventstream-signal-trading-diagnostics.md) 记录事件流半衰期、错峰持有和交易门槛结果
 9. [research/eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) 说明多任务梯度审计、决策门槛和正式运行方式
 10. [research/eventstream-label-scale.md](research/eventstream-label-scale.md) 记录标签尺度和监督位置实验的合同、结果与决策
-11. [dev/development-guide.md](dev/development-guide.md) 说明模块边界、测试范围和门禁命令
+11. [operations/development-guide.md](operations/development-guide.md) 说明模块边界、测试范围和门禁命令
 12. [operations/systemd-workflows.md](operations/systemd-workflows.md) 记录历史 ticknet systemd 工作流和清理结果
 
 `project-status.md` 和路线总览用于判断当前状态。M0、M1、M2a 至 M2d 文档记录对应里程碑完成时的设计和结论，后续功能可能已经继续扩展。`reports/` 与 `baselines/` 是冻结产物。
