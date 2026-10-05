@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deep-learning-tick-data-prediction"
+name = "quant-deep-learning"
 version = "0.2.0"
-description = "PyTorch DeepLOB 模型与 A 股次日横截面方向预测"
+description = "End-to-end quantitative deep-learning research for structured market data"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

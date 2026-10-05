@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +69,19 @@ def test_external_comparison_archival_source_is_unchanged() -> None:
     archived = archived.split(ARCHIVAL_SOURCE_END, maxsplit=1)[0]
     digest = hashlib.sha256(archived.encode()).hexdigest()
     assert digest == "c9b84597e6e94c2d7d44eaa51079f497cbc31a761fc31aa48c5972f1e4103c27"
+
+
+def test_repository_identity_is_quant_deep_learning() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    migration_status = (ROOT / "MIGRATION-STATUS.md").read_text(encoding="utf-8")
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    assert "# Quant Deep Learning" in readme
+    assert project["name"] == "quant-deep-learning"
+    assert "Canonical owner: `quant-deep-learning`" in migration_status
+    assert "historical migration decision" in migration_status.lower()
+    assert "ticknet-eventstream-train" in project["scripts"]
+    assert "ticknet-research" in project["scripts"]
 
 
 def test_internal_markdown_links_exist() -> None:

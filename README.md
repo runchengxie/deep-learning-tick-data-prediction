@@ -1,65 +1,63 @@
-# 深度学习 tick 数据预测
+# Quant Deep Learning
 
-本项目用 A 股逐笔行情研究下一交易日的横截面排序信号。项目从 DeepLOB 论文复现起步，现在主要维护真实数据训练、成本评估和受控实验研究三类能力。FI-2010 复现已归档到 `legacy/`，论文和阅读笔记放在 `docs/references/`。
+Quant Deep Learning is an independent research project for end-to-end deep-learning models on structured market data. It began as a DeepLOB reproduction and now focuses on next-day cross-sectional prediction from Chinese A-share market data, including order-book snapshots, minute-level inputs, and L2 event streams.
 
-## 这个项目做什么
+The project owns model-specific representations, training, inference, evaluation, and study records. It can run without `quant-platform`. Downstream systems can consume versioned prediction and signal artifacts without importing this repository's Python modules.
 
-项目维护四条相互配合的链路：
+## Research tracks
 
-1. 原始盘口模型读取信号时点前的十档快照
-2. 分钟模型用较低成本检验聚合量价特征
-3. 事件流 Transformer 直接编码委托、成交和快照
-4. 研究闭环管理实验身份、成本评估、审计和锁定数据访问
+- Raw order-book models use the ten-level snapshot available at a prediction time.
+- Minute models test lower-cost aggregated price and volume inputs.
+- Event-stream models encode order, trade, and snapshot events with causal sequence models.
+- Research tooling records experiment identity, cost evaluation, prediction audits, and controlled access to locked data.
+- Chip-layer research is a planned study track. Its source and independent reproduction status will be documented separately. This repository does not redistribute broker reports without permission.
 
-所有主线都按交易日切分，在时间外数据上比较股票的横截面顺序。项目同时检查换手和交易成本，Rank IC 为正只代表模型捕捉到排序信号，还不能直接说明策略可交易。
+These tracks do not share the same evidence stage. See [Project status](docs/project-status.md) for the dated results, limits, and current research questions.
 
-## 当前判断
+## Research boundaries
 
-截至 2026-08-22，100M 事件流模型已经在最近折三 seed 和第一个相邻滚动折 seed 0 中得到正的 H5 样本外 Rank IC。冻结 embedding 与分钟特征组合、联合端到端训练也得到正的排序增量。每日截面 z 标签的 seed 0 两折实验进一步提高了 validation 和 OOS Rank IC。
+The archived FI-2010 work is kept under `legacy/` as a reproduction reference. It does not establish that next-day stock ranking works. Results from `ticknet.nextday` and `ticknet.eventstream` are separate from the FI-2010 paper reproduction.
 
-现有候选仍未稳定覆盖单边 10bp 交易成本，头部收益也会随月份变化。信号半衰期、交易规则、已具备数据的风险暴露、多任务梯度、标签尺度和监督位置已经检查完成。最后位置和尾部加权都没有超过全位置基线，下一步检查日级任务权重，再决定是否实现成本感知排序目标。150M 容量实验继续暂缓。
+The main research path uses trading-day splits and evaluates cross-sectional ranking on out-of-time data. It also examines turnover and transaction costs. A positive Rank IC alone does not establish that a signal is tradable. Do not describe results as reproduced or validated unless the documented evidence supports that claim.
 
-分钟模型、原始盘口模型和 AgentX 成本矩阵都已经形成阶段结论。完整数字、数据限制和下一步统一记录在[项目现状](docs/project-status.md)和[实验日志](docs/research/experiment-log.md)。模型原理与取舍见[模型清单](docs/model-catalog.md)，外部研究路线带来的改进计划见[外部 L2 研究项目对比](docs/research/external-l2-research-comparison.md)。
+## Quick start
 
-## 快速验证
-
-以下步骤不需要真实行情数据，支持 Python 3.10 及以上版本。
+The public synthetic-data checks do not require private market data, a GPU, or `quant-platform`. Python 3.10 or later is supported.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
-pre-commit install
 python scripts/check.py
 ```
 
-`scripts/check.py` 会运行 Ruff、格式检查、ty、带覆盖率的 pytest 和 FI-2010 兼容模型冒烟检查。
+The check script runs Ruff, formatting checks, `ty`, pytest with coverage, and a FI-2010 compatibility-model smoke check. The full [development guide](docs/operations/development-guide.md) describes the test and data boundaries.
 
-Windows PowerShell 使用 `.\.venv\Scripts\Activate.ps1` 激活环境。修改 `pyproject.toml` 中的命令入口后，需要重新执行可编辑安装，让 `.venv/bin/` 或 Windows 的 `.venv\Scripts\` 生成新入口。
+On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps1`. After changing command entry points in `pyproject.toml`, reinstall the project in editable mode so the environment's script launchers are refreshed.
 
-## 从哪里开始
+## Documentation
 
-- 想了解项目全貌和当前进度，阅读[项目现状](docs/project-status.md)
-- 想选择模型，阅读[模型清单](docs/model-catalog.md)
-- 想准备真实数据或运行训练，阅读[次日横截面预测规范](docs/nextday/cross-sectional-prediction.md)和[事件流说明](docs/nextday/eventstream.md)
-- 想了解实验边界与后续计划，阅读[AgentX 研究路线](docs/research/topk-agentx-research-roadmap.md)
-- 想确认数据清洗与模型输入的归属，阅读[数据边界](docs/architecture/data-boundary.md)
-- 想查找其他专题说明和命令，使用[文档索引](docs/README.md)
+- [Project status](docs/project-status.md) summarizes dated capabilities, evidence, and open work.
+- [Model catalog](docs/model-catalog.md) compares model inputs, methods, strengths, and limitations.
+- [Cross-sectional prediction](docs/nextday/cross-sectional-prediction.md) defines samples, labels, date splits, training, and evaluation.
+- [Event-stream guide](docs/nextday/eventstream.md) describes event packing, causal training, and prediction export.
+- [Data boundary](docs/architecture/data-boundary.md) describes which system owns each data transformation.
+- [Documentation index](docs/README.md) links to topic guides, research records, and operating notes.
+- [Reproduction audit](docs/reproduction-audit.md) records the scope and checks for the archived FI-2010 work.
 
-## 项目结构
+## Repository layout
 
 ```text
-src/ticknet/            共享训练工具和兼容模型
-src/ticknet/nextday     次日标签、分片、分钟模型和原始盘口模型
-src/ticknet/eventstream L2 事件流打包、因果 Transformer 和预测导出
-src/ticknet/research    实验提案、执行、审计、Registry 和研究 Agent
-scripts/                数据准备、基线和本地检查入口
-tests/                  不依赖真实行情的主链路自动化测试
-configs/                本地与 Colab 配置
-docs/                   当前说明、路线图和实验记录
-docs/references/        论文与阅读笔记归档
-legacy/                 FI-2010 复现归档
-legacy/notebooks/       已退休 Colab 流程的 Python 快照
+src/ticknet/             Shared training utilities and compatibility models
+src/ticknet/nextday/     Next-day labels, datasets, minute models, and raw-book models
+src/ticknet/eventstream/ L2 event packing, causal Transformer, and prediction export
+src/ticknet/research/    Proposals, execution, audits, registry, and research agents
+scripts/                 Human-run data preparation and local check entry points
+tests/                   Automated checks that do not require private market data
+configs/                 Local and Colab configurations
+docs/                    Project status, technical guides, roadmaps, and research records
+docs/references/         Papers and reading notes
+legacy/                  Archived FI-2010 reproduction reference
 ```
 
-维护约定见 [AGENTS.md](AGENTS.md)。FI-2010 的数据格式和复现边界见[复现核对](docs/reproduction-audit.md)。编码代理默认读取根 README、[文档索引](docs/README.md) 和一个与任务相关的主题目录。
+The Python import namespace remains `ticknet` for compatibility. Repository ownership and boundaries are recorded in [MIGRATION-STATUS.md](MIGRATION-STATUS.md). Contributor and agent rules are in [AGENTS.md](AGENTS.md).
