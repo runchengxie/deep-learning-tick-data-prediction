@@ -1,79 +1,61 @@
-# 历史 systemd 工作流记录
+# Historical systemd Workflow Record
 
-> 本文记录 2026-09-02 清理前存在于本机用户级 systemd 中的 ticknet 工作流。相关 unit 已删除。本文仅作为维护和迁移记录，不代表这些任务仍应恢复。
+> This page describes TickNet workflows that existed in the user's systemd configuration before cleanup on 2026-09-02. Their units have been deleted. This is a maintenance and migration record, not a recommendation to restore those jobs.
 
-## 作用范围
+## Scope
 
-这些任务曾由用户级 systemd 管理，unit 文件位于 `~/.config/systemd/user/`，并直接引用旧项目路径：
+These jobs were managed by the user's systemd instance, with unit files under `~/.config/systemd/user/`. They referenced an older project checkout under `CODE_ROOT` and a former `research-workspace` checkout. Large data and run artifacts lived under `DATA_ROOT`. Within the project checkout, `artifacts/`, `data/`, `results/`, `logs/`, `checkpoints*/`, and `.venv` were local symlinks to the external data area.
 
-```text
-/home/richard/code/deep-learning-tick-data-prediction
-```
+## Historical unit inventory
 
-当时的正式代码位置已经统一为：
+### Data preparation, packing, and audits
 
-```text
-/home/richard/code/research-workspace/deep-learning-tick-data-prediction
-```
+| Unit | Former purpose |
+|---|---|
+| `ticknet-eventstream-202101-top400.service` | Prepare and pack January 2021 Top-400 event-stream data |
+| `ticknet-eventstream-202102-202105-top400.service` | Prepare and pack February through May 2021 Top-400 event-stream data |
+| `ticknet-eventstream-202508-top400.service` | Pack August 2025 Top-400 event-stream data |
+| `ticknet-eventstream-202509-202512-top400.service` | Pack September through December 2025 Top-400 event-stream data |
+| `ticknet-eventstream-202101-audit.service` | Check and audit January 2021 event-stream data |
+| `ticknet-eventstream-202101-audit.path` | Watch audit-related paths and trigger the audit service |
+| `ticknet-eventstream-top400-preflight.service` | Run preflight checks for Top-400 event-stream jobs |
 
-大型数据和运行产物位于：
+### Benchmarks, scans, and orchestration
 
-```text
-/home/richard/data/deep-learning-tick-data-prediction
-```
+| Unit | Former purpose |
+|---|---|
+| `ticknet-eventstream-h5-a100-benchmark.service` | A100 benchmark for H5 event-stream training |
+| `ticknet-eventstream-h5-recent-a100-benchmark.service` | A100 benchmark on the recent dataset |
+| `ticknet-eventstream-h5-recent-a100-sweep.service` | Batch-size sweep on the recent dataset using A100 |
+| `ticknet-eventstream-h5-recent-chain.service` | Wait for upstream jobs, then start downstream jobs in sequence |
 
-项目代码目录中的 `artifacts/`、`data/`、`results/`、`logs/`、`checkpoints*/` 和 `.venv` 是指向上述外部数据目录的本地软链接。
+### Uploads
 
-## 历史 unit 清单
+| Unit | Former purpose |
+|---|---|
+| `ticknet-eventstream-h5-benchmark-upload.service` | Upload benchmark artifacts to remote storage |
+| `ticknet-eventstream-h5-recent-upload.service` | Upload recent dataset packs, labels, and manifests |
 
-### 数据准备、打包和审计
+## Cleanup record
 
-| Unit | 原用途 |
-| --- | --- |
-| `ticknet-eventstream-202101-top400.service` | 2021-01 Top400 eventstream 数据准备/打包任务 |
-| `ticknet-eventstream-202102-202105-top400.service` | 2021-02 至 2021-05 Top400 eventstream 数据准备/打包任务 |
-| `ticknet-eventstream-202508-top400.service` | 2025-08 Top400 eventstream 数据打包任务 |
-| `ticknet-eventstream-202509-202512-top400.service` | 2025-09 至 2025-12 Top400 eventstream 数据打包任务 |
-| `ticknet-eventstream-202101-audit.service` | 2021-01 eventstream 完整性/审计任务 |
-| `ticknet-eventstream-202101-audit.path` | 监听审计相关路径并触发审计 service 的 path watcher |
-| `ticknet-eventstream-top400-preflight.service` | Top400 eventstream 任务的前置检查 |
+Before cleanup:
 
-### Benchmark、扫描和任务编排
+- No `ticknet-*` user service was active.
+- Every service was `static` and none was enabled.
+- `ticknet-eventstream-202101-audit.path` was disabled.
+- No process associated with a `.pid` file in the old project checkout was running.
 
-| Unit | 原用途 |
-| --- | --- |
-| `ticknet-eventstream-h5-a100-benchmark.service` | H5 eventstream 的 A100 benchmark |
-| `ticknet-eventstream-h5-recent-a100-benchmark.service` | 最近数据集的 A100 benchmark |
-| `ticknet-eventstream-h5-recent-a100-sweep.service` | 最近数据集的 A100 batch-size sweep |
-| `ticknet-eventstream-h5-recent-chain.service` | 等待前序任务结束后串联启动后续任务 |
-
-### 上传
-
-| Unit | 原用途 |
-| --- | --- |
-| `ticknet-eventstream-h5-benchmark-upload.service` | 将 benchmark 产物上传到远端存储 |
-| `ticknet-eventstream-h5-recent-upload.service` | 将最近数据集的 pack、label 和 manifest 上传到远端存储 |
-
-## 清理记录
-
-清理前检查结果：
-
-- 没有活动的 `ticknet-*` user service。
-- 所有 service 都是 `static`，没有启用状态。
-- `ticknet-eventstream-202101-audit.path` 是 `disabled`。
-- 旧项目目录中的 `.pid` 文件对应进程均已不存在。
-
-随后删除了上述 `ticknet-*.service`、`ticknet-*.path` 和该项目遗留的 `.pid` 文件，并执行了以下命令：
+The listed `ticknet-*.service` and `ticknet-*.path` units and this project's leftover `.pid` files were then removed. The following command reloaded the unit state:
 
 ```bash
 systemctl --user daemon-reload
 ```
 
-日志和实验产物本身没有因本次 systemd 清理删除，仍保存在外部数据目录中。
+Logs and experiment artifacts were not removed during systemd cleanup. They remain in the external data area.
 
-## 后续约定
+## Future convention
 
-- 不再把实验或数据处理任务默认注册为常驻 systemd user service。
-- 需要恢复自动化时，应先明确任务的输入、输出、重试策略、资源占用和停止方式，再单独设计新的调度配置。
-- 运行入口使用 workspace 下的正式子模块。数据、checkpoint、日志和产物继续放在仓库外。
-- 清理旧任务时，应同时检查 `~/.config/systemd/user/`、用户 crontab、PID 文件和项目文档中的旧路径引用。
+- Do not register experiment or data-processing jobs as persistent systemd user services by default.
+- Before restoring automation, specify inputs, outputs, retry behavior, resource use, and shutdown behavior, then design a separate scheduler configuration.
+- Run jobs from a stable project release path. Keep data, checkpoints, logs, and artifacts outside the repository.
+- When cleaning up old jobs, check `~/.config/systemd/user/`, the user's crontab, PID files, and old path references in project documentation.

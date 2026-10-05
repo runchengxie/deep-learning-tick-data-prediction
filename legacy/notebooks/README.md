@@ -1,11 +1,11 @@
-# 历史 Python 快照
+# Historical Python Snapshots
 
-本目录保存已经退出主链路的历史 Python 快照。它们由旧 Colab notebook 转换而来，用于追溯早期交互流程和参数拼装方式，不再作为项目运行入口。
+This directory contains historical Python snapshots that have left the main workflow. They were converted from old Colab notebooks to preserve early interactive flows and parameter assembly. They are no longer project entry points.
 
-| 文件 | 历史用途 | 现行替代入口 |
+| File | Historical purpose | Current replacement |
 |---|---|---|
-| `nextday_end_to_end.py` | raw-200 pilot 训练、恢复和锁定评估 | `ticknet-nextday-train`、`ticknet-nextday-evaluate`、`scripts/run_colab_nextday.py` |
-| `nextday_multi_horizon_validation.py` | 2024 validation 多周期评估和图表展示 | `ticknet-nextday-evaluate-horizons`、`scripts/run_colab_nextday.py --workflow multi-horizon-validation` |
-| `colab_fi2010.py` | FI-2010 复现 | `legacy/scripts/run_colab.py` |
+| `nextday_end_to_end.py` | raw-200 pilot training, recovery, and locked evaluation | `ticknet-nextday-train`, `ticknet-nextday-evaluate`, `scripts/run_colab_nextday.py` |
+| `nextday_multi_horizon_validation.py` | 2024 validation across multiple horizons and plots | `ticknet-nextday-evaluate-horizons`, `scripts/run_colab_nextday.py --workflow multi-horizon-validation` |
+| `colab_fi2010.py` | FI-2010 reproduction | `legacy/scripts/run_colab.py` |
 
-训练、多周期评估、日期权限、数据暂存和产物回传已经由 Python 模块与自动化测试承接。需要复现当前流程时，请从[开发指南](../../docs/dev/development-guide.md)和[Colab CLI 自动化](../../docs/dev/colab-cli-automation.md)进入。
+Python modules and automated tests now cover training, multi-horizon evaluation, date permissions, data staging, and artifact retrieval. To reproduce the current workflows, start with the [development guide](../../docs/dev/development-guide.md) and [Colab CLI automation](../../docs/dev/colab-cli-automation.md).

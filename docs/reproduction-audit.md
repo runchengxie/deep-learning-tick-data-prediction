@@ -1,34 +1,34 @@
-# DeepLOB 复现核对
+# DeepLOB Reproduction Audit
 
-本文件核对的对象已经随论文复现一起归档到 `legacy/`，只作临摹参考，不参与主链路开发。
+The implementation audited here has been archived under `legacy/` with the reproduction materials. It is a reference for study and does not participate in the main development path.
 
-## 结论
+## Conclusion
 
-当前代码已经从早期轻量实现调整为论文结构和 FI-2010 官方切分协议。模型、标签列、训练参数和数据选段均有合成数据测试。仓库没有保存真实训练指标，因此目前处于实验可运行、数值待验证的阶段。
+The current code has been updated from an early lightweight implementation to match the paper architecture and FI-2010's official split protocol. Synthetic-data tests cover the model, label columns, training parameters, and data selection. The repository does not contain results from a real training run, so the experiment can run but its numerical reproduction status remains unverified.
 
-## 模型结构
+## Model architecture
 
-| 项目 | 论文设定 | 当前实现 |
+| Component | Paper setting | Current implementation |
 |---|---|---|
-| 输入 | 最近 100 个状态，每个状态 40 个原始 LOB 特征 | `B × 1 × 100 × 40` |
-| 卷积通道 | 16 | 16 |
-| 空间卷积 | `1 × 2`、`1 × 2`、`1 × 10` | 已实现 |
-| 时间卷积 | 每个卷积块包含两个 `4 × 1` 卷积 | 已实现 |
-| 激活与归一化 | Leaky ReLU 和 Batch Normalization | 已实现 |
-| Inception | 三个 32 通道分支 | 合并后 96 通道 |
-| 时序模块 | 64 单元 LSTM | 已实现 |
-| 输出 | 三分类 softmax | 返回 logits，由交叉熵内部计算 softmax |
-| 参数量 | 约 60k | 自动化测试限制在 55k 至 70k |
+| Input | Most recent 100 states, each with 40 raw LOB features | `B × 1 × 100 × 40` |
+| Convolution channels | 16 | 16 |
+| Spatial convolutions | `1 × 2`, `1 × 2`, `1 × 10` | Implemented |
+| Temporal convolutions | Two `4 × 1` convolutions per block | Implemented |
+| Activation and normalization | Leaky ReLU and Batch Normalization | Implemented |
+| Inception | Three branches with 32 channels each | 96 channels after concatenation |
+| Temporal module | 64-unit LSTM | Implemented |
+| Output | Three-class softmax | Returns logits; cross-entropy computes softmax internally |
+| Parameter count | About 60k | Automated test constrains it to 55k–70k |
 
-返回 logits 是 PyTorch 中更稳定的训练接口。`CrossEntropyLoss` 在内部执行 `log_softmax` 和负对数似然，优化目标与论文一致。
+Returning logits is the more stable PyTorch training interface. `CrossEntropyLoss` internally applies `log_softmax` and negative log likelihood, giving the same optimization objective as the paper.
 
-## FI-2010 特征和标签
+## FI-2010 features and labels
 
-FI-2010 每个官方文本文件有 149 行。DeepLOB 只使用前 40 行订单簿价格和数量。104 个手工特征保留在转换后的 NPY 中，数据集读取窗口时不包含这些列。
+Each official FI-2010 text file has 149 rows. DeepLOB uses only the first 40 rows, containing order-book prices and volumes. The 104 handcrafted features remain in the converted NPY files, but the dataset does not include them in model windows.
 
-五个标签列为：
+The five label columns are:
 
-| `k` | 列索引 |
+| `k` | Column index |
 |---:|---:|
 | 10 | 144 |
 | 20 | 145 |
@@ -36,13 +36,13 @@ FI-2010 每个官方文本文件有 149 行。DeepLOB 只使用前 40 行订单�
 | 50 | 147 |
 | 100 | 148 |
 
-标签原值为 1、2、3，读取后固定映射为 0、1、2。数据集会拒绝非整数标签、未知标签、错误列数和非 `float32` 数组。
+Original labels 1, 2, and 3 are mapped to 0, 1, and 2. The dataset rejects non-integer labels, unknown labels, an incorrect number of columns, and arrays that are not `float32`.
 
-## 实验协议
+## Experiment protocol
 
 ### Setup 1
 
-`CF_1` 至 `CF_9` 是 FI-2010 发布方预先构造的锚定前向切分。当前实现按 `CF` 分别训练：
+`CF_1` through `CF_9` are anchored forward splits defined by the FI-2010 publisher. The implementation trains separately for each fold:
 
 ```text
 Train_CF_1 -> Test_CF_1
@@ -51,52 +51,52 @@ Train_CF_2 -> Test_CF_2
 Train_CF_9 -> Test_CF_9
 ```
 
-各 Training 文件包含该折应使用的历史范围。把其余八个 Training 文件并入当前训练集会重复样本，并可能让测试期数据出现在训练数据中。当前实现已经移除这条旧路径。
+Each Training file contains the history for that fold. Combining the other eight Training files would duplicate samples and could place test-period observations in training data. The implementation has removed that earlier path.
 
 ### Setup 2
 
-当前实现按以下组合运行：
+The implementation uses:
 
 ```text
-训练：Train_CF_7
-测试：Test_CF_7 + Test_CF_8 + Test_CF_9
+Training: Train_CF_7
+Testing:  Test_CF_7 + Test_CF_8 + Test_CF_9
 ```
 
-模型只训练一次，三个 Testing 文件共同构成测试集。每个文件单独建立滑动窗口，窗口不会跨文件拼接位置。
+The model trains once, and the three Testing files form the test set. Sliding windows are created separately for each file and never cross file boundaries.
 
-## 训练过程
+## Training process
 
-| 项目 | 当前值 |
+| Setting | Current value |
 |---|---|
-| 优化器 | Adam |
-| 学习率 | `0.01` |
-| epsilon | `1.0` |
-| batch size | `32` |
-| 早停 | 验证准确率 20 个 epoch 未提升 |
-| 验证比例 | Training 文件末尾 20% |
-| 随机种子 | 默认 `0`，可配置 |
-| 主要指标 | Accuracy、macro F1、weighted F1、各类别 Precision 和 Recall |
+| Optimizer | Adam |
+| Learning rate | `0.01` |
+| Epsilon | `1.0` |
+| Batch size | `32` |
+| Early stopping | Stop when validation accuracy does not improve for 20 epochs |
+| Validation fraction | Last 20% of the Training file |
+| Random seed | `0` by default; configurable |
+| Main metrics | Accuracy, macro F1, weighted F1, and per-class precision and recall |
 
-训练窗口和验证窗口在原始行上互不重叠。检查点分为最近状态和最佳状态，恢复训练时读取最近状态。检查点记录实验配置，协议、预测跨度或训练参数冲突时会停止恢复。
+Training and validation windows do not overlap on the original row axis. Checkpoints store both the latest and best states. Training recovery loads the latest state and stops if the protocol, prediction horizon, or training parameters conflict.
 
-## 尚待完成
+## Remaining work
 
-- 在官方 FI-2010 上完成五个预测跨度的 Setup 1 和 Setup 2
-- 汇总每折指标、均值和标准差
-- 与论文 Table I 和 Table II 逐项核对
-- 运行多个随机种子并报告波动
-- 增加真实数据的小型校验样本，覆盖转换脚本到 DataLoader 的完整链路
-- 复现论文的 LSE 实验、迁移实验、交易模拟和 LIME 分析
+- Run Setup 1 and Setup 2 for all five prediction horizons on official FI-2010 data.
+- Summarize per-fold metrics, means, and standard deviations.
+- Compare results with Tables I and II of the paper.
+- Run multiple random seeds and report variability.
+- Add a small real-data validation sample that covers conversion through DataLoader.
+- Reproduce the paper's LSE experiment, transfer experiments, trading simulation, and LIME analysis.
 
-## 已知限制
+## Known limitations
 
-FI-2010 官方矩阵没有提供文件内部的股票和日期边界。元数据只能记录 Training 和 Testing 文件边界。项目可以阻止窗口跨源文件，无法确认文件内部是否存在需要切断的股票或日期边界。这一限制应在实验报告中保留。
+The official FI-2010 matrices do not provide stock or date boundaries inside files. Metadata can record Training and Testing file boundaries. The project can prevent windows from crossing source files, but it cannot verify whether a file contains internal stock or date boundaries that should split windows. Reports must retain this limitation.
 
-GPU 算子、PyTorch 版本和硬件可能带来少量数值差异。项目设置了常用随机种子和 CuDNN 确定性选项。每次训练会在结果 JSON 中保存 Python、NumPy、PyTorch、CUDA、设备名称和耗时，实验报告仍应包含多次运行的波动。
+GPU kernels, PyTorch versions, and hardware may cause small numerical differences. The project sets common random seeds and CuDNN deterministic options. Every run records Python, NumPy, PyTorch, CUDA, device name, and elapsed time in result JSON. Reports should still include variability across repeated runs.
 
-## 参考依据
+## Sources
 
-- 仓库内 `docs/references/1808.03668v6.pdf`
-- 仓库内 `docs/references/deeplob-paper-notes.md`
-- [作者公开 PyTorch 实现](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
-- [FI-2010 数据集页面](https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649)
+- `docs/references/1808.03668v6.pdf` in this repository
+- `docs/references/deeplob-paper-notes.md`
+- [Authors' public PyTorch implementation](https://github.com/zcakhaa/DeepLOB-Deep-Convolutional-Neural-Networks-for-Limit-Order-Books)
+- [FI-2010 dataset page](https://etsin.fairdata.fi/dataset/73eb48d7-4dbc-4a10-a52a-da745b47a649)

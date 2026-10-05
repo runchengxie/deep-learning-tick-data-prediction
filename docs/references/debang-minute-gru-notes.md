@@ -1,81 +1,82 @@
-# 德邦证券：基于分钟数据的 GRU 模型在选股策略中的应用初探（精读笔记）
+# Minute-Data GRU Stock-Selection Strategy: Reading Notes
 
-> 论文信息
-> - 系列：德邦证券金工机器学习专题（之六），深度报告
-> - 日期：2024-07-01
-> - 分析师：肖承志（S0120521080003）
-> - 文件：`docs/references/德邦证券_分钟数据GRU选股策略初探.pdf`
-> - 数据/回测区间：模型训练 2018-01-01 至 2024-06-21 分钟数据，因子与组合统计 2019-01-01 至 2024-06-21
+> Source information
+> - Original title: <!-- preserved-source:start -->德邦证券：基于分钟数据的 GRU 模型在选股策略中的应用初探<!-- preserved-source:end -->
+> - Series: Debang Securities quantitative research, Machine Learning Series No. 6, in-depth report
+> - Date: 2024-07-01
+> - Analyst: <!-- preserved-source:start -->肖承志<!-- preserved-source:end --> (S0120521080003)
+> - Source PDF: cited but not included in this public repository because redistribution rights have not been established
+> - Training and backtest data: minute data from 2018-01-01 through 2024-06-21; factor and portfolio statistics from 2019-01-01 through 2024-06-21
 
-本笔记基于 PDF 全文提取整理，先列核心结论，再按报告结构记录方法、表现与局限，最后给出对本项目分钟线研究的具体借鉴点与独立评估。
+These notes were prepared from the full extracted PDF. They first summarize the main findings, then follow the report's structure to record its methods, performance, and limitations, and conclude with implications and an independent assessment for this project's minute-data research.
 
-## 核心结论速览
+## Main findings
 
-- 方法极简：直接用标准化后的一日 240 分钟 bar（7 个量价特征）输入一个 32 隐层单元的 GRU，预测次日 open-to-open 收益。无因子工程、无风格中性化处理。
-- 因子日平均 Rank IC 为 7.5%（2022 年前约 8.0%，之后约 6.9%），累计 IC 无明显失效。
-- 多头组合（500 只等权，对标中证 1000，手续费双边千 3）：开盘价日频超额年化 22.45%，但换仓频率与滑点高度敏感。滑点影响年化约 4.87% 至 9.54%，换仓频率差异约 6% 至 10%。全天 VWAP 日频超额年化降至 12.91%。
-- 指数增强（行业和风格完全中性，周度调仓，VWAP 成交）：沪深 300 为 +7.26%（IR 1.93）、中证 500 为 +7.58%（IR 1.75）、中证 1000 为 +8.86%（IR 1.83），跟踪误差小于 5%。
-- 风格偏好：低流动性、低波动、低估值、高盈利，市值相关性仅 -0.03。这个风格暴露既是因子超额的一部分，也是交易成本敏感的来源，研报自己也承认这一点。
+- The method is simple: normalize one day's 240 minute bars, each with seven price and volume features, and feed them to a GRU with 32 hidden units to predict next-day open-to-open return. The report uses no factor engineering or style neutralization.
+- Mean daily factor Rank IC is 7.5% (about 8.0% before 2022 and 6.9% afterward). Cumulative IC shows no clear decay.
+- A 500-stock equal-weight long portfolio, benchmarked against CSI 1000 and charged 3 per mille for each side, reports 22.45% annualized excess return using daily open execution. Results are highly sensitive to rebalance frequency and slippage. The annualized impact of slippage is about 4.87%–9.54%; rebalance-frequency differences are about 6%–10%. Daily VWAP execution reduces annualized excess return to 12.91%.
+- Weekly VWAP index enhancement, fully neutralized by sector and style, reports excess returns of +7.26% for CSI 300 (IR 1.93), +7.58% for CSI 500 (IR 1.75), and +8.86% for CSI 1000 (IR 1.83), with tracking error below 5%.
+- The factor favors low liquidity, low volatility, low valuation, and high profitability. Its size correlation is only -0.03. The report recognizes that these style exposures contribute to both excess returns and transaction-cost sensitivity.
 
-## 1. 模型与方法
+## 1. Model and method
 
-GRU 是 LSTM 的简化，只保留更新门与重置门，训练更高效、性能相当或更好。报告没有为 A 股做复杂改造，刻意只用基础行情验证 GRU 的信息挖掘能力：
+GRU is a simplified LSTM that retains the update and reset gates. The report describes it as more efficient to train, with comparable or better performance. It makes no complex A-share-specific changes and uses basic market data to test GRU's ability to extract information:
 
-- 输入：一日 240 根分钟 bar，特征为开盘价、最高价、最低价、收盘价、成交量、成交额、成交笔数，共 7 维，在日内 240 分钟上做时序标准化。
-- 结构：`Input_size=7`，`Hidden_size=32`，`Bias=False`。32 个隐状态取均值得到单值输出。
-- 目标：未来 1 个交易日的 open-to-open 收益率，每日做截面标准化。
-- 训练：Adam（lr=0.001）、MSE、batch 4096。用过去 10 个月分钟数据按 4:1 拆成 8 个月训练、2 个月验证，滚动训练、每月重训一次、模型用一个月。
-- 股票池：全市场，剔除 st 和 *st、上市不满 1 年、停牌不可交易。
+- **Input:** one day of 240 minute bars with seven features: open, high, low, close, volume, turnover value, and trade count. Features are normalized over the 240 intraday steps.
+- **Architecture:** `Input_size=7`, `Hidden_size=32`, `Bias=False`. The 32 hidden states are averaged to produce one scalar.
+- **Target:** next-trading-day open-to-open return, standardized cross-sectionally each day.
+- **Training:** Adam (`lr=0.001`), MSE, batch size 4096. A rolling ten-month window is split 4:1 into eight months of training and two months of validation. The model is retrained monthly and used for one month.
+- **Universe:** all stocks, excluding ST and *ST stocks, stocks listed for less than one year, and suspended or untradeable stocks.
 
-要点：特征只在日内做时序标准化、目标只做截面标准化，无行业和市值中性化。这是一个几乎没有特质化处理的基线，因此风格暴露直接可见。
+Features are normalized only through intraday time, and the target only cross-sectionally. There is no sector or size neutralization. This minimally engineered baseline therefore exposes its style tilts directly.
 
-## 2. GRU 因子表现
+## 2. GRU factor results
 
-- IC：日平均 Rank IC 7.5%，2022 年前约 8.0%，2022 年后约 6.9%。累计 IC 稳定无大回撤。
-- 分组：十组收益单调线性。空头组（第 1 组）日均 -0.34%，多头组（第 10 组）日均 +0.24%，多空均衡、空头偏好弱。
-- 风格：市值相关仅 -0.03。对流动性与波动率负向暴露明显，对估值与盈利正向暴露，偏好流动性差、波动率低、估值低、盈利高的股票。
-- 行业：整体均衡，钢铁与银行得分略高、通信与非银金融略低。2023 年以来分化加剧，传媒、消费者服务、计算机、通信得分明显回落，钢铁、银行上升。
+- **IC:** mean daily Rank IC 7.5%, about 8.0% before 2022 and 6.9% afterward. Cumulative IC is stable without a pronounced drawdown.
+- **Deciles:** decile returns are monotonically ordered. The bottom decile averages -0.34% per day; the top decile averages +0.24% per day. Long and short contributions are balanced, with the short side weaker.
+- **Style:** size correlation is only -0.03. The factor has clear negative exposure to liquidity and volatility and positive exposure to valuation and profitability. It favors illiquid, low-volatility, low-valuation, and high-profitability stocks.
+- **Sector:** exposures are broadly balanced. Scores are slightly higher for steel and banks and lower for communications and non-bank financials. Since 2023, dispersion has widened: media, consumer services, computers, and communications fell, while steel and banks rose.
 
-## 3. 多头组合与指数增强
+## 3. Long-only portfolios and index enhancement
 
-多头组合回测设定：2019-01-01 至 2024-06-21，全市场剔 st、新股和停牌，对标中证 1000，500 只等权，换手限制（日频单边 5%、周频 25%、月频不限），交易价格取开盘价或全天 VWAP，手续费双边千 3。
+The long-only backtest covers 2019-01-01 through 2024-06-21. It excludes ST stocks, recent listings, and suspensions, uses CSI 1000 as the benchmark, holds 500 stocks equally, and charges 3 per mille on both sides. Turnover limits are 5% one-way daily, 25% weekly, and unlimited monthly. Execution uses the open or all-day VWAP.
 
-| 换仓频率 | 开盘价超额年化 | VWAP 超额年化 | IR | Calmar | 月胜率 |
-|---|---|---|---|---|---|
-| 日频 | 22.45% | 12.91% | 3.17 / 1.91 | 2.23 / 1.19 | 86% / 79% |
-| 周频 | 16.95% | 9.81% | 2.40 / 1.44 | 1.53 / 0.81 | 82% / 76% |
-| 月频 | 11.79% | 6.92% | 1.76 / 1.08 | 1.14 / 0.65 | 77% / 73% |
+| Rebalance | Open excess return, annualized | VWAP excess return, annualized | IR (open / VWAP) | Calmar (open / VWAP) | Monthly win rate (open / VWAP) |
+|---|---:|---:|---:|---:|---:|
+| Daily | 22.45% | 12.91% | 3.17 / 1.91 | 2.23 / 1.19 | 86% / 79% |
+| Weekly | 16.95% | 9.81% | 2.40 / 1.44 | 1.53 / 0.81 | 82% / 76% |
+| Monthly | 11.79% | 6.92% | 1.76 / 1.08 | 1.14 / 0.65 | 77% / 73% |
 
-- 开盘与 VWAP 对比：开盘成交长期占优，年化差 4.87% 至 9.54%，即滑点的影响范围。
-- 换仓频率：2020 年以前高频换仓明显占优，2023 年以来高频贡献减弱甚至转负。
-- 2024 年至今：等权加小市值暴露在 2 月风险事件中回撤较大，今年收益明显走弱。
+- **Open versus VWAP:** open execution outperforms over the full period, with an annualized difference of 4.87%–9.54%, which indicates the reported slippage range.
+- **Rebalance frequency:** before 2020, more frequent rebalancing performed clearly better. Since 2023, its contribution weakened and sometimes turned negative.
+- **2024:** equal weighting with small-cap exposure had a large drawdown during the February risk event, and returns weakened during the current year.
 
-指数增强（行业偏离绝对值和小于 1%、风格偏离小于 0.01 标准差、成分股占比 80%、周度调仓双边换 15%、VWAP 成交）：沪深 300 超额 +7.26%（IR 1.93，Calmar 1.68，最大回撤 4.33%），中证 500 超额 +7.58%（IR 1.81），中证 1000 超额 +8.86%（IR 1.83，Calmar 1.35）。基准市值越小超额越高，但对小盘风险事件也更敏感。
+The index-enhancement portfolio limits absolute sector deviation to below 1%, style deviation to below 0.01 standard deviations, requires 80% constituent coverage, rebalances weekly with 15% two-way turnover, and executes at VWAP. Reported excess returns are +7.26% for CSI 300 (IR 1.93, Calmar 1.68, max drawdown 4.33%), +7.58% for CSI 500 (IR 1.81), and +8.86% for CSI 1000 (IR 1.83, Calmar 1.35). Excess return rises as benchmark constituent size decreases, but sensitivity to small-cap risk events also rises.
 
-## 4. 局限性（研报自述 + 独立评估）
+## 4. Limitations and independent assessment
 
-研报自述：
+### Limitations acknowledged in the report
 
-- 只用了信息量很少的一日分钟 bar，目标几乎未做特质化处理，多空能力有提升空间。
-- 低波动、低流动性风格偏好对交易层面影响大，改善风格偏好是值得研究的方向。
-- 后续改进方向：丰富输入特征维度、对预测目标做处理以改善风格、在损失函数里引入风格因子约束。
-- 风险提示：历史规律可能失效、过拟合、随机数导致结果不可完全复刻、成交价按理想假设（开盘或 VWAP）计算。
+- It uses only one day's minute bars, which contain limited information, and barely transforms the target. The report says long-short capability could improve.
+- The low-volatility and low-liquidity preference has a material trading impact. Reducing these style tilts is proposed as a research direction.
+- Suggested improvements include richer inputs, target processing to change style exposure, and style constraints in the loss function.
+- Risks include historical patterns ceasing to hold, overfitting, imperfect repeatability from random seeds, and idealized execution at the open or VWAP.
 
-独立评估（本项目视角）：
+### Independent assessment from this project's perspective
 
-- 22% 量级的超额是开盘价成交、高换手、等权小市值暴露的综合产物，不能当作可交易净收益。更接近真实可比的是 VWAP 加中性化后的指数增强，约 7% 至 9%。
-- IC 7.5% 是原始 open-to-open 收益（未残差化或中性化）上的日频 IC，与项目分钟线 0.02 至 0.035 的残差日 IC 口径不同，不能直接对比。
-- 因子收益里带明显的低波动、低流动性风格 beta。报告中 2024 年 2 月小盘风险事件重创等权多头、2023 年后高频换仓贡献转负，都是信号被交易与风格侵蚀的直接证据，与本项目分钟信号成本敏感、盈亏平衡约 5 至 6 bp 的结论方向一致。
+- Excess returns on the order of 22% combine open-price execution, high turnover, and equal-weight small-cap exposure. They should not be treated as tradable net returns. VWAP execution with neutralized index enhancement, around 7%–9%, is a more realistic comparison.
+- The 7.5% IC uses raw open-to-open returns without residualization or neutralization. It is not directly comparable with this project's minute-line residual daily IC of 0.02–0.035.
+- Factor returns have meaningful low-volatility and low-liquidity style beta. The small-cap risk event in February 2024 and negative contribution from frequent rebalancing since 2023 are direct evidence that trading and style exposures erode the signal. This aligns directionally with this project's cost-sensitive minute signal and breakeven cost of about 5–6 bp.
 
-## 5. 对本项目的借鉴与可执行项
+## 5. Implications and actionable work
 
-1. 补 GRU 序列基线（最直接）。项目分钟线现为 HGB（聚合特征）加 TCN（序列）。研报的设定可直接落成一个 GRU 基线，用 7 维分钟特征日内时序标准化、预测次日 open-to-open、滚动 10 个月训练月频重训，把对比补成 HGB、TCN、GRU 三路同口径，用项目既有的 walk-forward 加成本框架裁决。
-2. 口径对不上要警惕。复现时应把目标换成项目口径（Barra 残差或中性化），并用项目 `research/portfolio.py` 的 Top-K 成本评估跑净收益。直接用研报 22% 超额或 7.5% IC 会高估信号。
-3. 成本与换仓敏感性框架。研报对开盘与 VWAP、日周月、滑点年化影响的拆解，与项目组合评估的换手和成本诊断互补，可对照复现。
-4. 中性化后的指数增强是更诚实的读数。研报的 300、500、1000 增强（IR 约 1.7 至 1.9）是剥离风格后的结果，比多头组合更适合作为跨项目对比锚点。
-5. 改进方向可复用。研报末尾提出在损失函数中引入风格约束控制暴露，与本项目治理和标签口径天然契合，若推进 GRU 线可纳入。
+1. **Add a GRU sequence baseline.** The project's minute path currently pairs HGB over aggregates with TCN over sequences. The report's setup can be implemented as a GRU baseline using seven minute features, intraday sequence normalization, next-day open-to-open returns, and rolling ten-month training with monthly retraining. Compare HGB, TCN, and GRU under the same walk-forward and cost framework.
+2. **Align definitions before comparing results.** For reproduction, use this project's target definition, such as Barra residual returns or a neutralized target, and run net-return evaluation through `research/portfolio.py`. Quoting the report's 22% excess return or 7.5% IC directly would overstate comparability.
+3. **Reuse the cost and rebalance sensitivity framework.** The report's open-versus-VWAP, daily/weekly/monthly, and annualized-slippage comparisons complement this project's turnover and cost diagnostics.
+4. **Use neutralized index enhancement as the more honest reading.** The report's CSI 300/500/1000 enhancements (IR around 1.7–1.9) remove style exposures and provide a better cross-project comparison anchor than the long-only portfolio.
+5. **Consider the proposed improvements.** Style constraints in the loss function align with this project's target governance and labels. They could be tested if the GRU line proceeds.
 
-## 6. 复现建议
+## 6. Reproduction proposal
 
-- 项目有 2021 年起的 L2 与分钟数据，可直接在其上重跑标准化分钟 bar 到序列模型再到次日 open-to-open 的链路，但目标改用残差化标签，切分沿用 2021 至 2023 训练、2024 验证、2025 锁测，成本按项目 Top-K 口径核算。
-- 建议第一版就用 `minute_tcn` 的现成数据管线，只替换模型为 GRU，控制变量最小化，避免重蹈验证集强、测试集不泛化的覆辙（TCN 前车之鉴）。
+- The project has L2 and minute data from 2021 onward. It could rerun normalized minute bars through a sequence model to next-day open-to-open prediction, but should use residualized labels, train on 2021–2023, validate on 2024, lock 2025, and calculate costs using the project's Top-K protocol.
+- For a first version, reuse the `minute_tcn` data pipeline and change only the model to GRU. This minimizes confounding and avoids repeating the TCN pattern of strong validation that failed to generalize to test.

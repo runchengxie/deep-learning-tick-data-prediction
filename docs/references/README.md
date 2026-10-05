@@ -1,47 +1,49 @@
-# 论文与阅读笔记归档
+# Papers and Reading Notes
 
-本目录归档项目曾使用的论文原文和中文阅读笔记。部分资料对应已经完成或停止的研究阶段，当前实现和实验状态以[项目现状](../project-status.md)为准。
+This directory preserves papers used by the project and reading notes derived from them. Some sources relate to completed or discontinued research stages. For the current implementation and experiment status, use [Project status](../project-status.md).
 
 ## DeepLOB
 
-- 标题：DeepLOB: Deep Convolutional Neural Networks for Limit Order Books
-- 作者：Zihao Zhang、Stefan Zohren、Stephen Roberts
-- 单位：牛津大学工程科学系 Oxford-Man Institute of Quantitative Finance
-- 链接：[arXiv 1808.03668](https://arxiv.org/abs/1808.03668)
-- 笔记：`deeplob-paper-notes.md`
+- Title: DeepLOB: Deep Convolutional Neural Networks for Limit Order Books
+- Authors: Zihao Zhang, Stefan Zohren, and Stephen Roberts
+- Affiliation: Department of Engineering Science and Oxford-Man Institute of Quantitative Finance, University of Oxford
+- Paper: [arXiv:1808.03668](https://arxiv.org/abs/1808.03668)
+- Notes: `deeplob-paper-notes.md`
 
-论文提出 CNN、Inception 和 LSTM 组合模型，从限价订单簿原始价格和数量中提取空间与时间特征。论文包含 FI-2010、伦敦证券交易所数据、跨股票泛化、简单交易模拟和 LIME 解释实验。
+The paper combines CNN, Inception, and LSTM layers to extract spatial and temporal features from raw limit-order-book prices and volumes. Its experiments cover FI-2010, London Stock Exchange data, cross-stock generalization, a simple trading simulation, and LIME explanations.
 
-代码实现与论文设定的逐项核对放在[复现核对](../reproduction-audit.md)。阅读笔记用于理解论文，不替代项目当前实现说明。
+The implementation-to-paper comparison is in the [reproduction audit](../reproduction-audit.md). The reading notes explain the paper and do not replace the current implementation guide.
 
 ## AgentX
 
-- 标题：AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems
-- 作者：AgentX Team（快手）
-- 链接：[arXiv 2606.26859](https://arxiv.org/abs/2606.26859)
-- 笔记：`agentx-paper-notes.md`
+- Title: AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems
+- Authors: AgentX Team, Kuaishou
+- Paper: [arXiv:2606.26859](https://arxiv.org/abs/2606.26859)
+- Notes: `agentx-paper-notes.md`
 
-论文提出生产级多智能体系统，用闭环把推荐系统研发从人工 idea-to-launch 串行链改写成可复合、可演化的自动循环。Brainstorm Agent 生成证据支撑的提案，Developing Agent 把提案变成生产代码，Evaluation Agent 做护栏否决式 A/B 判断并资产化负面结果，SGPO 从执行轨迹持续改进 Agent 自身。三周生产验证得到 374 想法到 10 可上线结果，吞吐与线上增益约一个数量级提升。
+The paper proposes a production multi-agent loop for recommender-system development. A Brainstorm Agent creates evidence-backed proposals, a Developing Agent turns proposals into production code, an Evaluation Agent runs guardrail-based A/B decisions and records negative findings, and SGPO uses execution traces to improve the agents. The paper reports that a three-week deployment produced 10 launchable results from 374 ideas, with substantial throughput and online-metric improvements.
 
-本仓库参考该论文思路推进自动量化研究闭环，落地路线见 `agentx-paper-notes.md` 末节的对本项目的启示。
+This project draws on the closed-loop research idea for automated quantitative research. The implementation discussion is at the end of `agentx-paper-notes.md`.
 
-## 德邦证券
+## Debang Securities
 
-- 标题：基于分钟数据的 GRU 模型在选股策略中的应用初探
-- 系列：德邦证券金工机器学习专题（之六）
-- 文件：`德邦证券_分钟数据GRU选股策略初探.pdf`
-- 笔记：`debang-minute-gru-notes.md`
+- Source title: <!-- preserved-source:start -->基于分钟数据的 GRU 模型在选股策略中的应用初探<!-- preserved-source:end -->
+- Series: Debang Securities quantitative research, Machine Learning Series No. 6
+- Source document: cited in the reading notes; the source PDF is not included in this public repository
+- Notes: `debang-minute-gru-notes.md`
 
-报告研究把分钟级量价序列输入 GRU 做横截面选股，与本项目 `nextday` 的分钟线（`minute_baseline`、`minute_tcn`、`minute_gru`）同属一条研究线，先验证分钟特征是否有次日信息，再对比深度序列模型相对树模型基线的样本外增量，并核算成本后净收益。
+The report studies a GRU that uses minute-level price and volume sequences for cross-sectional stock selection. It is related to this project's minute-data work in `nextday`, including `minute_baseline`, `minute_tcn`, and `minute_gru`: first test whether minute features contain next-day information, then compare deep sequence models with tree baselines out of sample and account for net returns after costs.
 
-## 文件
+The PDF is not redistributed through this public repository. The notes summarize the source in original wording and distinguish reported results from this project's own evidence.
 
-| 文件 | 说明 |
+## Files
+
+| File | Description |
 |---|---|
-| `1808.03668v6.pdf` | DeepLOB arXiv v6 论文原文 |
-| `deeplob-paper-notes.md` | DeepLOB 按论文章节整理的中文笔记 |
-| `2606.26859v2.pdf` | AgentX arXiv v2 论文原文 |
-| `agentx-paper-notes.md` | AgentX 按论文章节整理的中文笔记 |
-| `德邦证券_分钟数据GRU选股策略初探.pdf` | 德邦证券金工机器学习专题之六，分钟数据 GRU 选股 |
-| `debang-minute-gru-notes.md` | 分钟数据 GRU 选股报告的中文阅读笔记 |
-| `README.md` | 本索引 |
+| `1808.03668v6.pdf` | DeepLOB arXiv v6 paper |
+| `deeplob-paper-notes.md` | Notes organized by the DeepLOB paper's sections |
+| `2606.26859v2.pdf` | AgentX arXiv v2 paper |
+| `agentx-paper-notes.md` | Notes organized by the AgentX paper's sections |
+| Source PDF | Not included because redistribution rights have not been established |
+| `debang-minute-gru-notes.md` | English reading notes for the minute-data GRU report |
+| `README.md` | This index |

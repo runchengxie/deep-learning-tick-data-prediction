@@ -1,119 +1,110 @@
-# 文档索引
+# Documentation Index
 
 > status: active
-> owner: deep-learning-tick-data-prediction
+> owner: quant-deep-learning
 > audience: human and agent
 > last_verified: 2026-09-06
 > source_of_truth: yes
 > superseded_by: n/a
 
-本目录收录项目现状、专题说明、研究记录和冻结产物。先看当前状态，再按主题阅读，可以区分现行结论、阶段记录和历史快照。
+This directory contains project status, topic guides, research records, and frozen artifacts. Start with the status page, then follow the topics relevant to your work. This distinguishes current conclusions from milestone records and historical snapshots.
 
-## 阅读路径
+## Suggested reading path
 
-新人从根目录 README 了解项目全貌后，按下面的顺序阅读：
+New readers can start with the root README, then read:
 
-1. [project-status.md](project-status.md) 汇总当前功能、研究结论、数据权限和工作顺序
-2. [model-catalog.md](model-catalog.md) 汇总模型原理、优点、限制和当前研究状态
-3. [nextday/cross-sectional-prediction.md](nextday/cross-sectional-prediction.md) 定义样本、标签、日期切分和评估口径
-4. [research/topk-agentx-m0-research-contract.md](research/topk-agentx-m0-research-contract.md) 说明当前研究使用的 2025 已见、2026 封存边界
-5. [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 说明研究设计和 M0 至 M9 的状态
-6. [research/external-l2-research-comparison.md](research/external-l2-research-comparison.md) 汇总外部 L2 项目对比、事实核对和已采纳实验
-7. [research/topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) 记录已经完成的正式 Top-K 诊断
-8. [research/eventstream-signal-trading-diagnostics.md](research/eventstream-signal-trading-diagnostics.md) 记录事件流半衰期、错峰持有和交易门槛结果
-9. [research/eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) 说明多任务梯度审计、决策门槛和正式运行方式
-10. [research/eventstream-label-scale.md](research/eventstream-label-scale.md) 记录标签尺度和监督位置实验的合同、结果与决策
-11. [operations/development-guide.md](operations/development-guide.md) 说明模块边界、测试范围和门禁命令
-12. [operations/systemd-workflows.md](operations/systemd-workflows.md) 记录历史 ticknet systemd 工作流和清理结果
+1. [Project status](project-status.md) for current capabilities, research conclusions, data access, and work order.
+2. [Model catalog](model-catalog.md) for model methods, strengths, limits, and research status.
+3. [Cross-sectional prediction](nextday/cross-sectional-prediction.md) for samples, labels, date splits, and evaluation rules.
+4. [AgentX research contract](research/topk-agentx-m0-research-contract.md) for the current 2025 development and 2026 locked-period boundary.
+5. [AgentX research roadmap](research/topk-agentx-research-roadmap.md) for the research design and M0–M9 status.
+6. [External L2 project comparison](research/external-l2-research-comparison.md) for comparisons, factual checks, and experiments adopted from related projects.
+7. [Top-K diagnostics](research/topk-agentx-m3-topk-diagnostics.md) for the completed formal Top-K diagnostics.
+8. [Event-stream trading diagnostics](research/eventstream-signal-trading-diagnostics.md) for signal decay, staggered holding, and trading gates.
+9. [Event-stream gradient audit](research/eventstream-gradient-audit.md) for the multi-task gradient audit, decision gate, and run instructions.
+10. [Event-stream label-scale study](research/eventstream-label-scale.md) for label-scale and supervision-position experiments.
+11. [Operations development guide](operations/development-guide.md) for module boundaries, test scope, and quality checks.
+12. [System workflows](operations/systemd-workflows.md) for historical TickNet system workflows and their cleanup.
 
-`project-status.md` 和路线总览用于判断当前状态。M0、M1、M2a 至 M2d 文档记录对应里程碑完成时的设计和结论，后续功能可能已经继续扩展。`reports/` 与 `baselines/` 是冻结产物。
+Use `project-status.md` and the main roadmap for current state. M0, M1, M2a–M2d documents preserve the design and findings at each milestone; later work may have extended them. `reports/` and `baselines/` contain frozen artifacts.
 
-## 目录
+## By topic
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [project-status.md](project-status.md) | 当前功能、研究结论、数据权限和下一步 |
-| [model-catalog.md](model-catalog.md) | 模型输入、运行原理、优点、限制和研究状态 |
+| [Project status](project-status.md) | Current capabilities, findings, data access, and next steps |
+| [Model catalog](model-catalog.md) | Model inputs, methods, strengths, limitations, and research status |
 
-### nextday
+### Next-day research
 
-A 股次日横截面预测主线，覆盖样本口径、数据加工、训练入口和分阶段路线。
+Next-day cross-sectional prediction, including sample rules, data processing, training entry points, and staged roadmaps.
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [cross-sectional-prediction.md](nextday/cross-sectional-prediction.md) | 主链路总规范，数据格式、适配、切分、训练、评估 |
-| [raw-200-end-to-end-pipeline.md](nextday/raw-200-end-to-end-pipeline.md) | 原始盘口端到端操作流程和当前候选 |
-| [eventstream.md](nextday/eventstream.md) | L2 逐笔事件流无损打包、因果 Transformer 与预测导出 |
-| [raw-data-expansion-roadmap.md](nextday/raw-data-expansion-roadmap.md) | 五年 raw 数据生成、审计和扩展记录 |
-| [multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) | 1/3/5 日标签、容量门槛、raw-1000 与全天 tick 路线 |
-| [nextday-100m-raw1000-benchmark.md](nextday/nextday-100m-raw1000-benchmark.md) | 100M 参数容量基准与 A100 batch sweep 实测快照 |
-| [h5-rolling-eventstream-roadmap.md](nextday/h5-rolling-eventstream-roadmap.md) | H5 Rank IC 主目标、3/1/1 滚动协议与全天事件数据 pilot |
-| [hardware-constraints-and-experiment-roadmap.md](nextday/hardware-constraints-and-experiment-roadmap.md) | 硬件约束、统一研究口径和分阶段路线 |
+| [Cross-sectional prediction](nextday/cross-sectional-prediction.md) | Main protocol for data, adapters, splits, training, and evaluation |
+| [Raw-200 end-to-end pipeline](nextday/raw-200-end-to-end-pipeline.md) | Raw-order-book workflow and current candidate |
+| [Event-stream guide](nextday/eventstream.md) | Lossless L2 packing, causal Transformer, and prediction export |
+| [Raw-data expansion roadmap](nextday/raw-data-expansion-roadmap.md) | Five-year raw-data generation, auditing, and expansion |
+| [Multi-horizon expansion roadmap](nextday/multi-horizon-data-expansion-roadmap.md) | 1/3/5-day labels, capacity gates, raw-1000, and full-day tick data |
+| [100M raw-1000 benchmark](nextday/nextday-100m-raw1000-benchmark.md) | 100M-parameter capacity benchmark and A100 batch sweep |
+| [H5 rolling event-stream roadmap](nextday/h5-rolling-eventstream-roadmap.md) | H5 Rank IC target, 3/1/1 rolling protocol, and full-day event-data pilot |
+| [Hardware and experiment roadmap](nextday/hardware-constraints-and-experiment-roadmap.md) | Hardware limits, research conventions, and staged roadmap |
 
-### research
+### Research records
 
-Top-K 可交易组合与 AgentX 自动量化研究闭环。
+Top-K tradable portfolios and the AgentX automated quantitative research loop.
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) | 研究路线总览，真实结论、统一原则和 M0 到 M9 状态 |
-| [topk-agentx-m0-research-contract.md](research/topk-agentx-m0-research-contract.md) | 研究契约，数据权限审计和交易口径 |
-| [topk-agentx-m1-portfolio-evaluator.md](research/topk-agentx-m1-portfolio-evaluator.md) | Top-K long-only 组合评估内核的输入契约和成本公式 |
-| [topk-agentx-m2a-deterministic-loop.md](research/topk-agentx-m2a-deterministic-loop.md) | M2a 完成时的 ExperimentSpec v2 与确定性闭环记录 |
-| [topk-agentx-m2b-locked-approval.md](research/topk-agentx-m2b-locked-approval.md) | locked test 的一次性人工签发与受控消费 |
-| [topk-agentx-m2c-executors-comparison.md](research/topk-agentx-m2c-executors-comparison.md) | prediction 导出、多 seed 对比与 walk-forward 稳健性 |
-| [topk-agentx-m2d-registry-context.md](research/topk-agentx-m2d-registry-context.md) | 由 Registry 构造的可重放 ResearchContext |
-| [topk-agentx-m3-topk-diagnostics.md](research/topk-agentx-m3-topk-diagnostics.md) | 正式 Top-K 成本诊断的输入、结果与判定门槛 |
-| [eventstream-signal-trading-diagnostics.md](research/eventstream-signal-trading-diagnostics.md) | 事件流半衰期、H5 错峰持有、排名平滑、动态成本和风险暴露 |
-| [eventstream-gradient-audit.md](research/eventstream-gradient-audit.md) | 事件流四任务的梯度强度、方向、审计合同和决策门槛 |
-| [eventstream-label-scale.md](research/eventstream-label-scale.md) | 事件流标签尺度与监督位置实验的合同、结果和正式决策 |
-| [resource-strategy-and-pilot-gates.md](research/resource-strategy-and-pilot-gates.md) | 有限算力下的资源策略与门槛式实验原则 |
-| [external-l2-research-comparison.md](research/external-l2-research-comparison.md) | 外部 L2 研究路线对比、事实修正、待验证机制和实施顺序 |
-| [shanghai-opening-contract-audit-2026-08-27.md](research/shanghai-opening-contract-audit-2026-08-27.md) | 沪市开盘订单覆盖、事件时差和十档账本审计 |
-| [opening-coverage-inventory-2026-08-27.md](research/opening-coverage-inventory-2026-08-27.md) | raw L2 盘前订单覆盖和关联文件完整性清单 |
-| [historical-data-eligibility-2026-08-27.md](research/historical-data-eligibility-2026-08-27.md) | 2021 至 2025 历史 raw L2 数据准入边界 |
-| [experiment-log.md](research/experiment-log.md) | 带日期的历史实验记录，含 TCN 对比、滚动验证、成本评估、审计归因与 Agent 闭环 |
+| [AgentX research roadmap](research/topk-agentx-research-roadmap.md) | Roadmap, evidence, shared principles, and M0–M9 status |
+| [M0 research contract](research/topk-agentx-m0-research-contract.md) | Research contract, data-access audit, and trading conventions |
+| [M1 portfolio evaluator](research/topk-agentx-m1-portfolio-evaluator.md) | Input contract and cost formulas for the Top-K long-only evaluator |
+| [M2a deterministic loop](research/topk-agentx-m2a-deterministic-loop.md) | ExperimentSpec v2 and deterministic loop at M2a completion |
+| [M2b locked-test approval](research/topk-agentx-m2b-locked-approval.md) | One-time manual approval and controlled use of locked tests |
+| [M2c executor comparison](research/topk-agentx-m2c-executors-comparison.md) | Prediction export, multi-seed comparison, and walk-forward robustness |
+| [M2d registry context](research/topk-agentx-m2d-registry-context.md) | Reproducible ResearchContext built from the registry |
+| [M3 Top-K diagnostics](research/topk-agentx-m3-topk-diagnostics.md) | Inputs, results, and gates for formal Top-K cost diagnostics |
+| [Event-stream trading diagnostics](research/eventstream-signal-trading-diagnostics.md) | Signal decay, H5 staggered holding, smoothing, dynamic costs, and risk exposures |
+| [Event-stream gradient audit](research/eventstream-gradient-audit.md) | Gradient strength, direction, audit contract, and gates for four event-stream tasks |
+| [Event-stream label scale](research/eventstream-label-scale.md) | Label scale, supervision-position experiments, and formal decision |
+| [Resource strategy and pilot gates](research/resource-strategy-and-pilot-gates.md) | Compute limits and gate-based experiment principles |
+| [External L2 comparison](research/external-l2-research-comparison.md) | Related L2 research, factual corrections, mechanisms to test, and work order |
+| [Shanghai opening contract audit](research/shanghai-opening-contract-audit-2026-08-27.md) | Shanghai opening-order coverage, event timing, and ten-level ledger audit |
+| [Opening coverage inventory](research/opening-coverage-inventory-2026-08-27.md) | Pre-open raw L2 coverage and related-file completeness |
+| [Historical data eligibility](research/historical-data-eligibility-2026-08-27.md) | Admission boundaries for historical raw L2 data from 2021 to 2025 |
+| [Experiment log](research/experiment-log.md) | Dated results for TCN comparisons, rolling validation, costs, audits, and AgentX |
 
-### dev
+### Development and operations
 
-开发维护与运行基础设施。
-
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [development-guide.md](dev/development-guide.md) | 模块划分、测试范围、质量门禁与依赖管理 |
-| [colab-cli-automation.md](dev/colab-cli-automation.md) | Colab 无人值守训练与评估的自动化入口 |
+| [Development guide](dev/development-guide.md) | Module boundaries, test scope, quality gates, and dependency management |
+| [Colab CLI automation](dev/colab-cli-automation.md) | Unattended training and evaluation entry points for Colab |
+| [System workflows](operations/systemd-workflows.md) | Historical local TickNet workflows, paths, and cleanup records |
 
-### operations
+### Reproduction and artifacts
 
-本节记录本机运行基础设施和历史调度配置。
-
-| 文档 | 内容 |
+| Path | Contents |
 |---|---|
-| [systemd-workflows.md](operations/systemd-workflows.md) | 历史 ticknet systemd 工作流、路径约定和清理记录 |
+| [Reproduction audit](reproduction-audit.md) | DeepLOB on FI-2010; implementation archived under `legacy/` |
+| [Top-K AgentX v1 baseline](baselines/topk-agentx-v1.json) | Frozen M0 artifact manifest with SHA-256 and metrics |
+| [Multi-horizon source inspection](reports/multi-horizon-decision-2026-08-10/source-inspection.md) | Historical snapshot from 2026-08-10; its findings were incorporated into the multi-horizon roadmap |
 
-### 复现与产物
+### Papers and reading notes
 
-| 路径 | 内容 |
-|---|---|
-| [reproduction-audit.md](reproduction-audit.md) | DeepLOB 在 FI-2010 上的复现核对，对象已归档到 legacy |
-| [baselines/topk-agentx-v1.json](baselines/topk-agentx-v1.json) | M0 冻结的基线 artifact 清单，含 SHA-256 与指标，冻结后不再更新 |
-| [reports/multi-horizon-decision-2026-08-10](reports/multi-horizon-decision-2026-08-10/source-inspection.md) | 2026-08-10 多周期决策的历史快照，结论已被 multi-horizon 路线吸收 |
+Paper sources and reading notes organized by section are in [references](references/README.md). They provide research provenance. Current implementations and experiment status remain in the status page, topic guides, and roadmaps.
 
-### 论文与阅读笔记
+## Where to record research evidence
 
-论文原文和按章节整理的阅读笔记归档在 [references](references/README.md) 目录。这里的内容用于追溯研究资料来源，项目当前实现和实验状态继续以现状页、专题说明和研究路线为准。
+Documents serve different reading needs. Keep numerical conclusions consistent by following these conventions:
 
-## 数据结论的存放约定
+- `project-status.md` contains only the current summary and status.
+- The current-evidence section of [the AgentX roadmap](research/topk-agentx-research-roadmap.md) contains the latest real results.
+- [The multi-horizon roadmap](nextday/multi-horizon-data-expansion-roadmap.md) contains multi-horizon and capacity experiments.
+- [The experiment log](research/experiment-log.md) records dated historical results with full figures.
 
-不同文档面向不同的阅读场景。维护时遵循下面的约定，可以减少数值漂移。
+Date capacity, disk use, and Drive quota measurements because they change. Keep historical artifacts in `reports/` and `baselines/` frozen instead of rewriting them to match current status.
 
-- [project-status.md](project-status.md) 只保留当前摘要和工作状态
-- [research/topk-agentx-research-roadmap.md](research/topk-agentx-research-roadmap.md) 的当前证据一节收录最新真实结论
-- [nextday/multi-horizon-data-expansion-roadmap.md](nextday/multi-horizon-data-expansion-roadmap.md) 收录多周期与容量实验
-- [research/experiment-log.md](research/experiment-log.md) 按日期收录带完整数字的历史实验记录
+## Writing conventions
 
-涉及资源容量、磁盘占用、Drive 套餐这类随时间变化的数字，应写明日期。历史产物（`reports/`、`baselines/`）保持冻结，不随当前状态改写。
-
-## 写作规范
-
-中文正文用中文标点，保留命令、配置名、模块名和指标名的行内代码。不用双引号、加粗、分号、破折号和先否定再转折的句式。改动文档里的命令时，先用对应的 `--help` 核对参数名，再落笔。
+Write explanatory prose in clear English. Keep commands, configuration keys, module names, and metrics in inline code. Verify command options with `--help` before documenting them.

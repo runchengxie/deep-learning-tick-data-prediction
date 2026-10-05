@@ -10,13 +10,28 @@ MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
 INLINE_CODE = re.compile(r"`[^`\n]*`")
 ARCHIVAL_SOURCE_START = "<!-- archival-source:start -->"
 ARCHIVAL_SOURCE_END = "<!-- archival-source:end -->"
-STYLE_RULES = {
-    "双引号": re.compile(r'[“”"]'),
-    "强调": re.compile(r"\*\*"),
-    "分号": re.compile(r"[；;]"),
-    "破折号": re.compile(r"——|—"),
-    "先否定再转折": re.compile(r"(?:不是|并非).{0,50}而是"),
-    "中文旁的半角括号": re.compile(r"[\u3400-\u9fff]\(|\)[\u3400-\u9fff]"),
+PRESERVED_SOURCE_START = "<!-- preserved-source:start -->"
+PRESERVED_SOURCE_END = "<!-- preserved-source:end -->"
+CJK_PROSE = re.compile(r"[\u3400-\u9fff]")
+ENGLISH_DOCUMENTS = {
+    "README.md",
+    "AGENTS.md",
+    "MIGRATION-STATUS.md",
+    "docs/index.md",
+    "docs/documentation-index.md",
+    "docs/project-status.md",
+    "docs/model-catalog.md",
+    "docs/reproduction-audit.md",
+    "docs/architecture/data-boundary.md",
+    "docs/dev/colab-cli-automation.md",
+    "docs/dev/development-guide.md",
+    "docs/operations/development-guide.md",
+    "docs/operations/systemd-workflows.md",
+    "docs/references/README.md",
+    "docs/references/agentx-paper-notes.md",
+    "docs/references/debang-minute-gru-notes.md",
+    "docs/references/deeplob-paper-notes.md",
+    "legacy/notebooks/README.md",
 }
 
 
@@ -24,26 +39,38 @@ def _markdown_files() -> list[Path]:
     return [
         ROOT / "README.md",
         ROOT / "AGENTS.md",
+        ROOT / "MIGRATION-STATUS.md",
         *sorted(
             path
             for path in (ROOT / "docs").rglob("*.md")
             if "superpowers" not in path.relative_to(ROOT / "docs").parts
         ),
+        *sorted((ROOT / "legacy").rglob("*.md")),
     ]
 
 
 def _prose_lines(path: Path) -> list[tuple[int, str]]:
     lines: list[tuple[int, str]] = []
     in_fence = False
-    in_archival_source = False
+    source_end_markers = {ARCHIVAL_SOURCE_START: ARCHIVAL_SOURCE_END, PRESERVED_SOURCE_START: PRESERVED_SOURCE_END}
+    active_source_end: str | None = None
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if raw_line.strip() == ARCHIVAL_SOURCE_START:
-            in_archival_source = True
-            continue
-        if raw_line.strip() == ARCHIVAL_SOURCE_END:
-            in_archival_source = False
-            continue
-        if in_archival_source:
+        if active_source_end is not None:
+            if active_source_end in raw_line:
+                raw_line = raw_line.split(active_source_end, maxsplit=1)[1]
+                active_source_end = None
+            else:
+                continue
+        for source_start, source_end in source_end_markers.items():
+            if source_start in raw_line:
+                before, after_start = raw_line.split(source_start, maxsplit=1)
+                if source_end in after_start:
+                    raw_line = before + after_start.split(source_end, maxsplit=1)[1]
+                else:
+                    raw_line = before
+                    active_source_end = source_end
+                break
+        if active_source_end is not None:
             continue
         if raw_line.lstrip().startswith("```"):
             in_fence = not in_fence
@@ -55,10 +82,15 @@ def _prose_lines(path: Path) -> list[tuple[int, str]]:
 
 def test_archival_source_markers_are_balanced() -> None:
     failures: list[str] = []
+    marker_pairs = (
+        (ARCHIVAL_SOURCE_START, ARCHIVAL_SOURCE_END),
+        (PRESERVED_SOURCE_START, PRESERVED_SOURCE_END),
+    )
     for path in _markdown_files():
         text = path.read_text(encoding="utf-8")
-        if text.count(ARCHIVAL_SOURCE_START) != text.count(ARCHIVAL_SOURCE_END):
-            failures.append(str(path.relative_to(ROOT)))
+        for start, end in marker_pairs:
+            if text.count(start) != text.count(end):
+                failures.append(f"{path.relative_to(ROOT)}: {start} / {end}")
     assert not failures, "归档原文标记不成对:\n" + "\n".join(failures)
 
 
@@ -98,6 +130,11 @@ def test_mkdocs_site_configuration() -> None:
     assert "Architecture:" in settings
 
 
+def test_unlicensed_broker_report_is_not_published() -> None:
+    report = ROOT / "docs" / "references" / "德邦证券_分钟数据GRU选股策略初探.pdf"
+    assert not report.exists()
+
+
 def test_internal_markdown_links_exist() -> None:
     failures: list[str] = []
     for path in _markdown_files():
@@ -112,15 +149,12 @@ def test_internal_markdown_links_exist() -> None:
     assert not failures, "内部 Markdown 链接目标不存在:\n" + "\n".join(failures)
 
 
-def test_chinese_document_style() -> None:
+def test_maintained_documentation_is_written_in_english() -> None:
     failures: list[str] = []
-    frozen_reports = ROOT / "docs" / "reports"
-    for path in _markdown_files():
-        if path.is_relative_to(frozen_reports):
-            continue
+    for relative_path in sorted(ENGLISH_DOCUMENTS):
+        path = ROOT / relative_path
         for line_number, line in _prose_lines(path):
             line = MARKDOWN_LINK.sub(r"\1", line)
-            for name, pattern in STYLE_RULES.items():
-                if pattern.search(line):
-                    failures.append(f"{path.relative_to(ROOT)}:{line_number}: {name}")
-    assert not failures, "中文文档风格检查失败:\n" + "\n".join(failures)
+            if CJK_PROSE.search(line):
+                failures.append(f"{path.relative_to(ROOT)}:{line_number}")
+    assert not failures, "Maintained explanatory prose must be English (use preserved-source markers for quotations):\n" + "\n".join(failures)

@@ -1,129 +1,143 @@
-# 项目现状
+# Project Status
 
-本页汇总 2026-08-29 可以由代码、测试或实验产物核对的项目事实。路线图记录研究设计，实验日志保留历史数字，本页负责说明当前进度。状态变化时优先更新本页，再检查根目录 README 和相关专题文档。
+This page records project facts verifiable from code, tests, or experiment artifacts as of 2026-08-29. Roadmaps describe research plans, while the experiment log preserves historical figures. This page summarizes status. When status changes, update it first and then check the root README and relevant topic documents.
 
-## 功能与进度
+## Capabilities and progress
 
-| 链路 | 已有能力 | 当前证据 | 状态 |
+| Track | Existing capability | Evidence at the status date | Status |
 |---|---|---|---|
-| FI-2010 复现 | DeepLOB 训练、评估、文本转换和历史测试 | 代码与核对记录位于 `legacy/` | 已归档 |
-| 原始盘口 | raw-200、raw-1000 分片，约 1M 与 100M 参数模型，多周期标签和推理 | Top-100 四格三 seed 受控矩阵已完成 | 候选已收敛 |
-| 分钟聚合 | HGB、TCN、GRU，按年滚动评估，预测审计和成本评估 | M3 v2 的 2025 下半年 Rank IC 为 0.06994，正式成本矩阵没有甜点区 | 正式结论已记录 |
-| L2 事件流 | 三流无损打包、因果 Transformer、训练恢复、尾盘缓存、冻结 embedding、联合微调、多任务梯度审计和标签覆盖层 | z 标签保留，最后位置和尾部加权未超过全位置基线 | 转入日级任务权重消融 |
-| AgentX 研究闭环 | 提案、批评、白名单执行器、Registry、审计、比较和锁定测试审批 | M0 至 M3 已完成，M4 与 M5 交易转换诊断已落地 | 转入训练机制消融 |
+| FI-2010 reproduction | DeepLOB training, evaluation, text conversion, and historical tests | Code and audit notes are under `legacy/` | Archived |
+| Raw order book | raw-200 and raw-1000 shards, roughly 1M- and 100M-parameter models, multi-horizon labels, and inference | Controlled four-cell, three-seed Top-100 matrix complete | Candidate narrowed |
+| Minute aggregates | HGB, TCN, and GRU, rolling yearly evaluation, prediction audits, and cost evaluation | M3 v2 2025 H2 Rank IC was 0.06994; the formal cost matrix found no viable region | Formal conclusion recorded |
+| L2 event stream | Lossless three-stream packing, causal Transformer, training recovery, closing cache, frozen embeddings, joint fine-tuning, multi-task gradient audits, and label overlays | Keep z-score labels; last-position and tail-weighted supervision did not beat all-position supervision | Daily task-weight ablation next |
+| AgentX research loop | Proposals, critiques, allowlisted executors, registry, audits, comparisons, and locked-test approval | M0 through M3 complete; M4 and M5 trading-conversion diagnostics implemented | Training-mechanism ablations next |
 
-自动化测试使用合成数据，覆盖次日、分钟、事件流和研究闭环。`legacy/tests/` 不在主门禁的 pytest 收集范围内。`scripts/smoke_test.py` 只检查 FI-2010 兼容 DeepLOB 的前向、梯度和参数量。
+Automated tests use synthetic data and cover next-day, minute, event-stream, and research-loop functionality. `legacy/tests/` is outside the main pytest collection. `scripts/smoke_test.py` checks only the FI-2010 compatibility DeepLOB forward pass, gradients, and parameter count.
 
-## 已确认的研究结论
+## Research findings
 
-分钟 HGB 在 2022 至 2025 四个历史滚动样本外年份的每日 Rank IC 均为正，范围约为 0.02 至 0.035。2021 年 1 月 4 日至 6 月 4 日的逐日委托文件没有沪市股票，所有滚动配置又从 2021 年开始训练，因此这组结果带有早期市场覆盖偏差，其中 2022 折受影响最大。它们继续作为历史工程基线，正式决策采用下文的 M3 v2 重跑结果。历史基线的日频换手约为 83%，单边 10 个基点成本下净年化为负，盈亏平衡成本约为 5 至 6 个基点。分钟 TCN 在验证集上的优势未延续到测试集。
+Minute HGB had positive daily Rank IC in four historical rolling OOS years from 2022 through 2025, ranging roughly from 0.02 to 0.035. The daily order files from 2021-01-04 through 2021-06-04 contained no Shanghai stocks, while all rolling configurations began training in 2021. These results therefore have an early-market coverage bias, strongest in the 2022 fold. They remain historical engineering baselines; the formal decision uses the M3 v2 rerun below. The historical baseline had about 83% daily turnover, negative net annual return at 10 bp one-way cost, and breakeven cost around 5–6 bp. The minute TCN's validation advantage did not carry through to test.
 
-原始盘口 Top-100 四格矩阵的验证 Rank IC 如下：
+Validation Rank IC for the raw-order-book Top-100 four-cell matrix:
 
-| 容量与窗口 | 三 seed 均值与标准差 |
+| Capacity and window | Three-seed mean and standard deviation |
 |---|---:|
 | `1M/raw-200` | `0.03748 ± 0.00096` |
 | `1M/raw-1000` | `0.03530 ± 0.00241` |
 | `100M/raw-200` | `0.02740 ± 0.00412` |
 | `100M/raw-1000` | `0.03152 ± 0.00287` |
 
-容量主效应为 `-0.00693`，窗口主效应为 `+0.00097`，交互项为 `+0.00631`。当前只保留 `1M/raw-200` 作为候选，暂停继续扩大容量和窗口。该结论来自验证区，尚未触发该系列的锁定测试。
+The capacity main effect was `-0.00693`, the window main effect was `+0.00097`, and the interaction was `+0.00631`. Retain `1M/raw-200` as the sole candidate and pause further capacity and window expansion. This conclusion is based on validation; the series' locked test has not been opened.
 
-事件流 100M 最近折已经完成 seed 0、1、2。每个模型有 100,604,180 个参数，训练期为 2025 年 8 月至 10 月，validation 为 2025 年 11 月，OOS 为 2025 年 12 月。三组 H5 结果如下：
+### Event-stream 100M recent fold
 
-| seed | 最佳 epoch | validation Rank IC | OOS Rank IC | 训练时间 |
+Seeds 0, 1, and 2 completed on the recent fold. Each model has 100,604,180 parameters. Training covers August through October 2025, validation is November 2025, and OOS is December 2025.
+
+| Seed | Best epoch | Validation Rank IC | OOS Rank IC | Training time |
 |---:|---:|---:|---:|---:|
-| 0 | 4 | 0.04345 | 0.05879 | 82.9 分钟 |
-| 1 | 6 | 0.09403 | 0.03730 | 116.3 分钟 |
-| 2 | 5 | 0.08029 | 0.03291 | 102.7 分钟 |
+| 0 | 4 | 0.04345 | 0.05879 | 82.9 min |
+| 1 | 6 | 0.09403 | 0.03730 | 116.3 min |
+| 2 | 5 | 0.08029 | 0.03291 | 102.7 min |
 
-validation 三 seed 均值为 0.07259，样本标准差为 0.02615。OOS 均值为 0.04300，样本标准差为 0.01385。两段均值和三个 seed 的方向全部为正，100M 信号门槛已经通过。H3 监控结果同样全部为正。完整 checkpoint、历史、结果、运行摘要和缓存指纹已经保留在本地实验产物中。
+The validation three-seed mean was 0.07259 with sample standard deviation 0.02615. The OOS mean was 0.04300 with sample standard deviation 0.01385. Both means and every seed direction were positive, passing the 100M signal gate. H3 monitoring results were also all positive. Checkpoints, histories, results, run summaries, and cache fingerprints remain in local experiment artifacts.
 
-相邻滚动折 `fold-54-oos-202511` 的 seed 0 也已完成。训练期为 2025 年 7 月至 9 月，validation 为 10 月，OOS 为 11 月。H5 validation Rank IC 为 0.08735，OOS 为 0.03305。H3 监控对应为 0.04840 和 0.04231，四个方向均为正。H5 在 validation 的极端组收益差为 0.01780，在 OOS 为 -0.00512。该折进一步支持全截面排序信号，也再次暴露了头部组合收益没有同步改善的问题。正式训练使用源码 revision `222facb9f643006f0fa8647bb0cee8b7ab4b9306` 和数据指纹 `596daa34cfe2a44ad94f884db95d9ce164fd6aff38e05fad61ce1869cc8e9403`，2026 锁定区没有被读取。
+Seed 0 also completed on adjacent fold `fold-54-oos-202511`. Training covers July through September 2025, validation is October, and OOS is November. H5 validation Rank IC was 0.08735 and OOS was 0.03305. H3 monitoring was 0.04840 and 0.04231, respectively, so all four directions were positive. H5 extreme-group return spread was 0.01780 on validation and -0.00512 OOS. This fold further supports a cross-sectional ranking signal while again showing that top-group returns did not improve alongside it. Formal training used source revision `222facb9f643006f0fa8647bb0cee8b7ab4b9306` and data fingerprint `596daa34cfe2a44ad94f884db95d9ce164fd6aff38e05fad61ce1869cc8e9403`. The 2026 locked period was not read.
 
-本机没有可用 CUDA GPU。2026-08-19 通过 `rclone about gdrive:` 核对，Google Drive 总额为 200 GiB，已用 145.292 GiB，剩余 53.305 GiB。seed 共用的尾盘窗口缓存已完成本地生成、全量核对和远端上传，包含 39,903 个股票日、5 个分片，共 6,619,831,094 字节，约 6.17 GiB，数据指纹为 `59577182c8124c312de0591059c67e55d472511ca77753403ce77afbf8f109f4`。三个 checkpoint 的 960 维 embedding 已全部导出并通过本地、远端逐文件核对。三组各有 39,903 行，股票日主键和顺序完全一致，文件合计 437,941,717 字节，约 417.65 MiB。
+The local machine has no available CUDA GPU. On 2026-08-19, `rclone about gdrive:` reported 200 GiB total, 145.292 GiB used, and 53.305 GiB free. A shared closing-window cache was generated locally, fully verified, and uploaded. It contains 39,903 stock-days across five shards, totaling 6,619,831,094 bytes (about 6.17 GiB), with fingerprint `59577182c8124c312de0591059c67e55d472511ca77753403ce77afbf8f109f4`. The 960-dimensional embeddings from three checkpoints were exported and verified file by file locally and remotely. Each has 39,903 rows, with identical stock-day keys and order. Together they total 437,941,717 bytes (about 417.65 MiB).
 
-`FEAT-EMB-FROZEN-001` 已完成。E0 使用分钟特征，E1 使用冻结 embedding，E2 拼接两类特征。对照采用 22,409 个训练样本、6,963 个 validation 样本和 8,125 个 OOS 样本，事件流对分钟候选的覆盖率为 96.69%。三个 checkpoint 分别训练下游模型，最后平均下游预测，embedding 向量保持各自坐标空间。
+### Frozen embeddings
 
-HGB 的 E0 Rank IC 在 validation 为 0.01808，在 2025 年 12 月 OOS 为 0.04010。E2 三 seed 在 validation 分别为 0.02462、0.02988、0.02323，在 OOS 分别为 0.04333、0.05644、0.05912。三 seed 预测均值在 validation 为 0.02833，在 OOS 为 0.05701。OOS 配对增量为 0.01691，21 天中有 16 天优于 E0，逐日 bootstrap 95% 区间为 0.00596 至 0.02851。`NDCG@100` 从 0.53424 提高到 0.54450，`Precision@100` 从 0.26810 微降到 0.26667。Top-100 日均成本后主动收益从 -11.51bp 改善到 -4.80bp，仍未转正。日均单边换手从 62.89% 降到 60.91%。
+`FEAT-EMB-FROZEN-001` is complete. E0 uses minute features, E1 uses frozen embeddings, and E2 concatenates the two. The comparison has 22,409 training samples, 6,963 validation samples, and 8,125 OOS samples. Event-stream coverage of the minute candidate is 96.69%. A downstream model is trained separately for each checkpoint, then downstream predictions are averaged. Embedding vectors stay in their respective coordinate spaces.
 
-LambdaMART 的 E2 三 seed 与跨月结果波动较大。三 seed 预测均值的 validation Rank IC 从 -0.04334 降到 -0.05081，OOS 从 0.00766 提高到 0.01389。E1 预测均值的 OOS Rank IC 为 0.03414，Top-100 日均成本后主动收益为 15.53bp，但 validation 对应收益为 -15.34bp。当前证据支持保留冻结表征和 HGB 融合候选。交易价值、跨窗口稳定性和风险归因仍需补证。行业、规模、波动率和流动性暴露输入尚未提供，结果已标记为 `unavailable`。
+For HGB, E0 Rank IC was 0.01808 on validation and 0.04010 on December 2025 OOS. E2's three seeds were 0.02462, 0.02988, and 0.02323 on validation, and 0.04333, 0.05644, and 0.05912 OOS. Mean predictions across seeds had Rank IC 0.02833 on validation and 0.05701 OOS. The paired OOS increment was 0.01691; E2 beat E0 on 16 of 21 days, with a daily-bootstrap 95% interval from 0.00596 to 0.02851. `NDCG@100` rose from 0.53424 to 0.54450, while `Precision@100` declined slightly from 0.26810 to 0.26667. Mean daily Top-100 active return after costs improved from -11.51 bp to -4.80 bp but remained negative. Daily one-way turnover declined from 62.89% to 60.91%.
 
-`FEAT-EVENTSTREAM-JOINT-001` 三 seed 已完成。轻量缓存含 22,409 个训练样本、6,963 个 validation 样本和 8,125 个 OOS 样本，共 17,948,094 字节，数据指纹为 `e4f54a62e4be3f36ac0693db59ebcdb120cd753d2dc36415b8686adaa13c1bb6`。它只保存 120 维分钟特征、目标和共享尾盘缓存行号，没有复制 6.17 GiB 的事件数组。缓存与 Drive 副本的 5 个文件已逐项核对，三个 seed 的股票、日期、标签和行数完全一致。
+LambdaMART E2 varied substantially across seeds and months. Mean three-seed validation Rank IC changed from -0.04334 to -0.05081, while OOS changed from 0.00766 to 0.01389. E1 mean predictions had OOS Rank IC 0.03414 and daily Top-100 active return after costs of 15.53 bp, but validation active return was -15.34 bp. Current evidence supports retaining frozen representations and the HGB-fusion candidate. Trading value, cross-window stability, and risk attribution need more evidence. Sector, size, volatility, and liquidity exposure inputs were unavailable and marked `unavailable`.
 
-联合模型分别载入同 seed 的 100M best checkpoint。seed 0、1、2 的最佳 epoch 为 2、1、1。validation Rank IC 为 `0.05917 ± 0.01400`，OOS Rank IC 为 `0.06398 ± 0.00785`，三个 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，`Precision@100` 为 `0.23921 ± 0.01611`。Top-100 日均单边换手为 `49.74% ± 5.79%`，日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均为负。联合训练的横截面相关性通过重复性检查，头部命中率和成本后收益仍未通过交易门槛。`probe150m` 继续等待额外时间窗口、风险暴露和交易目标优化的证据。
+### Joint event-stream training
 
-事件流半衰期与交易转换诊断已经完成。两个窗口到 H10 都没有出现清晰 IC 衰减。10 月 validation 选出的排名 EMA `0.5` 加 5bp 换仓收益差规则，把 11 月和 12 月的 H1 单边换手分别从 36.79%、43.45% 降到 13.90%、8.90%，成本后主动收益仍为 -13.02bp、-10.99bp。H5 五组错峰持有的固定成本后主动收益分别为 -15.48bp 和 17.12bp，两个窗口方向相反。动态流动性成本没有改变方向。规模、流动性和波动率暴露均在 1 个标准差以内，本地缺少带日期的行业分类文件。最终决定为 `HOLD`，相邻折 seed 1、2 和 `probe150m` 继续暂停。
+All three seeds for `FEAT-EVENTSTREAM-JOINT-001` are complete. Its lightweight cache contains 22,409 training samples, 6,963 validation samples, and 8,125 OOS samples. The cache is 17,948,094 bytes with fingerprint `e4f54a62e4be3f36ac0693db59ebcdb120cd753d2dc36415b8686adaa13c1bb6`. It stores only 120-dimensional minute features, targets, and row indices into the shared closing cache; it does not copy the 6.17 GiB event arrays. All five files were checked against the Drive copy. The three seeds agree on stock, date, label, and row count.
 
-`EVT-GRAD-AUDIT-001` 已在最近折和相邻折各审计 16 个固定 validation batch。日级任务对共享主干的梯度比值中位数从初始化的 0.61608、0.65568 降到 best checkpoint 的 0.01969、0.03927，两折均低于 0.1 门槛。两折没有相同的持续负相关任务对。正式决定进入 `EVT-LABEL-SCALE-001`，先运行每日截面去极值 z 标签的 seed 0 两折对照。
+Each joint model loaded the matching seed's 100M best checkpoint. Best epochs for seeds 0, 1, and 2 were 2, 1, and 1. Validation Rank IC was `0.05917 ± 0.01400`, and OOS Rank IC was `0.06398 ± 0.00785`; all three OOS values were positive. OOS `NDCG@100` was `0.54507 ± 0.00450`, and `Precision@100` was `0.23921 ± 0.01611`. Mean daily Top-100 one-way turnover was `49.74% ± 5.79%`. Mean daily active return after costs was `-9.67 ± 3.71bp`, negative for all three seeds. Cross-sectional correlation passed the repeatability check, but top-group hit rate and after-cost returns did not meet the trading gate. Defer `probe150m` until there is evidence on additional time windows, risk exposures, and trading-objective improvements.
 
-`EVT-LABEL-SCALE-001` 已完成两折 seed 0。最近折的 validation 与 OOS Rank IC 从 0.04345、0.05879 提高到 0.11747、0.07446，相邻折从 0.08735、0.03305 提高到 0.13534、0.07755。相邻折的 OOS 极端组收益差从 -0.51240% 提高到 0.48367%，最近折从 0.34105% 降到 0.08885%。预注册的两折全指标改善门槛没有通过，因此暂不补 seed 1、2。
+### Trading diagnostics and training ablations
 
-`EVT-SUPERVISION-POSITION-001` 已完成最近折 seed 0 validation。`last` 和 `tail_weighted` 的 Rank IC 为 0.07802 和 0.11289，低于 `all` 的 0.11747。两者的极端组收益差为 0.92692% 和 1.10797%，也低于 `all` 的 1.27275%。两个候选均在首折违反了两折都改善的必要条件，因此提前停止相邻折并保持 OOS 关闭。正式决定为 `KEEP_ALL`，下一步检查日级任务权重。完整结果见[事件流标签尺度实验](research/eventstream-label-scale.md)。
+Event-stream signal-decay and trading-conversion diagnostics are complete. Neither window showed clear IC decay through H10. The October validation-selected ranking EMA of `0.5`, combined with a 5 bp turnover-difference rule, reduced H1 one-way turnover for November and December from 36.79% and 43.45% to 13.90% and 8.90%. After-cost active returns remained -13.02 bp and -10.99 bp. Fixed-cost active returns for five staggered H5 holdings were -15.48 bp and 17.12 bp, opposite in direction across the two windows. Dynamic liquidity costs did not change direction. Size, liquidity, and volatility exposures were within one standard deviation. A dated local sector-classification file was unavailable. Decision: `HOLD`; adjacent-fold seeds 1 and 2 and `probe150m` remain paused.
 
-AgentX 的 M3 v1 已完成 14/60 个月，其中新增的 2021 年 1 月至 5 月分片约有 48% 至 50% 的候选缺少全部三模态特征。核对 118 个 2021 年上半年逐日委托文件后，确认前 101 个交易日只包含深市股票，沪市股票从 2021 年 6 月 7 日开始出现。现有原始文件无法补回缺口。v1 结果目录保留为审计记录。
+`EVT-GRAD-AUDIT-001` audited 16 fixed validation batches on both the recent and adjacent folds. Median daily-task gradient ratios on the shared trunk fell from 0.61608 and 0.65568 at initialization to 0.01969 and 0.03927 at the best checkpoint, below the 0.1 threshold on both folds. No task pair had persistent negative correlation on both folds. The formal next step was `EVT-LABEL-SCALE-001`, a seed-0 comparison using daily cross-sectional winsorized z-score labels.
 
-M3 v2 从 2021 年 7 月开始，54 个月共物化 436,800 个候选，完整特征覆盖率为 99.88%。HGB 在 2025 上半年验证区的 Rank IC 为 0.08091，在 2025 下半年 124 个评估日的 Rank IC 为 0.06994。六个月月度 IC 均为正。正式预测登记为 `PRED-HGB-400-OPEN2OPEN-001`，数据指纹为 `6ca055086c8885bcb866da01af4481a95d58c1334ed3fe0b574cca5b66dcbb7a`。
+`EVT-LABEL-SCALE-001` completed seed 0 on both folds. On the recent fold, validation and OOS Rank IC increased from 0.04345 and 0.05879 to 0.11747 and 0.07446. On the adjacent fold, they increased from 0.08735 and 0.03305 to 0.13534 and 0.07755. Adjacent-fold OOS extreme-group return spread improved from -0.51240% to 0.48367%, while recent-fold spread declined from 0.34105% to 0.08885%. The preregistered requirement for improvement in all metrics across both folds did not pass, so seeds 1 and 2 were not run.
 
-`TRD-TOPK-400-001` 完成 64 组正式矩阵，结果为 `NO_TRADEABLE_REGION`。单边 10bp 下，绝对净收益最好的 `K=100、buffer=50` 日均净收益为 12.15bp，净 Sharpe 为 1.41，但相对 Top-400 等权基准的日均净主动收益为 -4.75bp，只有一个月为正。全部组合的主动收益盈亏平衡单边成本最高约为 4.33bp，低于 10bp 决策成本。正的绝对收益包含同期市场整体上涨，不能单独解释为模型 alpha。
+`EVT-SUPERVISION-POSITION-001` completed recent-fold seed-0 validation. Rank IC for `last` and `tail_weighted` supervision was 0.07802 and 0.11289, below 0.11747 for `all`. Their extreme-group spreads were 0.92692% and 1.10797%, also below 1.27275% for `all`. Both candidates failed the requirement to improve on both folds at the first fold, so the adjacent fold stopped and OOS remained closed. Formal decision: `KEEP_ALL`. The next step is to test daily task weighting. Full results are in the [event-stream label-scale study](research/eventstream-label-scale.md).
 
-原始盘口四格矩阵已经停止继续扩容，事件流实验不会改变这项结论。
+### AgentX M3 and trading conversion
 
-## 两套数据权限
+AgentX M3 v1 completed 14 of 60 months. Newly added shards from January through May 2021 had about 48–50% of candidates missing all three feature modalities. An audit of 118 daily order files from the first half of 2021 confirmed that the first 101 trading days contained only Shenzhen stocks. Shanghai stocks first appeared on 2021-06-07. Existing raw files cannot recover the missing coverage. Keep the v1 result directory as an audit record.
 
-仓库内有两组在不同时期建立的实验协议，不能混用：
+M3 v2 starts in July 2021 and materialized 436,800 candidates across 54 months, with 99.88% complete-feature coverage. HGB validation Rank IC was 0.08091 in H1 2025. Rank IC was 0.06994 across 124 evaluation days in H2 2025, with positive monthly IC in all six months. The formal prediction is `PRED-HGB-400-OPEN2OPEN-001`, with data fingerprint `6ca055086c8885bcb866da01af4481a95d58c1334ed3fe0b574cca5b66dcbb7a`.
 
-| 研究系列 | 开发与验证 | 锁定区 |
+`TRD-TOPK-400-001` completed a 64-cell formal matrix and returned `NO_TRADEABLE_REGION`. At 10 bp one-way cost, the best absolute net return was for `K=100`, `buffer=50`: daily net return 12.15 bp and net Sharpe 1.41. However, daily net active return versus the Top-400 equal-weight benchmark was -4.75 bp, and only one month was positive. The highest breakeven one-way cost among portfolios was about 4.33 bp, below the 10 bp decision cost. Positive absolute return includes the broad market's concurrent rise and cannot be attributed to model alpha alone.
+
+The raw-order-book four-cell matrix is no longer expanding. Event-stream experiments do not change that decision.
+
+## Separate date-access protocols
+
+The repository has two experiment protocols created at different times. Do not mix them:
+
+| Research series | Development and validation | Locked period |
 |---|---|---|
-| 早期原始盘口容量实验 | 2021 至 2023 训练，2024 验证 | 2025 |
-| 当前 AgentX 与事件流研究 | 2025 已用于开发和滚动验证 | 2026 |
+| Earlier raw-order-book capacity experiments | Train 2021–2023; validate 2024 | 2025 |
+| Current AgentX and event-stream research | 2025 has been used for development and rolling validation | 2026 |
 
-启动实验时，应由对应配置和 `ResearchProtocol` 决定可访问日期。文档中的锁定测试表述必须注明属于哪一组协议。
+Each experiment's configuration and `ResearchProtocol` determine which dates it may access. Documentation about a locked test must name the applicable protocol.
 
-## 当前工作顺序
+## Current work order
 
-1. 保留 z 标签和 `all` 监督位置作为新基线
-2. 审计 z 标签 best checkpoint 的日级梯度强度，固定日级任务权重候选和停止门槛
-3. 先运行日级任务权重 seed 0 validation，候选通过后再补相邻折和 OOS
-4. 任务权重仍然没有形成增量时，再设计小规模成本感知排序目标
-5. 获得带日期的行业分类数据后，补齐行业暴露归因
-6. 成本后主动收益形成跨窗口增量后，再评估 `probe150m` 的预算和 seed 0 门槛
-7. 所有新结论写入[实验日志](research/experiment-log.md)，并同步更新本页的状态摘要
+1. Keep z-score labels and `all` supervision as the new baseline.
+2. Audit daily-task gradient strength at the z-label best checkpoint and define candidate task weights and stopping thresholds.
+3. Run seed-0 validation for daily-task weighting first. Add the adjacent fold and OOS only if the candidate passes.
+4. If task weighting does not add value, design a small cost-aware ranking-objective experiment.
+5. Add sector exposure attribution after dated sector-classification data is available.
+6. Reconsider `probe150m` budget and its seed-0 gate only after after-cost active returns improve across windows.
+7. Record new conclusions in the [experiment log](research/experiment-log.md) and update this status page.
 
-## CPU 验收链路（2026-08-29）
+## CPU validation path (2026-08-29)
 
-在没有 A100 的情况下，已新增 `ticknet.research.cpu_validation` 小样本验收链路：
-`train rows -> NumPy 线性预测 -> formal prediction -> alpha-research signal -> fixed-K portfolio`。
-它只用于验证数据接口、日期隔离、信号转换和回测结果，不替代正式 PyTorch 训练。`compare_portfolio_evaluations()` 和 `compare_portfolio_digests()` 输出稳定的收益、回撤、成本、换手和逐日明细摘要。`digest_portfolio_backtester_result()` 可以把 `portfolio-backtester` 的五元组结果转换到同一摘要格式，两个仓库无需共享 PyTorch 运行环境即可做差分比较。
+To validate interfaces without an A100, the project added the small-sample `ticknet.research.cpu_validation` path:
 
-本机发现一份真实 raw order 文件 `order_20260424.parquet`，共 313,199,561 行、299 个 row group。首个 1,048,576 行样本已完成 CPU 检查：`TradingDay` 单一且为 `20260424`，发现 883 个非正价格和 206,009 个重复 `OrderID` 行，未发现时间倒序。平台质量检查器现已把 `SecuCode` 映射为 `ticker`，把 `OrderTime` 映射为 `time_ms`，样本报告的 `missing_columns` 已为空。全量扫描暂不执行，以免无谓消耗大量 I/O。
+```text
+train rows -> NumPy linear predictions -> formal prediction -> alpha-research signal -> fixed-K portfolio
+```
 
-## L2 开盘身份账本审计
+It validates data interfaces, date isolation, signal conversion, and backtest output. It does not replace formal PyTorch training. `compare_portfolio_evaluations()` and `compare_portfolio_digests()` produce stable summaries of returns, drawdown, costs, turnover, and daily detail. `digest_portfolio_backtester_result()` converts the `portfolio-backtester` five-tuple to the same summary format so the repositories can run differential comparisons without sharing a PyTorch environment.
 
-历史数据准入入口为 scripts/build_historical_data_manifest.py。当前冻结 2026 年数据，深市 2021 至 2025 年合格股票日作为主数据，沪市合格股票日只进入 lag 研究。准入规则和 A 股市场共性与当前数据源特性之间的区分见[历史 raw L2 数据准入边界](research/historical-data-eligibility-2026-08-27.md)。
+A real raw-order file, `order_20260424.parquet`, was found locally. It has 313,199,561 rows and 299 row groups. A CPU check of its first 1,048,576 rows found one `TradingDay` value (`20260424`), 883 non-positive prices, and 206,009 rows with duplicate `OrderID`; timestamps were not out of order. The platform quality checker now maps `SecuCode` to `ticker` and `OrderTime` to `time_ms`, leaving `missing_columns` empty in the sample report. A full scan was deferred to avoid unnecessary I/O.
 
-raw L2 覆盖清单入口为 scripts/audit_opening_coverage.py。它扫描所有 order_preopen 日文件，按交易日和股票统计盘前委托、order、trades、snapshot 的文件和股票覆盖，以及 time_ms <= 0 的开盘成交量。首个真实日文件的 smoke 结果和统计口径见[raw L2 盘前覆盖清单](research/opening-coverage-inventory-2026-08-27.md)。全量报告应输出到仓库外目录。
+## L2 opening order-identity ledger audit
 
-已新增盘前订单身份账本审计器 `ticknet.simulator.opening_ledger`。它使用盘前委托、开盘结算窗口内的委托、成交和撤单，按订单 ID 扣减剩余量，聚合前十档并和首张完整连续竞价快照逐档比较。审计结果区分精确匹配、数量或价格不一致、快照不可比较、盘前文件缺失、股票没有盘前记录、未知成交身份、未知撤单身份和超额扣减。
+Historical-data admission is handled by `scripts/build_historical_data_manifest.py`. The 2026 period is locked. Eligible Shenzhen stock-days from 2021 through 2025 are primary data, while eligible Shanghai stock-days are limited to lag research. See [historical raw L2 eligibility](research/historical-data-eligibility-2026-08-27.md) for the admission rules and the distinction between general A-share properties and data-source-specific behavior.
 
-首张 `time_ms=0` 快照不能简单解释为盘前剩余订单的直接聚合。深市样本需要把快照时间映射到事件时钟的 `0 + 140ms` 结算窗口。沪市目前没有可以跨日期复用的固定偏移，默认使用 `0ms`，并允许命令行显式扫参。
+Raw L2 coverage is audited with `scripts/audit_opening_coverage.py`. It scans daily `order_preopen` files and counts pre-open orders, orders, trades, and snapshots by trading day and stock, along with opening trade volume where `time_ms <= 0`. The first real-file smoke result and counting rules are in the [raw L2 opening coverage inventory](research/opening-coverage-inventory-2026-08-27.md). Full reports should be written outside the repository.
 
-2026-08-27 使用 6TB raw L2 数据完成第一批跨股票、跨日期审计，样本为 13 个股票日，覆盖 2021、2022、2023、2024 和 2025：
+The new pre-open order-identity auditor is `ticknet.simulator.opening_ledger`. It processes pre-open orders and orders, trades, and cancellations in the opening settlement window. It subtracts fills and cancellations from remaining quantity by order ID, aggregates the top ten price levels, and compares them level by level with the first complete continuous-auction snapshot. Results distinguish exact matches, quantity or price differences, incomparable snapshots, missing pre-open files, stocks without pre-open records, unknown trade identities, unknown cancellation identities, and over-subtraction.
 
-| 结果 | 样本数 |
+The first `time_ms=0` snapshot cannot be treated as a direct aggregation of remaining pre-open orders. Shenzhen samples require mapping the snapshot to the event-clock settlement window `0 + 140ms`. Shanghai has no fixed offset reusable across dates. Its default is `0ms`, and the command-line tool allows an explicit lag sweep.
+
+The first cross-stock, cross-date audit used 6 TB of raw L2 data on 2026-08-27. It covered 13 stock-days in 2021 through 2025:
+
+| Outcome | Count |
 |---|---:|
-| 最佳 lag 下十档逐档精确匹配 | 9 |
-| 可比较但存在盘口数量或价格差异 | 2 |
-| 输入不完整或股票没有盘前记录 | 2 |
-| 可比较样本精确率 | `9/11 = 81.8%` |
+| Exact match at all ten levels using the best lag | 9 |
+| Comparable, with book-quantity or price differences | 2 |
+| Incomplete input or no pre-open record for the stock | 2 |
+| Exact matches among comparable samples | `9/11 = 81.8%` |
 
-深市 6 个样本在最佳 lag 下全部精确匹配，最佳 lag 均为 `140ms`。沪市 `600000` 的最佳 lag 分布为 `0、70、90、120、150ms`。`2022-06-15` 在 `0ms` 时买方价格 777 的第 9 档少 3900 股，订单 `255949` 的 3900 股委托时间正好为 `150ms`，纳入 `150ms` 截止后十档完全匹配。这个案例支持事件时间边界解释，暂不支持撤单数量或撮合规则错误。
+All six Shenzhen samples matched exactly at their best lag, which was `140ms` for each. Best lags for Shanghai stock `600000` were `0`, `70`, `90`, `120`, and `150ms`. On `2022-06-15`, the ninth bid level at price 777 was short by 3,900 shares at `0ms`. Order `255949` was a 3,900-share order with event time `150ms`. Including it through a `150ms` cutoff made all ten levels match. This supports an event-time boundary explanation and does not currently support an error in cancellation quantity or matching rules.
 
-沪市 `600000 @ 2021-01-04` 和 `2021-03-01` 的盘前文件没有该股票记录，但开盘成交已经出现，因此被标记为不可比较。它们不能用来评价撮合器。对沪市样本扫 `-140ms` 至 `210ms` 没有得到统一可复用的固定偏移，2025 样本在 `+140ms` 下改善，早期样本仍不一致。
+The pre-open files for Shanghai stock `600000` on `2021-01-04` and `2021-03-01` did not contain the stock, although opening trades were present, so these samples were marked incomparable. They cannot be used to evaluate the matcher. A `-140ms` to `210ms` sweep found no single reusable Shanghai offset. The 2025 sample improved at `+140ms`, while older samples remained inconsistent.
 
-其他可比较的沪市差异为 `600000 @ 2023-05-12` 的买一少 100 股，以及 `600000 @ 2024-12-13` 的买一多 2100 股、买五少 600 股。它们都没有未知成交身份、未知撤单身份或超额扣减。最佳 lag 分别为 `70ms` 和 `120ms`，说明沪市至少存在日期或文件批次级时间差异。
+Other comparable Shanghai differences were 100 shares missing at best bid for `600000` on `2023-05-12`, and 2,100 extra shares at best bid plus 600 shares missing at the fifth bid level on `2024-12-13`. Neither case had unknown trade identities, unknown cancellation identities, or over-subtraction. Best lags were `70ms` and `120ms`, suggesting at least date- or file-batch-level timing differences in Shanghai.
 
-可复跑命令如下：
+Reproduction command:
 
 ```bash
 python scripts/audit_opening_ledger.py \
@@ -135,17 +149,17 @@ python scripts/audit_opening_ledger.py \
   --output /tmp/opening-ledger-audit.json
 ```
 
-当前结论是，盘前订单身份链在已覆盖的深市样本中足以重建开盘十档，但这不代表所有市场和日期都具备完整输入。开盘身份账本暂时只作为审计工具，不直接改变事件流打包或撮合回放。下一轮应扩大沪市有盘前股票记录的日期样本，并按文件批次统计最佳 lag，调查单档数量差异是否来自快照聚合时点、集合竞价成交边界或原始文件缺字段。
+The current conclusion is that the pre-open order-identity chain can reconstruct the opening ten-level book in the covered Shenzhen samples. It does not show that inputs are complete for every market and date. The opening ledger remains an audit tool and does not directly change event-stream packing or matching replay. Next, expand Shanghai samples where a pre-open stock record exists, summarize best lag by file batch, and investigate whether single-level quantity differences come from snapshot aggregation time, auction-trade boundaries, or missing source fields.
 
-## 证据入口
+## Evidence index
 
-- [研究路线总览](research/topk-agentx-research-roadmap.md)
-- [历史实验日志](research/experiment-log.md)
-- [原始盘口多周期与容量路线](nextday/multi-horizon-data-expansion-roadmap.md)
-- [100M 与 raw-1000 受控矩阵记录](nextday/nextday-100m-raw1000-benchmark.md)
-- [事件流滚动路线](nextday/h5-rolling-eventstream-roadmap.md)
-- [外部 L2 研究项目对比](research/external-l2-research-comparison.md)
-- [M3 正式 Top-K 诊断](research/topk-agentx-m3-topk-diagnostics.md)
-- [事件流信号半衰期与交易转换诊断](research/eventstream-signal-trading-diagnostics.md)
-- [事件流多任务梯度审计](research/eventstream-gradient-audit.md)
-- [事件流标签尺度实验](research/eventstream-label-scale.md)
+- [AgentX research roadmap](research/topk-agentx-research-roadmap.md)
+- [Historical experiment log](research/experiment-log.md)
+- [Raw-order-book multi-horizon and capacity roadmap](nextday/multi-horizon-data-expansion-roadmap.md)
+- [100M and raw-1000 controlled matrix](nextday/nextday-100m-raw1000-benchmark.md)
+- [Event-stream rolling roadmap](nextday/h5-rolling-eventstream-roadmap.md)
+- [External L2 project comparison](research/external-l2-research-comparison.md)
+- [Formal M3 Top-K diagnostics](research/topk-agentx-m3-topk-diagnostics.md)
+- [Event-stream signal-decay and trading-conversion diagnostics](research/eventstream-signal-trading-diagnostics.md)
+- [Event-stream multi-task gradient audit](research/eventstream-gradient-audit.md)
+- [Event-stream label-scale study](research/eventstream-label-scale.md)
