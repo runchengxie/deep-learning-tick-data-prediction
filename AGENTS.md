@@ -4,7 +4,7 @@ Read the root README and [documentation index](docs/documentation-index.md) befo
 
 ## Project scope
 
-This repository owns model-specific research on tick, limit-order-book, minute, and other structured market data. The archived FI-2010 reproduction is under `legacy/` and is a reference only. Keep these evidence classes distinct:
+This repository owns model-specific research on tick, limit-order-book, minute, and other structured market data. The FI-2010 DeepLOB reproduction is maintained as a separate research track in `src/ticknet/fi2010/`. Keep evidence for this paper-reproduction task distinct from next-day A-share research:
 
 - Engineering behavior verified by automated tests
 - Experimental settings supported by a paper or official data format
@@ -20,7 +20,7 @@ Results from `ticknet.nextday` are independent of the FI-2010 reproduction. FI-2
 - `src/ticknet/research/` owns the experiment loop: proposals, protocol checks, locked-test isolation, experiment registry, prediction audits, and research agents. It is decoupled from `nextday` through CLI entry points and YAML configuration, and must not import `nextday` implementations directly.
 - `scripts/` contains human-run entry points, not reusable business logic.
 - `tests/` use synthetic data and must not require Google Drive or the full FI-2010 dataset.
-- `legacy/` contains the FI-2010 reproduction reference. It is outside the main quality gate, and production code must not depend on it.
+- `src/ticknet/fi2010/` owns FI-2010 data conversion, dataset loading, paper-reproduction training, Colab staging, and plots. It is a separate research task and must not be used as evidence for A-share next-day prediction.
 
 Prefer existing boundaries for new work. If a module discovers data, computes models, and schedules experiments, separate those responsibilities. Locked-test access in `ticknet.research` is enforced in code. Changes to test data or date splits must pass `ResearchProtocol` validation first.
 

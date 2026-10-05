@@ -1,56 +1,58 @@
-# 历史 raw L2 数据准入边界
+# Historical Raw L2 Data Eligibility
 
-## 当前决定
+## Decision
 
-2026 年数据暂不进入历史事件流重建和模型数据集。2021 至 2025 年建立股票日准入清单，深市合格股票日作为主数据，沪市合格股票日作为研究数据。
+Exclude 2026 data from historical event-stream reconstruction and model datasets for now. Build a stock-day eligibility manifest for 2021–2025. Eligible Shenzhen stock-days form the primary dataset; eligible Shanghai stock-days are research data.
 
-主数据和研究数据都要求 order_preopen、order、trades、snapshot 文件存在，且目标股票出现在三类关联文件中，并且存在盘前委托。深市主数据使用已验证的 +140ms 审计配置。沪市只保留覆盖资格，不写入固定 lag，仍需股票日级时间审计。
+Both primary and research samples require `order_preopen`, `order`, `trades`, and `snapshot` files, the target stock to appear in all three linked event files, and a pre-open order. Shenzhen primary data uses the verified +140 ms audit configuration. Shanghai is retained only when coverage criteria pass; do not assign it a fixed lag. It still requires stock-day time audits.
 
-## 当前数据证据
+## Evidence
 
-2026 年共有 70 个 order_preopen 日文件，其中 55 个日期没有对应 order 和 trades 文件，但有 snapshot。这是数据湖分区缺失，不是撮合规则问题。2026 年剩余 15 个日期的三类文件路径齐全。
+For 2026, 70 `order_preopen` daily files were found. Fifty-five dates lacked corresponding order and trade files but had snapshots. This is a data-lake partition gap, not evidence of a matching-rule problem. The remaining 15 dates had all three file paths.
 
-2021-01-04 的真实 smoke 扫描包含 2335 个深市股票日，其中 2283 个同时有开盘成交，2283 个通过当前主数据准入，52 个因关联股票记录缺失被排除。
+A real smoke scan of 2021-01-04 contained 2,335 Shenzhen stock-days. Of these, 2,283 had an opening trade and passed current primary-data eligibility; 52 were excluded because linked stock records were missing.
 
-沪市样本的最佳 lag 不是市场常量。已观察到同一市场和不同股票日出现 0、20、90、150、240、280、370、380ms。600000 在 2023-05-12 使用 240ms、2024-12-13 使用 280ms 后十档精确匹配。
+Shanghai's best lag is not a market constant. Observations across dates and stocks include 0, 20, 90, 150, 240, 280, 370, and 380 ms. For stock `600000`, all ten levels matched on 2023-05-12 at 240 ms and on 2024-12-13 at 280 ms.
 
-## 这是 A 股普遍问题还是当前数据问题
+## Market-wide issue or dataset-specific issue?
 
-A 股 Level-2 研究普遍需要处理集合竞价、连续竞价、快照和逐笔事件之间的时间与语义契约。深交所公开说明 Level-2 同时包含十档快照和逐笔行情，交易规则还区分开盘集合竞价、连续竞价和收盘集合竞价。上交所行情网关接口也明确区分快照和逐笔行情，并定义逐笔委托或成交的行情生成时间。
+A-share Level-2 research generally needs a time and semantic contract across call auctions, continuous-auction snapshots, and tick events. Public Shenzhen materials describe Level-2 as including ten-level snapshots and tick data, while trading rules distinguish opening call auction, continuous trading, and closing call auction. The Shanghai market-data gateway STEP interface also distinguishes snapshots and tick data and defines generation times for order or trade messages.
 
-因此，开盘阶段需要审计是市场数据研究的普遍工程要求。它不等于所有 A 股 tick 数据都同样脏。
+Auditing opening data is therefore a general market-data engineering requirement. That does not mean every A-share tick dataset is equally poor.
 
-本数据集的特有问题包括：
+This dataset has several specific gaps:
 
-- 2026 年存在整段 order 和 trades 文件缺失。
-- 2021 年早期沪市盘前订单覆盖不足。
-- 深市存在跨样本稳定的 +140ms 偏移，说明供应链至少做过统一时钟转换。
-- 沪市出现股票日级甚至股票级 lag 差异，说明不能直接复用深市配置。
-- 部分 snapshot 的 Volume 和 DealNum 与盘口最佳 lag 不能由同一个事件边界完全解释。
+- Entire periods of 2026 order and trade files are missing.
+- Early 2021 Shanghai pre-open order coverage is incomplete.
+- Shenzhen has a stable +140 ms offset across sampled records, indicating a consistent clock transformation somewhere in the data supply chain.
+- Shanghai lag varies by stock-day and sometimes stock, so the Shenzhen configuration cannot be reused directly.
+- For some snapshots, `Volume` and `DealNum` are not fully explained by the same event boundary that best matches the book.
 
-当前证据没有显示 2021 至 2025 年 orders 和 trades 在已检查样本中普遍随机损坏。更接近的判断是文件覆盖、时间标签和统计窗口没有形成统一的数据契约。
+The checked samples do not indicate widespread random corruption of 2021–2025 order or trade data. The more likely issue is that file coverage, timestamp labels, and aggregation windows lack a unified contract.
 
-## 事件排序边界
+## Event ordering boundary
 
-真实 order Parquet 若保留 `ChannelNo` 与 `ApplSeqNum`、`BizIndex` 等 exchange sequence 字段，simulator 会把这些字段保留到 `SimulatorEvent`。同一 `time_ms` 内，只有事件都具备 sequence 且属于单一 channel 时才按 sequence 重排。snapshot 仍放在同毫秒 order/cancel 之后。
+When raw order Parquet retains exchange sequence fields such as `ChannelNo`, `ApplSeqNum`, or `BizIndex`, the simulator preserves them in `SimulatorEvent`. Events with the same `time_ms` are reordered by sequence only when all have sequence values and belong to a single channel. A snapshot remains after same-millisecond orders and cancels.
 
-如果同毫秒出现多个 channel，simulator 保留文件 source order，并在 `SimulatorPack.ordering_provenance` 中记录 `cross_channel_total_order=false`。如果数据源没有 sequence，则明确记录 `timestamp_fallback`。因此时间戳始终是跨 channel 时间坐标，sequence 只在有证据支持的范围内增强局部顺序，不能把供应商文件推断成交易所全局总序。
+When multiple channels occur in the same millisecond, the simulator preserves file source order and records `cross_channel_total_order=false` in `SimulatorPack.ordering_provenance`. If the source has no sequence fields, it records `timestamp_fallback`. Timestamps remain the cross-channel time coordinate; sequence values strengthen local ordering only where evidence supports it. Vendor files must not be assumed to provide a globally ordered exchange tape.
 
-## 使用边界
+## Usage boundaries
 
-深市 2021 至 2025 的合格股票日可用于主事件流研究，但必须使用准入清单和已验证的时间配置。沪市 2022 至 2025 的合格股票日可用于 lag 和数据契约研究，不能直接与深市共用撮合配置。2026 年先排除，待 order 和 trades 补齐后重新建清单。
+Eligible Shenzhen stock-days from 2021–2025 may be used for primary event-stream research with the eligibility manifest and verified time configuration. Eligible Shanghai stock-days from 2022–2025 may be used to study lag and data contracts, but must not share the Shenzhen matching configuration. Exclude 2026 until order and trade files are complete and a new manifest is built.
 
-## 运行入口
+## Command
 
-    PYTHONPATH=src .venv/bin/python scripts/build_historical_data_manifest.py \\
-      --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \\
-      --json-output /tmp/historical-manifest.json \\
-      --csv-output /tmp/historical-manifest.csv
+```bash
+PYTHONPATH=src .venv/bin/python scripts/build_historical_data_manifest.py \
+  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --json-output /tmp/historical-manifest.json \
+  --csv-output /tmp/historical-manifest.csv
+```
 
-准入规则实现于 src/ticknet/simulator/eligibility.py。覆盖扫描实现于 src/ticknet/simulator/coverage.py。
+Eligibility rules are implemented in `src/ticknet/simulator/eligibility.py`; coverage scanning is in `src/ticknet/simulator/coverage.py`.
 
-## 外部规则参考
+## External rules references
 
-- [深交所投资者服务：交易时间和集合竞价](https://www.szse.cn/www/investor/knowledge/stock/deal/t20190626_568129.html)
-- [深交所新一代交易系统 FAQ：Level-2 快照和逐笔行情](https://www.szse.cn/www/marketServices/technicalservice/introduce/P020180328467244590967.pdf)
-- [上交所 IS120 行情网关 STEP 接口规范](https://www.sse.com.cn/services/tradingtech/development/c/10816478/files/51a3e4c6b92345689c682448582c019d.pdf)
+- [Shenzhen Stock Exchange investor service: trading hours and call auction](https://www.szse.cn/www/investor/knowledge/stock/deal/t20190626_568129.html)
+- [Shenzhen Stock Exchange next-generation trading system FAQ: Level-2 snapshots and tick data](https://www.szse.cn/www/marketServices/technicalservice/introduce/P020180328467244590967.pdf)
+- [Shanghai Stock Exchange IS120 market-data gateway STEP interface specification](https://www.sse.com.cn/services/tradingtech/development/c/10816478/files/51a3e4c6b92345689c682448582c019d.pdf)

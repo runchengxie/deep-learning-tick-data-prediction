@@ -1,8 +1,4 @@
-"""DeepLOB 模型使用的共享张量形状常量与合成数据工具。
-
-FI-2010 数据集类（``RandomLOBDataset`` / ``FI2010WindowDataset``）已归档到
-``legacy/fi2010_core.py``。这里只保留主链路与冒烟检查仍依赖的常量和工具函数。
-"""
+"""Shared DeepLOB tensor-shape constants and synthetic batch helpers."""
 
 from __future__ import annotations
 

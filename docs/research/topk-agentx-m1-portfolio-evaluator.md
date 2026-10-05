@@ -1,44 +1,44 @@
-# M1 Top-K long-only 评估内核
+# M1 Top-K Long-Only Portfolio Evaluator
 
-## 结论
+## Summary
 
-`ticknet.research.portfolio` 现在是模型无关的组合评估入口。HGB、LambdaMART、TCN、DeepLOB 和后续 AgentX executor 只要产出同一预测契约，就能共享 fixed-K 选股、排名缓冲、换仓门槛、不可交易约束、成本与稳定性指标。
+`ticknet.research.portfolio` is now a model-agnostic portfolio evaluator. HGB, LambdaMART, TCN, DeepLOB, and future AgentX executors can share fixed-K selection, rank buffers, rebalance thresholds, tradability constraints, costs, and stability metrics when they emit the same prediction contract.
 
-历史 `portfolio_quantile` 多空回测仍可运行，但返回的 `mode` 明确标记为 `legacy_quantile_long_short_diagnostic`，它不同于新研究系列的 Top-K long-only 正式策略。
+The historical `portfolio_quantile` long-short backtest remains available, but its `mode` is explicitly marked `legacy_quantile_long_short_diagnostic`. It is not the formal Top-K long-only strategy for the new research series.
 
-## 输入契约
+## Input contract
 
-预测 Parquet 必须包含：
+Prediction Parquet must contain:
 
-| 字段 | 含义 |
+| Field | Meaning |
 |---|---|
-| `symbol` | 股票代码。同一 `label_date` 内必须唯一 |
-| `trading_date` | T 日信号日期 |
-| `label_date` | T+1 开盘调仓日期 |
-| `score` | 只使用 T 日及以前信息得到的横截面分数 |
-| `target_return` | 正式口径为 T+1 open 到 T+2 open |
-| `in_universe` | 是否属于当日动态候选股票池，正式模式必填 |
+| `symbol` | Stock code; unique within each `label_date` |
+| `trading_date` | Signal date T |
+| `label_date` | Rebalance date at the T+1 open |
+| `score` | Cross-sectional score using only information available by T |
+| `target_return` | Formal target: T+1 open to T+2 open |
+| `in_universe` | Member of the dynamic candidate universe; required for formal runs |
 
-可选的 `can_buy` 与 `can_sell` 必须成对提供。未提供时冒烟会假设可交易，正式结果必须使用 `--require-tradability --missing-holding-policy error`。正式模式还要求 `in_universe`，只用 `true` 行做排名、IC 和股票池基准。`false` 行是旧持仓的状态行，不能成为新买入候选。
+Optional `can_buy` and `can_sell` fields must be provided together. Without them, smoke tests assume tradability. Formal runs require `--require-tradability --missing-holding-policy error`. Formal mode also requires `in_universe`: only `true` rows enter ranking, IC, and universe-baseline metrics. A `false` row tracks an existing holding and cannot become a new buy candidate.
 
-评估不会根据未来收益过滤候选。如果选中持仓的 `target_return` 缺失，会直接失败，避免用收益是否存在进行隐含的前视筛选。
+The evaluator never filters candidates by future return availability. If a selected holding has a missing `target_return`, evaluation fails to avoid implicit look-ahead selection.
 
-## 组合状态机
+## Portfolio state machine
 
-每日按如下顺序确定持仓：
+Each day, positions are determined in this order:
 
-1. 不可卖的旧持仓强制保留。
-2. 达到 `min_position_score` 且排名未跌出 `top_k + exit_buffer` 的旧持仓保留。未设置绝对门槛时只检查排名。
-3. 其余名额在旧持仓和可买的新股票之间比较，新分数至少高出 `min_score_gap` 才换仓。
-4. `allow_cash=true` 时，每个入选股票仍以 `1 / top_k` 为目标权重，未达到绝对门槛的名额保留为现金。
-5. 尽量恢复目标等权，但不可买或不可卖约束形成权重上下界，不会通过调权隐式成交。
-6. 持有期结束后按个股实际收益漂移权重。下一日恢复目标权重产生的交易也计入换手与成本。
+1. Force-retain existing holdings that cannot be sold.
+2. Retain old holdings that meet `min_position_score` and remain within `top_k + exit_buffer`; without an absolute threshold, check rank only.
+3. Compare remaining old holdings with buyable new candidates. Replace an old holding only when the new score exceeds it by at least `min_score_gap`.
+4. With `allow_cash=true`, each selected stock still targets weight `1 / top_k`; slots below the absolute score threshold remain cash.
+5. Restore target equal weights where possible. Buy/sell restrictions set weight bounds and cannot be bypassed through implicit reweighting.
+6. At the end of the holding period, let weights drift with realized returns. Trades needed to restore target weights the next day count toward turnover and cost.
 
-冒烟中，动态股票池里完全消失的旧持仓可用 `liquidate` 明确记录 `universe_exit` 卖出。正式评估使用 `error`。上游必须给调出股票保留 `in_universe=false` 状态行。可卖时记录 `universe_exit`，不可卖时强制持有，直到后续状态允许退出。这样股票池轮换和数据缺失不会混为一谈。
+In smoke tests, an old holding absent from the dynamic universe may be explicitly liquidated with reason `universe_exit`. Formal evaluation uses missing-holding policy `error`: upstream data must provide an `in_universe=false` state row for a removed holding. If it is tradable, record `universe_exit`; otherwise force-retain until a later state permits exit. This distinguishes universe rotation from missing data.
 
-## 成本与指标
+## Costs and metrics
 
-交易明细按目标权重差计算：
+Trade details use changes in target weight:
 
 ```text
 buy_cost  = buy_notional  * per_side_bps
@@ -46,22 +46,15 @@ sell_cost = sell_notional * (per_side_bps + sell_stamp_tax_bps)
 net_return = gross_return - buy_cost - sell_cost
 ```
 
-初始建仓的买入名义本金为 1，明确计入成本。日度输出分别保存买入、卖出和单边平均换手，所以 buffer 引起的每一次换手变化都可以回溯到股票级交易。
+Initial entry has buy notional 1 and is explicitly charged. Daily output separately records buy, sell, and mean one-way turnover, so every buffer-driven change can be traced to stock-level trades.
 
-汇总包括：
+Summary metrics include gross and net daily/annualized return, volatility, Sharpe, cumulative return, maximum drawdown; realized Top-K overlap, return versus the full-universe baseline, and Rank IC within selected holdings; monthly cumulative return, cost-adjusted return versus equal-weight universe, and positive-day share; absolute-return and absolute-excess contributions from the most extreme 1, 5, and 10 days; holding count, net/gross exposure, maximum weight, and HHI concentration; and cash weight and day-to-day changes.
 
-- 毛和净日收益、年化收益、波动率、Sharpe、累计收益和最大回撤
-- Top-K 实现收益重合度、相对全股票池收益、选中股票内部 Rank IC
-- 月度累计收益、成本后相对股票池等权收益与正收益日比例
-- 极端 1、5、10 日的绝对收益贡献和绝对超额收益贡献
-- 持仓数、净和毛暴露、最大权重和 HHI 集中度
-- 现金权重及其跨日变化
+Absolute score thresholds should use expected returns calibrated on validation. Raw score scales differ across models, so the same numeric threshold should not be reused without calibration. The [event-stream signal and trading diagnostics](eventstream-signal-trading-diagnostics.md) records calibration and cross-window checks.
 
-绝对门槛应使用 validation 校准后的预期收益。不同模型的原始分数尺度通常不同，不能直接共用同一个数值阈值。[事件流信号半衰期与交易转换诊断](eventstream-signal-trading-diagnostics.md)记录了实际校准和跨窗口检查。
+## CLI and artifacts
 
-## CLI 与 artifacts
-
-示例：
+Example:
 
 ```bash
 python scripts/evaluate_cost_adjusted.py \
@@ -76,15 +69,12 @@ python scripts/evaluate_cost_adjusted.py \
   --output-dir results/topk-k50-buffer20-cost10
 ```
 
-`--output-dir` 会生成：
+The output directory contains `summary.json` (portfolio, cost, ranking, stability, and risk summaries), `daily.parquet` (daily turnover, return, costs, exposures, and Top-K metrics), `holdings.parquet` (daily stocks, ranks, scores, weights, return contribution, and retention reason), and `trades.parquet` (each weight change, side, reason, notional, and cost).
 
-- `summary.json`：组合、成本、排序、稳定性和风险汇总
-- `daily.parquet`：每日换手、收益、成本、暴露和 Top-K 指标
-- `holdings.parquet`：每日股票、排名、分数、权重、收益贡献和保留原因
-- `trades.parquet`：每笔权重变化、买卖方向、原因、名义金额和成本
+Without `--top-k`, the CLI retains compatibility with the historical quantile long-short mode. New experiments and AgentX must not use that legacy mode as a Top-K success gate.
 
-不传 `--top-k` 时保持历史分位数多空 CLI 兼容。新实验和 AgentX 不应使用该 legacy 模式作为 Top-K 成功门槛。
+## Engineering smoke test
 
-## 工程冒烟
+The frozen 2025 HGB Top-100 prediction rows were evaluated with K=50, buffer=20, 10 bp one-way cost, and 5 bp sell stamp duty. The 125-day run produced 125 daily rows, 6,250 holding rows, and 7,958 trade rows, with about 28.6% mean daily one-way turnover.
 
-使用冻结的 2025 HGB Top-100 预测明细，以 K=50、buffer=20、单边 10 bp 和卖出印花税 5 bp 跑通了 125 日链路，生成 125 行日度、6,250 行持仓和 7,958 行交易明细，日均单边换手约 28.6%。该文件的 `target_return` 是历史 next-open-to-same-close 标签且没有交易状态列，所以这里只验证实现和 artifact，不作为 M0 新 open-to-open 交易契约的收益结论。
+That file used the historical next-open-to-same-close target and has no tradability fields. This run verifies implementation and artifacts only; it is not a return result under M0's new open-to-open trading contract.

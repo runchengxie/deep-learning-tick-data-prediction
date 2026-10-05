@@ -16,7 +16,7 @@ These tracks do not share the same evidence stage. See [Project status](docs/pro
 
 ## Research boundaries
 
-The archived FI-2010 work is kept under `legacy/` as a reproduction reference. It does not establish that next-day stock ranking works. Results from `ticknet.nextday` and `ticknet.eventstream` are separate from the FI-2010 paper reproduction.
+The FI-2010 DeepLOB paper reproduction is maintained as an independent research track in `ticknet.fi2010`. It does not establish that next-day stock ranking works. Results from `ticknet.nextday` and `ticknet.eventstream` are separate from the FI-2010 reproduction.
 
 The main research path uses trading-day splits and evaluates cross-sectional ranking on out-of-time data. It also examines turnover and transaction costs. A positive Rank IC alone does not establish that a signal is tradable. Do not describe results as reproduced or validated unless the documented evidence supports that claim.
 
@@ -31,7 +31,7 @@ python -m pip install -e ".[dev]"
 python scripts/check.py
 ```
 
-The check script runs Ruff, formatting checks, `ty`, pytest with coverage, and a FI-2010 compatibility-model smoke check. The full [development guide](docs/operations/development-guide.md) describes the test and data boundaries.
+The check script runs Ruff, formatting checks, `ty`, pytest with coverage, and synthetic DeepLOB/FI-2010 smoke checks. The full [development guide](docs/operations/development-guide.md) describes the test and data boundaries.
 
 On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps1`. After changing command entry points in `pyproject.toml`, reinstall the project in editable mode so the environment's script launchers are refreshed.
 
@@ -43,7 +43,7 @@ On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps
 - [Event-stream guide](docs/nextday/eventstream.md) describes event packing, causal training, and prediction export.
 - [Data boundary](docs/architecture/data-boundary.md) describes which system owns each data transformation.
 - [Documentation index](docs/documentation-index.md) links to topic guides, research records, and operating notes.
-- [Reproduction audit](docs/reproduction-audit.md) records the scope and checks for the archived FI-2010 work.
+- [Reproduction audit](docs/reproduction-audit.md) records the scope and checks for the separate FI-2010 research track.
 
 ## Repository layout
 
@@ -57,7 +57,8 @@ tests/                   Automated checks that do not require private market dat
 configs/                 Local and Colab configurations
 docs/                    Project status, technical guides, roadmaps, and research records
 docs/references/         Papers and reading notes
-legacy/                  Archived FI-2010 reproduction reference
+src/ticknet/fi2010/      FI-2010 DeepLOB reproduction package
+examples/                Historical Colab workflow snapshots
 ```
 
 The Python import namespace remains `ticknet` for compatibility. Repository ownership and boundaries are recorded in [MIGRATION-STATUS.md](MIGRATION-STATUS.md). Contributor and agent rules are in [AGENTS.md](AGENTS.md).

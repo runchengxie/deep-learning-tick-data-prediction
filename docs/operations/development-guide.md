@@ -8,12 +8,13 @@ The core package uses the standard `src` layout:
 |---|---|
 | `ticknet.model` | FI-2010-compatible DeepLOB network and model factory |
 | `ticknet.dataset` | FI-2010-compatible tensor constants and synthetic-data helpers |
-| `ticknet.train` | Training utilities shared by the main path and FI-2010 reference (`set_seed`, `resolve_device`, `f1_metrics`) |
+| `ticknet.train` | Training utilities shared by A-share research and FI-2010 reproduction (`set_seed`, `resolve_device`, `f1_metrics`) |
+| `ticknet.fi2010` | FI-2010 dataset conversion/loading, DeepLOB training, Colab staging, and plotting |
 | `ticknet.nextday` | Next-day labels, date splits, shard reading, chunked models, cross-sectional metrics, and training, including minute HGB, TCN, and GRU baselines and the raw-order-book path |
 | `ticknet.eventstream` | Lossless L2 event packing, causal Transformer training, and prediction export |
 | `ticknet.research` | Experiment workflow, including ExperimentSpec v2, typed executors, strategy and locked-period isolation, registry, prediction audits, and deterministic evaluation |
 
-The FI-2010 paper reproduction (DeepLOB training and evaluation, Colab entry points, text conversion, and plots) is archived under `legacy/`. It is no longer part of mainline development or quality checks. To run it, use the relevant scripts and tests under `legacy/`.
+The FI-2010 paper reproduction is a maintained, separate research track. Its reusable code is in `src/ticknet/fi2010/`, configuration is in `configs/fi2010-colab.yaml`, and automated tests are collected in the main test suite. Its results remain distinct from A-share next-day evidence.
 
 Most scripts are human-run entry points and orchestration. Reusable data contracts, model computation, and evaluation belong under `src/ticknet/`. A few scripts still orchestrate long Colab jobs; future refactoring should move reusable parts into the core package gradually.
 
@@ -31,7 +32,7 @@ Common scripts:
 
 ## Colab and notebook boundaries
 
-All active Colab workflows use Python entry points. The top-level `notebooks/` directory has been removed. Old notebooks were converted to Python snapshots under `legacy/notebooks/` only to preserve early interactive workflows.
+All active Colab workflows use Python entry points. The top-level `notebooks/` directory has been removed. Old notebooks were converted to Python snapshots under `examples/historical-workflows/` only to preserve early interactive workflows.
 
 | Former notebook capability | Current Python entry point |
 |---|---|
@@ -62,7 +63,7 @@ ticknet-research --help
 
 Tests are organized by workflow and use synthetic data. They do not require real market data, Google Drive, or the complete FI-2010 dataset.
 
-The FI-2010 reproduction path is archived under `legacy/tests/` and must be run manually. It is outside the main quality gate. It covers the five prediction horizons and label-column mapping, 40-feature inputs and paper-scale architecture, Setup 1 and Setup 2 data selection, non-overlapping source rows between training and validation, text conversion, partition metadata, and streaming NPY writes.
+The main quality gate includes FI-2010 synthetic-data tests for the five prediction horizons and label mapping, 40-feature inputs, Setup 1 and Setup 2 selection, non-overlapping training/validation source rows, text conversion, partition metadata, and streaming NPY writes. Tests use synthetic fixtures; real FI-2010 data is not required.
 
 Next-day cross-sectional tests cover:
 
@@ -107,7 +108,7 @@ Research workflow tests cover:
 - Baseline selection from Registry to ResearchContext, return paths for failures and audits, stable fingerprints, and novelty-replay rejection
 - Shared context for Brainstorm and Critic, budget and executor limits, and context-review snapshots
 
-The smoke script checks the FI-2010 compatibility DeepLOB forward pass, softmax, gradients, and parameter count. It does not read real data and does not cover next-day, minute, event-stream, or research-loop workflows. `scripts/check.py` and the local pre-push hook run it; pytest does not collect it.
+The smoke script checks the DeepLOB forward pass, softmax, gradients, parameter count, and FI-2010 dataset windows using synthetic data. It does not read real data. `scripts/check.py` and the local pre-push hook run it.
 
 ## Quality gates
 
@@ -163,4 +164,4 @@ The highest-priority refactoring opportunities are:
 
 Core modules currently vary in size. Trainers repeat substantial loop logic, and the research workflow and some orchestration scripts have multiple responsibilities. Refactor in the order above. Keep CLI, configuration, and artifact contracts stable during each change, and remove complexity exceptions after the corresponding refactoring.
 
-The FI-2010 reproduction's training loop, CLI configuration, and experiment summary moved to `legacy/fi2010_train.py`. Mainline `ticknet.train` keeps only utilities shared with next-day prediction (`set_seed`, `resolve_device`, and `f1_metrics`). `ticknet.research` is decoupled from `nextday` through CLI names and YAML configuration and does not directly import its implementation.
+The FI-2010 training loop and CLI live in `ticknet.fi2010.train`; converter, plotting, Colab, and smoke entry points live in `ticknet.fi2010.scripts`. Shared random-seed, device, and classification-metric helpers remain in `ticknet.train`. `ticknet.research` is decoupled from `nextday` through CLI names and YAML configuration and does not directly import its implementation.

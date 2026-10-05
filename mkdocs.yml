@@ -82,6 +82,7 @@ nav:
   - Development:
       - Development guide: dev/development-guide.md
       - Colab CLI automation: dev/colab-cli-automation.md
+      - Historical Colab snapshots: dev/historical-colab-snapshots.md
   - Operations:
       - Development guide: operations/development-guide.md
       - System workflows: operations/systemd-workflows.md

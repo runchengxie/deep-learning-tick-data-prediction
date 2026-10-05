@@ -1,6 +1,6 @@
 # Unattended Colab Runs with the CLI
 
-The Linux development machine schedules code, data, and experiment artifacts. Colab provides temporary GPU compute. The supported entry point is the Python CLI. Former notebooks were converted to Python snapshots under `legacy/notebooks/` only to preserve early interactive workflows.
+The Linux development machine schedules code, data, and experiment artifacts. Colab provides temporary GPU compute. The supported entry point is the Python CLI. Former notebooks were converted to Python snapshots under `examples/historical-workflows/` only to preserve early interactive workflows.
 
 ## Boundaries
 

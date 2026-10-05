@@ -1,10 +1,10 @@
-"""Colab 训练入口。
+"""Stage FI-2010 data from Google Drive and launch a Colab training run.
 
 先在 Colab 主内核中挂载 Google Drive，再运行本脚本：
 
     from google.colab import drive
     drive.mount("/content/drive")
-    !python scripts/run_colab.py --protocol setup2 --k 10
+    ticknet-fi2010-colab --protocol setup2 --k 10
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import torch
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_DRIVE_ROOT = Path("/content/drive/MyDrive")
 DEFAULT_LOCAL_DATA_DIR = Path("/content/DeepLOB/data")
 META_FILENAMES = ("FI2010_normalised_meta.json", "FI2010_meta.json")
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(
             f"缺少以下文件：\n{joined}\n"
             "元数据也可以使用兼容名称 FI2010_meta.json。\n"
-            "请先用 scripts/convert_fi2010.py 转换官方数据，再上传到 Drive。"
+            "Convert the official data with ticknet-fi2010-convert, then upload it to Drive."
         )
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     if not args.no_local_copy:
@@ -174,9 +174,9 @@ def main(argv: list[str] | None = None) -> None:
     command = [
         sys.executable,
         "-m",
-        "ticknet.train",
+        "ticknet.fi2010.train",
         "--config",
-        str(REPOSITORY_ROOT / "configs" / "colab.yaml"),
+        str(REPOSITORY_ROOT / "configs" / "fi2010-colab.yaml"),
         "--data-path",
         str(data_path),
         "--meta-path",

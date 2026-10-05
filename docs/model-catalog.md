@@ -12,7 +12,7 @@ This page summarizes implemented models and explicitly planned research. It desc
 | Minute GRU | Minute features ordered by time | Yes | Training and evaluation implemented | Tests whether a recurrent model adds to the TCN comparison; no separate formal result yet |
 | Chunked DeepLOB | Last 200 or 1,000 ten-level snapshots | Yes | Four-cell, three-seed matrix complete | `1M/raw-200` is most stable; longer windows and more parameters have no stable gain |
 | L2 event-stream Transformer | Losslessly merged orders, trades, and snapshots, optionally combined with minute features | Yes | 100M, frozen-representation, and joint-training three-seed work complete | Joint Rank IC is consistently positive; net active returns after costs still need improvement |
-| FI-2010 DeepLOB | Ten-level FI-2010 order-book windows | Yes | Archived under `legacy/` | Used for paper-reproduction and compatibility checks; does not show next-day A-share prediction performance |
+| FI-2010 DeepLOB | Ten-level FI-2010 order-book windows | Yes | Maintained separately in `ticknet.fi2010` | Used for paper reproduction; does not show next-day A-share prediction performance |
 | LambdaMART | Cross-sectional features grouped by trading day | No | Recent-fold M4 comparison complete | Embeddings alone show OOS signal, but combined gains lack cross-seed and cross-month stability |
 
 ## Logistic Regression
@@ -99,7 +99,7 @@ This is a compatibility implementation of the DeepLOB paper.
 
 **How it works:** Three convolution blocks extract patterns from ten-level prices, volumes, and local time. Multi-branch Inception combines several time scales, a 64-unit LSTM summarizes the sequence, and a linear layer outputs three directional classes.
 
-It is useful for checking the paper's architecture, FI-2010 conversion, and training process. Its market, labels, and task differ from current A-share next-day prediction, so its results apply only to reproduction. The implementation and training scripts are under `legacy/`. The main quality gate retains smoke checks for forward pass, gradients, and parameter count.
+It is useful for checking the paper's architecture, FI-2010 conversion, and training process. Its market, labels, and task differ from current A-share next-day prediction, so its results apply only to reproduction. The implementation and training scripts are under `src/ticknet/fi2010/`. The quality gate includes synthetic smoke checks for forward pass, gradients, parameter count, and dataset windows.
 
 ## LambdaMART
 

@@ -86,7 +86,7 @@ Top-K tradable portfolios and the AgentX automated quantitative research loop.
 
 | Path | Contents |
 |---|---|
-| [Reproduction audit](reproduction-audit.md) | DeepLOB on FI-2010; implementation archived under `legacy/` |
+| [Reproduction audit](reproduction-audit.md) | DeepLOB on FI-2010; maintained separately under `src/ticknet/fi2010/` |
 | [Top-K AgentX v1 baseline](baselines/topk-agentx-v1.json) | Frozen M0 artifact manifest with SHA-256 and metrics |
 | [Multi-horizon source inspection](reports/multi-horizon-decision-2026-08-10/source-inspection.md) | Historical snapshot from 2026-08-10; its findings were incorporated into the multi-horizon roadmap |
 

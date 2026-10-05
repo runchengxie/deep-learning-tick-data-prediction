@@ -141,12 +141,12 @@
 - Consumes: the source-language test from Task 3 and the existing archival markers/digest.
 - Produces: English research prose without changing frozen JSON baselines or rewriting the protected archived comparison excerpt.
 
-- [ ] **Step 1: Extend the documentation file inventory** in `tests/test_documentation.py` to include maintained Markdown under `docs/superpowers/`, then translate research Markdown under `docs/research/` and existing human-authored specs and plans under `docs/superpowers/`. Preserve all experiment dates, identities, assumptions, sample scope, metrics, costs, failures, decisions, provenance, and uncertainty. Wrap any preserved non-English source quotation in the exact `preserved-source` markers from Task 3; keep stable identifiers intact.
-- [ ] **Step 2: Keep generated and frozen records stable.** Do not edit `docs/baselines/*.json`, `docs/reports/*/*.json`, source PDFs, or the contents between `ARCHIVAL_SOURCE_START` and `ARCHIVAL_SOURCE_END` markers.
-- [ ] **Step 3: Run documentation validation.** Run `uv run --locked --extra dev pytest tests/test_documentation.py -q` and `uv run --locked --extra dev mkdocs build --strict`.
+- [x] **Step 1: Extend the documentation file inventory** in `tests/test_documentation.py` to cover all maintained reader-facing Markdown, then translate research Markdown under `docs/research/`. Preserve experiment dates, identities, assumptions, sample scope, metrics, costs, failures, decisions, provenance, and uncertainty. Wrap preserved non-English source quotations in the exact `preserved-source` markers from Task 3; keep stable identifiers intact. Agent process plans and specs under `docs/superpowers/` remain in English and are excluded from the public documentation inventory.
+- [x] **Step 2: Keep generated and frozen records stable.** No JSON baselines or report results were changed. The source PDF without redistribution rights was removed in Task 3, and the contents between `ARCHIVAL_SOURCE_START` and `ARCHIVAL_SOURCE_END` remain hash-pinned and unchanged.
+- [x] **Step 3: Run documentation validation.** Documentation tests and `uv run --locked mkdocs build --strict` pass.
 
   Expected: English-only check passes for maintained prose, internal links resolve, all protected archival digests remain unchanged, and MkDocs emits no warnings.
-- [ ] **Step 4: Commit** as `docs: translate research records to English`.
+- [x] **Step 4: Commit** as `docs: translate research records to English` (included with the subsequent repository-wide docs and FI-2010 cleanup commit).
 
 ### Task 6: Add pull-request documentation validation and Pages deployment
 
@@ -169,7 +169,26 @@
   Expected: workflow tests confirm PR validation and default-branch-only deployment; strict site build and local documentation checks pass.
 - [ ] **Step 6: Commit** as `ci: publish MkDocs site with GitHub Pages`.
 
-### Task 7: Verify the full documentation release and prepare the rename
+### Task 7: Make FI-2010 a first-party package
+
+**Files:**
+- Move: `legacy/fi2010_core.py`, `legacy/fi2010_train.py`, and reusable FI-2010 scripts into `src/ticknet/fi2010/`
+- Move: `legacy/configs/colab.yaml` to `configs/fi2010-colab.yaml`
+- Move: `legacy/tests/` into the root `tests/` suite
+- Move: historical Python notebook snapshots into `examples/historical-workflows/`
+- Modify: `pyproject.toml`, project identity/docs, and package-boundary tests
+
+**Interfaces:**
+- Consumes: the independent DeepLOB/FI-2010 reproduction and its existing tests.
+- Produces: an installable `ticknet.fi2010` package with converter, trainer, Colab, plotting, and smoke-test entry points; no `legacy/` source tree; synthetic FI-2010 tests in the main quality gate.
+
+- [x] **Step 1: Inventory and move maintained modules, scripts, configuration, tests, and historical snapshots.** Keep FI-2010 as a separate research track and distinguish paper-reproduction results from A-share next-day evidence.
+- [x] **Step 2: Update imports, module execution, console scripts, configuration paths, and documentation.** Preserve `ticknet-fi2010-train`; add stable package entry points for conversion, plotting, Colab staging, and smoke checks.
+- [x] **Step 3: Extend tests** to assert the first-party package exists, `legacy/` is gone, CLI targets resolve, and synthetic FI-2010 tests are collected by pytest.
+- [x] **Step 4: Run the FI-2010 tests, full-project checks, strict MkDocs, and style/type checks.** Search for stale `legacy/` paths outside historical process records.
+- [x] **Step 5: Commit** as `refactor: move FI-2010 reproduction into ticknet package` (included with final documentation commit).
+
+### Task 8: Verify the full documentation release and prepare the rename
 
 **Files:**
 - Modify: `README.md`
@@ -183,12 +202,12 @@
 - Produces: a PR-ready branch with canonical `quant-deep-learning` URLs and an explicit post-merge rename checklist. This task does not perform the remote repository rename.
 
 - [ ] **Step 1: Search maintained files for stale public identity and URLs.** Update project title, badges, workflow concurrency group, package-facing references, and site URL to `quant-deep-learning`. Preserve legacy repository names only in historical migration context.
-- [ ] **Step 2: Run the complete local quality gate** with `pre-commit run --all-files` and `python scripts/check.py`, plus `uv run --locked --extra dev mkdocs build --strict`.
+- [x] **Step 2: Run the complete local quality gate** with `uv run --locked pre-commit run --all-files`, `uv run --locked pytest -q --tb=short`, Ruff lint/format checks, ty (through pre-commit), and `uv run --locked mkdocs build --strict`.
 
   Expected: all commands exit 0. Record environment, command, exit code, and any checks unavailable locally in the PR.
-- [ ] **Step 3: Review the complete diff** for translation drift, altered evidence, stale links, accidental source/report inclusion, and changes outside this plan.
+- [x] **Step 3: Review the complete diff** for translation drift, altered evidence, stale links, accidental source/report inclusion, and changes outside this plan.
 - [ ] **Step 4: Commit** as `docs: finalize quant deep learning public site`.
-- [ ] **Step 5: After the PR is merged, rename the GitHub repository** to `quant-deep-learning`, update the local clone's `origin` URL, and verify the old URL redirects, the Pages URL loads, and default-branch deployment succeeds. Record the verification in the PR or release notes.
+- [ ] **Step 5: After the PR is merged, rename the GitHub repository** to `quant-deep-learning`, set its description to `End-to-end quantitative deep-learning research for limit order books, event streams, and structured market data.`, update the local clone's `origin` URL, and verify the old URL redirects, the Pages URL loads, and default-branch deployment succeeds. Record the verification in the PR or release notes.
 
 ## Follow-on plans required by the spec
 

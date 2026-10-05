@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import re
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
@@ -31,7 +32,7 @@ ENGLISH_DOCUMENTS = {
     "docs/references/agentx-paper-notes.md",
     "docs/references/debang-minute-gru-notes.md",
     "docs/references/deeplob-paper-notes.md",
-    "legacy/notebooks/README.md",
+    "docs/dev/historical-colab-snapshots.md",
     "docs/nextday/cross-sectional-prediction.md",
     "docs/nextday/eventstream.md",
     "docs/nextday/h5-rolling-eventstream-roadmap.md",
@@ -41,6 +42,24 @@ ENGLISH_DOCUMENTS = {
     "docs/nextday/raw-200-end-to-end-pipeline.md",
     "docs/nextday/raw-data-expansion-roadmap.md",
     "docs/reports/multi-horizon-decision-2026-08-10/source-inspection.md",
+    "docs/research/experiment-log.md",
+    "docs/research/eventstream-gradient-audit.md",
+    "docs/research/eventstream-label-scale.md",
+    "docs/research/eventstream-signal-trading-diagnostics.md",
+    "docs/research/external-l2-research-comparison.md",
+    "docs/research/historical-data-eligibility-2026-08-27.md",
+    "docs/research/m3-eventstream-representation.md",
+    "docs/research/opening-coverage-inventory-2026-08-27.md",
+    "docs/research/resource-strategy-and-pilot-gates.md",
+    "docs/research/shanghai-opening-contract-audit-2026-08-27.md",
+    "docs/research/topk-agentx-m0-research-contract.md",
+    "docs/research/topk-agentx-m1-portfolio-evaluator.md",
+    "docs/research/topk-agentx-m2a-deterministic-loop.md",
+    "docs/research/topk-agentx-m2b-locked-approval.md",
+    "docs/research/topk-agentx-m2c-executors-comparison.md",
+    "docs/research/topk-agentx-m2d-registry-context.md",
+    "docs/research/topk-agentx-m3-topk-diagnostics.md",
+    "docs/research/topk-agentx-research-roadmap.md",
 }
 
 
@@ -54,14 +73,16 @@ def _markdown_files() -> list[Path]:
             for path in (ROOT / "docs").rglob("*.md")
             if "superpowers" not in path.relative_to(ROOT / "docs").parts
         ),
-        *sorted((ROOT / "legacy").rglob("*.md")),
     ]
 
 
 def _prose_lines(path: Path) -> list[tuple[int, str]]:
     lines: list[tuple[int, str]] = []
     in_fence = False
-    source_end_markers = {ARCHIVAL_SOURCE_START: ARCHIVAL_SOURCE_END, PRESERVED_SOURCE_START: PRESERVED_SOURCE_END}
+    source_end_markers = {
+        ARCHIVAL_SOURCE_START: ARCHIVAL_SOURCE_END,
+        PRESERVED_SOURCE_START: PRESERVED_SOURCE_END,
+    }
     active_source_end: str | None = None
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if active_source_end is not None:
@@ -125,6 +146,17 @@ def test_repository_identity_is_quant_deep_learning() -> None:
     assert "ticknet-research" in project["scripts"]
 
 
+def test_fi2010_reproduction_is_a_first_party_package() -> None:
+    root = ROOT / "src" / "ticknet" / "fi2010"
+    scripts = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert root.joinpath("core.py").is_file()
+    assert root.joinpath("train.py").is_file()
+    assert not (ROOT / "legacy").exists()
+    assert 'ticknet-fi2010-train = "ticknet.fi2010.train:main"' in scripts
+    assert 'ticknet-fi2010-convert = "ticknet.fi2010.scripts.convert_fi2010:main"' in scripts
+
+
 def test_mkdocs_site_configuration() -> None:
     config = ROOT / "mkdocs.yml"
     landing_page = ROOT / "docs" / "index.md"
@@ -166,4 +198,16 @@ def test_maintained_documentation_is_written_in_english() -> None:
             line = MARKDOWN_LINK.sub(r"\1", line)
             if CJK_PROSE.search(line):
                 failures.append(f"{path.relative_to(ROOT)}:{line_number}")
-    assert not failures, "Maintained explanatory prose must be English (use preserved-source markers for quotations):\n" + "\n".join(failures)
+    message = (
+        "Maintained explanatory prose must be English "
+        "(use preserved-source markers for quotations):\n" + "\n".join(failures)
+    )
+    assert not failures, message
+
+
+def test_english_inventory_covers_all_maintained_markdown() -> None:
+    maintained = {path.relative_to(ROOT).as_posix() for path in _markdown_files()}
+    excluded = {
+        path.relative_to(ROOT).as_posix() for path in (ROOT / "docs" / "superpowers").rglob("*.md")
+    }
+    assert maintained - excluded == ENGLISH_DOCUMENTS

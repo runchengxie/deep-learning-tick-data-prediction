@@ -1,9 +1,4 @@
-"""FI-2010（DeepLOB 论文复现）训练、评估和实验入口。
-
-该模块已从主链路归档到 ``legacy/``。主链路（次日横截面预测）复用本模块
-暴露的共享工具 ``set_seed`` / ``resolve_device`` / ``f1_metrics``，它们保留在
-``ticknet.train`` 中。本文件只服务于 FI-2010 论文复现，不再被任何主链路代码调用。
-"""
+"""Train, evaluate, and run FI-2010 DeepLOB paper-reproduction experiments."""
 
 from __future__ import annotations
 
@@ -22,14 +17,19 @@ import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 
-from legacy.fi2010_core import K_TO_LABEL_COLUMN, WINDOW_SIZE, FI2010WindowDataset, RandomLOBDataset
+from ticknet.fi2010.core import (
+    K_TO_LABEL_COLUMN,
+    WINDOW_SIZE,
+    FI2010WindowDataset,
+    RandomLOBDataset,
+)
 from ticknet.model import build_model
 from ticknet.train import f1_metrics, resolve_device, set_seed
 
 
 @dataclass
 class Config:
-    """一次训练或一组 Setup 1 训练所需的配置。"""
+    """Configuration for one run or a group of Setup 1 runs."""
 
     dataset: str = "random"
     data_path: str | None = None
@@ -74,7 +74,7 @@ class Config:
 
 
 class Metrics(TypedDict):
-    """分类评估指标。"""
+    """Classification evaluation metrics."""
 
     accuracy: float
     macro_f1: float
@@ -89,7 +89,7 @@ def make_dataloaders(
     device: torch.device,
     test_cf: int | None = None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
-    """创建训练、验证和测试 DataLoader。"""
+    """Create train, validation, and test DataLoaders."""
     if config.dataset == "random":
         datasets = (
             RandomLOBDataset(num_samples=512, seed=config.seed),
@@ -147,7 +147,7 @@ def evaluate(
     dataloader: DataLoader,
     device: torch.device,
 ) -> Metrics:
-    """评估模型并返回分类指标。"""
+    """Evaluate the model and return classification metrics."""
     model.eval()
     true_batches: list[np.ndarray] = []
     predicted_batches: list[np.ndarray] = []
@@ -213,7 +213,7 @@ def _load_checkpoint(path: Path, device: torch.device) -> dict[str, Any]:
 
 
 def train(config: Config, *, test_cf: int | None = None) -> dict[str, Any]:
-    """训练一次模型，保存最近状态和验证集最佳状态。"""
+    """Train one model and save the latest and best validation checkpoints."""
     started_at = time.perf_counter()
     config.validate()
     set_seed(config.seed)
@@ -353,7 +353,7 @@ def train(config: Config, *, test_cf: int | None = None) -> dict[str, Any]:
 
 
 def run_setup1(config: Config) -> dict[str, Any]:
-    """运行论文 Setup 1 的锚定前向九折实验。"""
+    """Run the paper's anchored forward nine-fold Setup 1 experiment."""
     results = [train(config, test_cf=cf) for cf in config.setup1_cfs]
     macro_f1 = [float(result["test"]["macro_f1"]) for result in results]
     accuracy = [float(result["test"]["accuracy"]) for result in results]
@@ -374,7 +374,7 @@ def run_setup1(config: Config) -> dict[str, Any]:
 
 
 def _build_parser(defaults: dict[str, Any]) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="训练和评估 DeepLOB")
+    parser = argparse.ArgumentParser(description="Train and evaluate DeepLOB on FI-2010")
     parser.add_argument("--config")
     parser.add_argument("--dataset", choices=["random", "fi2010"])
     parser.add_argument("--data-path")
@@ -399,7 +399,7 @@ def _build_parser(defaults: dict[str, Any]) -> argparse.ArgumentParser:
 
 
 def load_config(argv: list[str] | None = None) -> Config:
-    """按 Config 默认值、YAML、命令行的顺序合并配置。"""
+    """Merge configuration in order: dataclass defaults, YAML, then CLI options."""
     probe = argparse.ArgumentParser(add_help=False)
     probe.add_argument("--config")
     probe_args, _ = probe.parse_known_args(argv)

@@ -43,4 +43,4 @@ Artifact schemas and compatibility guarantees are being specified before impleme
 
 ## Evidence standards
 
-FI-2010 is retained only for the archived DeepLOB reproduction. It cannot establish next-day stock-ranking performance. All current claims must state their sample dates, split, metric definition, costs where relevant, provenance, and limitations. A positive ranking metric alone does not establish that a strategy is tradable.
+FI-2010 remains a separate DeepLOB paper-reproduction track in `ticknet.fi2010`. It cannot establish next-day stock-ranking performance. All current claims must state their sample dates, split, metric definition, costs where relevant, provenance, and limitations. A positive ranking metric alone does not establish that a strategy is tradable.

@@ -1,9 +1,4 @@
-"""主链路与 FI-2010 复现共用的训练工具。
-
-这里只保留被次日预测主链路（``ticknet.nextday``）复用的公共工具：
-``set_seed``、``resolve_device`` 和 ``f1_metrics``。FI-2010 论文复现的完整
-训练/评估/实验调度已归档到 ``legacy/fi2010_train.py``。
-"""
+"""Training utilities shared by next-day prediction and FI-2010 reproduction."""
 
 from __future__ import annotations
 

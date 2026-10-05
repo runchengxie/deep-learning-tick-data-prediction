@@ -1,57 +1,61 @@
-# raw L2 盘前覆盖清单
+# Raw L2 Pre-Open Coverage Inventory
 
-## 审计目标
+## Audit objective
 
-本轮建立交易日和股票粒度的 raw L2 覆盖扫描器，区分盘前文件存在、股票有盘前订单、关联文件存在、股票在关联文件中出现以及开盘成交是否存在。扫描器只做数据审计，不改变撮合器和沪市默认 lag。
+This work adds a raw L2 coverage scanner at trading-day and stock level. It distinguishes pre-open file presence, whether a stock has pre-open orders, whether linked files exist, whether the stock appears in each linked file, and whether an opening trade exists. The scanner audits data only; it does not change the matching engine or Shanghai's default lag.
 
-## 统计口径
+## Counting rules
 
-盘前订单量统计 order_preopen 中非撤单记录的行数和 Volume 之和。开盘成交定义为 trades 中 time_ms <= 0 的记录，开盘成交量为这些记录的 Volume 之和。snapshot 支持按日文件、按月文件和带连字符的日文件名。
+Pre-open order counts and volume sum non-cancel rows in `order_preopen`. An opening trade is a `trades` row with `time_ms <= 0`; opening volume sums its `Volume`. Snapshot discovery supports daily files, monthly files, and daily filenames containing hyphens.
 
-batch 使用盘前文件所在的月份目录作为当前可复现的原始文件批次代理。数据湖目前没有单独的批次元数据，因此这个字段不宣称代表供应商批次。
+The batch field uses the month directory containing a pre-open file as a reproducible proxy for the raw-file batch. The data lake has no separate batch metadata, so this field does not claim to represent a vendor batch.
 
-## 运行方式
+## Run the audit
 
-使用项目虚拟环境运行：
+Use the project environment:
 
-    PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
-      --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
-      --json-output /tmp/opening-coverage.json \
-      --csv-output /tmp/opening-coverage.csv
+```bash
+PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
+  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --json-output /tmp/opening-coverage.json \
+  --csv-output /tmp/opening-coverage.csv
+```
 
-扫描可用 --limit-days 分段执行。输出文件建议放在 /tmp 或硬盘盒上的非仓库目录，不提交到 Git。
+Use `--limit-days` to scan in chunks. Write outputs under `/tmp` or to a non-repository location on the external disk, and do not commit them to Git.
 
-全量扫描建议指定 `--index-path` 保存覆盖索引。首次扫描仍会读取关联的原始文件，后续运行会按文件大小和修改时间复用未变化的交易日。需要强制重扫时增加 `--refresh-index`。
+For a full audit, set `--index-path` to cache coverage results. The first scan still reads the linked raw files; later runs reuse trading days whose file sizes and modification times have not changed. Use `--refresh-index` to force a rescan.
 
-    PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
-      --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
-      --index-path /mnt/data/hdd6t/quant-data-lake/projects/level2-coverage-index.json \
-      --json-output /tmp/opening-coverage.json \
-      --csv-output /tmp/opening-coverage.csv
+```bash
+PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
+  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --index-path /mnt/data/hdd6t/quant-data-lake/projects/level2-coverage-index.json \
+  --json-output /tmp/opening-coverage.json \
+  --csv-output /tmp/opening-coverage.csv
+```
 
-## 首个真实 smoke 结果
+## First real-data smoke result
 
-使用 6TB raw L2 的 2021-01-04 盘前文件运行 --limit-days 1：
+The first run scanned the 2021-01-04 pre-open file from the 6 TB raw L2 dataset with `--limit-days 1`:
 
-| 指标 | 数量 |
+| Metric | Count |
 |---|---:|
-| 盘前股票日 | 2335 |
-| 有开盘成交的股票日 | 2283 |
-| 三类关联文件都存在 | 2335 |
-| 三类文件中股票都出现 | 2283 |
-| 盘前委托记录 | 1112321 |
-| 盘前委托量 | 4675764535 |
-| 开盘成交记录 | 200882 |
-| 开盘成交量 | 451384210 |
+| Pre-open stock-days | 2,335 |
+| Stock-days with an opening trade | 2,283 |
+| Stock-days with all three linked files | 2,335 |
+| Stocks present in all three files | 2,283 |
+| Pre-open order rows | 1,112,321 |
+| Pre-open order volume | 4,675,764,535 |
+| Opening trade rows | 200,882 |
+| Opening trade volume | 451,384,210 |
 
-这个日文件的扫描耗时约 26 秒。主要耗时来自关联的大型订单、成交和月度 snapshot 文件。全量 1282 个盘前日文件应按日期分段运行，避免单次任务长时间占用资源。覆盖索引可以把这次读取成本摊到后续审计中，但不会减少首次读取原始 orders 和 trades 的成本。
+This day's scan took about 26 seconds. Most time was spent reading the large linked order, trade, and monthly snapshot files. Scan the full 1,282 pre-open files in date ranges to avoid holding resources for a single long-running job. The coverage index spreads the I/O cost across future audits, but does not reduce the cost of the first read of raw orders and trades.
 
-## 代码边界
+## Code boundary
 
-ticknet.simulator.coverage 按日读取关联文件。订单 ticker 存在性只扫描目标盘前股票，找到当日全部目标后提前停止。成交和 snapshot 按目标股票及交易日过滤后聚合，因此不会为每个股票重复读取同一日文件。
+`ticknet.simulator.coverage` reads linked files once per day. Order ticker-presence checks scan only target pre-open stocks and stop when all targets are found. Trades and snapshots are filtered by target stock and date before aggregation, avoiding repeated reads of a daily file for each stock.
 
-报告中的完整文件不代表完整身份链。股票同时出现在三类文件中，也不能证明每笔开盘订单都具备可回链的订单身份。后续仍需在覆盖清单上抽取沪市样本，调用 lag 扫描和订单级 trace，分析年份、月份、文件批次和股票的 lag 分布。
+Complete files do not prove a complete identity chain. A stock's presence in all three files does not establish that every opening order can be traced by identity. Further work should sample Shanghai stock-days from this inventory and use lag scans and order-level traces to analyze lag by year, month, file batch, and stock.
 
-## 下一步
+## Next steps
 
-先完成全量覆盖清单，再按有盘前股票记录的沪市股票日运行 -200ms 至 200ms 的 lag 扫描。lag 只有在跨日期稳定、十档匹配明显改善且 Volume 和 DealNum 同时一致时，才具备进入市场配置的依据。
+Finish the full coverage inventory, then scan lags from -200 ms to +200 ms for Shanghai stock-days with pre-open records. A lag should enter market configuration only if it is stable across dates, materially improves ten-level matching, and also reconciles both `Volume` and `DealNum`.

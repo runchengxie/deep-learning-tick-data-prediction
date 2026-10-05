@@ -1,18 +1,18 @@
-# 沪市开盘数据契约审计
+# Shanghai Opening Data-Contract Audit
 
-## 审计目标
+## Audit objective
 
-本轮使用 6TB raw L2 数据，检查 `order_preopen` 是否覆盖指定股票，扫描快照时间到订单、成交事件时间的候选偏移，并用订单身份账本重建首张完整连续竞价快照。
+Using the 6 TB raw L2 dataset, this audit checks whether `order_preopen` covers the target stock, scans candidate offsets between snapshot time and order/trade event time, and rebuilds the first complete continuous-auction snapshot from the order-identity ledger.
 
-审计器只用于数据诊断。它不修改撮合器，不把沪市最佳 lag 自动写入生产配置。
+The audit is diagnostic only. It does not modify the matching engine or write Shanghai's best observed lag into production configuration.
 
-## 方法
+## Method
 
-每个股票日只读取一次订单、成交和快照 Parquet。候选事件 lag 为 `-200ms` 至 `200ms`，步长 `10ms`。对每个候选值，将事件时间不晚于 `snapshot_time_ms + lag` 的委托、成交和撤单纳入订单级账本，聚合前十档并比较价格和数量。
+Each stock-day's order, trade, and snapshot Parquet files are read once. Candidate event lags range from -200 ms to +200 ms in 10 ms steps. For each candidate, orders, trades, and cancels at or before `snapshot_time_ms + lag` are included in the order-level ledger. The top ten price levels and quantities are aggregated and compared with the snapshot.
 
-最佳 lag 的选择顺序为精确匹配、身份缺口数量、十档数量差异、lag 的绝对值。这个选择用于诊断，不代表真实交易所协议已经被证明。
+Candidate lags are ranked by exact-match status, number of missing identities, quantity differences across the ten levels, and absolute lag. This ordering supports diagnosis; it does not prove the actual exchange protocol.
 
-运行命令：
+Run:
 
 ```bash
 python scripts/audit_shanghai_contract.py \
@@ -35,38 +35,38 @@ python scripts/audit_shanghai_contract.py \
   --csv-output /tmp/shanghai-contract-audit.csv
 ```
 
-## 结果
+## Results
 
-| 结果 | 数量 |
+| Result | Count |
 |---|---:|
-| 总样本 | 13 |
-| 最佳 lag 下精确匹配 | 9 |
-| 可比较但存在差异 | 2 |
-| 输入不完整 | 2 |
-| 可比较样本精确率 | `9/11 = 81.8%` |
+| Total samples | 13 |
+| Exact matches at best lag | 9 |
+| Comparable samples with differences | 2 |
+| Incomplete inputs | 2 |
+| Exact-match rate among comparable samples | `9/11 = 81.8%` |
 
-深市 6 个样本的最佳 lag 全部为 `140ms`，并且十档逐档匹配。沪市 `600000` 的最佳 lag 为：
+All six Shenzhen samples had a best lag of `140ms` and matched all ten levels. Best lags for Shanghai stock `600000` were:
 
-| 交易日 | 最佳 lag | 结果 |
+| Trading date | Best lag | Result |
 |---|---:|---|
-| 2022-06-15 | `150ms` | 精确匹配 |
-| 2023-05-12 | `70ms` | 买一少 100 股 |
-| 2024-12-13 | `120ms` | 买一多 2100 股，买五少 600 股 |
-| 2025-03-03 | `0ms` | 精确匹配 |
-| 2025-06-13 | `90ms` | 精确匹配 |
+| 2022-06-15 | `150ms` | Exact match |
+| 2023-05-12 | `70ms` | Bid level 1 short by 100 shares |
+| 2024-12-13 | `120ms` | Bid level 1 over by 2,100 shares; level 5 short by 600 shares |
+| 2025-03-03 | `0ms` | Exact match |
+| 2025-06-13 | `90ms` | Exact match |
 
-2021-01-04 和 2021-03-01 的 `600000` 盘前文件存在，但没有该股票的盘前记录。对应成交在开盘竞价时间已经出现，因此审计状态为 `opening_trade_gap`，不计入匹配率。
+For `600000` on 2021-01-04 and 2021-03-01, the pre-open files existed but had no record for the stock. Its trades already appeared during the opening auction, so these samples are marked `opening_trade_gap` and excluded from the match rate.
 
-## 3900 股案例
+## The 3,900-share case
 
-`600000 @ 2022-06-15` 在默认 `0ms` 截止时，买方价格 777 的第 9 档为 76700 股，快照为 80600 股，差异正好为 3900 股。
+For `600000` on 2022-06-15, with the default `0ms` cutoff, bid price 777 at level 9 had 76,700 shares in the reconstructed book versus 80,600 in the snapshot, a difference of exactly 3,900 shares.
 
-订单级追踪显示，订单 `255949` 的价格为 777，方向为买，原始数量为 3900 股，事件时间为 `150ms`。它没有成交，也没有撤单。将截止点从 `0ms` 扩展到 `150ms` 后，该订单进入账本，买方第 9 档变为 80600 股，十档全部匹配。
+Order-level tracing found order `255949`: price 777, buy side, original quantity 3,900 shares, event time `150ms`. It was neither traded nor canceled. Extending the cutoff from `0ms` to `150ms` included the order, brought level 9 to 80,600 shares, and matched all ten levels.
 
-因此这个案例目前最强的解释是快照和订单事件的边界差异。它没有证据支持撤单数量语义错误或撮合器价格规则错误。
+The strongest current explanation is a boundary difference between snapshot and order-event timestamps. This case does not support an incorrect cancel-quantity interpretation or matching-engine price rule.
 
-## 结论和限制
+## Conclusions and limitations
 
-深市的 `+140ms` 在本轮样本中保持一致，可以继续作为深市审计默认值。沪市最佳 lag 跨日期变化，当前不能抽象成一个市场级常量。沪市默认 `0ms` 只用于保守诊断，实际报告必须保留候选 lag 分布。
+The Shenzhen `+140ms` result was consistent in this sample and can remain the default for Shenzhen audits. Shanghai's best lag varies across dates and cannot currently be generalized to a market-wide constant. Its default `0ms` is a conservative diagnostic setting; reports must retain the candidate-lag distribution.
 
-本轮是显式样本审计，不是全市场全日期普查。下一步应从所有包含沪市盘前记录的股票日中抽样，按原始文件批次统计最佳 lag，并分别检查快照文件、订单文件和成交文件的时间来源。
+This was an explicit sample audit, not a full-market, all-date census. Next, sample Shanghai stock-days with pre-open records, group best lags by source-file batch, and separately inspect the timestamp provenance of snapshot, order, and trade files.

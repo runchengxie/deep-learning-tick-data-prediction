@@ -23,7 +23,7 @@ The default raw-200 architecture uses 16 convolution channels, 32 channels in ea
 
 ## Boundary with the paper reproduction
 
-The FI-2010 reproduction, including the `ticknet-fi2010-train` entry point, `FI2010WindowDataset`, and Setups 1 and 2, is archived under `legacy/` and is no longer part of the primary track. The current pipeline lives in `ticknet.nextday` and is trained with `ticknet-nextday-train`. FI-2010 does not provide reliable stock and trading-day boundaries, so it cannot be used to create these next-day labels.
+The FI-2010 reproduction is maintained separately in `ticknet.fi2010`, with the `ticknet-fi2010-train` entry point, `FI2010WindowDataset`, and Setups 1 and 2. The current A-share pipeline lives in `ticknet.nextday` and is trained with `ticknet-nextday-train`. FI-2010 does not provide reliable stock and trading-day boundaries, so it cannot be used to create these next-day labels.
 
 ## Input features
 

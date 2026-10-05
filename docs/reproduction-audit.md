@@ -1,6 +1,6 @@
 # DeepLOB Reproduction Audit
 
-The implementation audited here has been archived under `legacy/` with the reproduction materials. It is a reference for study and does not participate in the main development path.
+The implementation audited here is maintained in `src/ticknet/fi2010/` as a separate paper-reproduction research track. Its results do not participate in A-share next-day prediction evidence.
 
 ## Conclusion
 

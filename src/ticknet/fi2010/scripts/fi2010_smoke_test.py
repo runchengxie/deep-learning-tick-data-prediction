@@ -1,23 +1,20 @@
-"""FI-2010 数据集的本地冒烟检查（已归档，不再纳入主链路门禁）。
+"""Run a local synthetic-data smoke check for the FI-2010 reproduction.
 
 运行方式：
 
-    python legacy/scripts/fi2010_smoke_test.py
+    ticknet-fi2010-smoke-test
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPOSITORY_ROOT))
-
-from legacy.fi2010_core import (
+from ticknet.fi2010.core import (
     K_TO_LABEL_COLUMN,
     NUM_CLASSES,
     NUM_FEATURES,
@@ -41,7 +38,7 @@ def check_forward_pass() -> None:
     assert features.shape == (8, 1, WINDOW_SIZE, NUM_FEATURES)
     assert logits.shape == (8, NUM_CLASSES)
     assert torch.allclose(probabilities.sum(dim=1), torch.ones(8), atol=1e-5)
-    print("通过：前向传播形状和 softmax 概率")
+    print("Passed: forward-pass shapes and softmax probabilities")
 
 
 def check_fi2010_dataset() -> None:
@@ -97,13 +94,16 @@ def check_fi2010_dataset() -> None:
                 features, label = dataset[0]
                 assert features.shape == (1, WINDOW_SIZE, NUM_FEATURES)
                 assert label in {0, 1, 2}
-    print("通过：五个预测跨度的数据窗口和标签")
+    print("Passed: dataset windows and labels for all five horizons")
 
 
 def main() -> None:
+    argparse.ArgumentParser(
+        description="Run synthetic FI-2010 dataset and DeepLOB compatibility checks."
+    ).parse_args()
     check_forward_pass()
     check_fi2010_dataset()
-    print("全部 FI-2010 冒烟检查通过。")
+    print("All FI-2010 smoke checks passed.")
 
 
 if __name__ == "__main__":

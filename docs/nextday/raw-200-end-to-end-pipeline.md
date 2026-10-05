@@ -116,4 +116,4 @@ Any stop condition means capacity expansion should pause; that itself is a valid
 2. State the trigger and pass criteria for the 2025 locked test in advance.
 3. Evaluate 2025 once the gate is met. Do not use test results to select a new model.
 
-The overall sequence is in [project status](../project-status.md). Relevant references are `configs/nextday-raw-pilot.yaml`, `configs/nextday-pilot.yaml`, `configs/nextday-raw-1m-pilot.yaml`, the [Colab CLI guide](../dev/colab-cli-automation.md), and the [raw-data expansion roadmap](raw-data-expansion-roadmap.md). The former interactive entry point is preserved at `legacy/notebooks/nextday_end_to_end.py`.
+The overall sequence is in [project status](../project-status.md). Relevant references are `configs/nextday-raw-pilot.yaml`, `configs/nextday-pilot.yaml`, `configs/nextday-raw-1m-pilot.yaml`, the [Colab CLI guide](../dev/colab-cli-automation.md), and the [raw-data expansion roadmap](raw-data-expansion-roadmap.md). The former interactive entry point is preserved at `examples/historical-workflows/nextday_end_to_end.py`.
