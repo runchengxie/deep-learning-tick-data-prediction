@@ -9,6 +9,7 @@ __pycache__/
 venv/
 env/
 *.egg-info/
+/site/
 
 # 本地实验产物
 /artifacts/

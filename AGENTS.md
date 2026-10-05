@@ -1,6 +1,6 @@
 # Repository Collaboration Guide
 
-Read the root README and [docs/README.md](docs/README.md) before changing code. For experiment methodology, also check the relevant paper or source record in this repository.
+Read the root README and [documentation index](docs/documentation-index.md) before changing code. For experiment methodology, also check the relevant paper or source record in this repository.
 
 ## Project scope
 

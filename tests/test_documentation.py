@@ -84,6 +84,20 @@ def test_repository_identity_is_quant_deep_learning() -> None:
     assert "ticknet-research" in project["scripts"]
 
 
+def test_mkdocs_site_configuration() -> None:
+    config = ROOT / "mkdocs.yml"
+    landing_page = ROOT / "docs" / "index.md"
+
+    assert config.is_file()
+    assert landing_page.is_file()
+    settings = config.read_text(encoding="utf-8")
+    assert "name: material" in settings
+    assert "site_url: https://runchengxie.github.io/quant-deep-learning/" in settings
+    assert "  - Home: index.md" in settings
+    assert "Project status: project-status.md" in settings
+    assert "Architecture:" in settings
+
+
 def test_internal_markdown_links_exist() -> None:
     failures: list[str] = []
     for path in _markdown_files():

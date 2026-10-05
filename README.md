@@ -42,7 +42,7 @@ On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps
 - [Cross-sectional prediction](docs/nextday/cross-sectional-prediction.md) defines samples, labels, date splits, training, and evaluation.
 - [Event-stream guide](docs/nextday/eventstream.md) describes event packing, causal training, and prediction export.
 - [Data boundary](docs/architecture/data-boundary.md) describes which system owns each data transformation.
-- [Documentation index](docs/README.md) links to topic guides, research records, and operating notes.
+- [Documentation index](docs/documentation-index.md) links to topic guides, research records, and operating notes.
 - [Reproduction audit](docs/reproduction-audit.md) records the scope and checks for the archived FI-2010 work.
 
 ## Repository layout

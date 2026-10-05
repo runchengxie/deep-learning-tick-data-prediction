@@ -170,7 +170,7 @@ src/ticknet/research/
 
 ## 2026-08-16：raw-1000 Top-100 100M 三 seed 正式训练
 
-按 [nextday-raw-1000-top100-capacity-100m.yaml](../../configs/nextday-raw-1000-top100-capacity-100m.yaml) 的冻结合同完成 seed 0、1、2。模型有 100,817,575 个参数，目标为下一交易日开盘到收盘的个股超额收益，checkpoint 按 2024 validation 日均 Rank IC 选择。训练期为 2021 至 2023，验证期为 2024。工作集共 118,078 个样本，其中 train 为 70,805 个，validation 为 23,472 个。数据指纹为 `f8a17e63d0716f9e48fd05f9a269bb61cea5bff81e9a7acf90c4a42e47505e5c`。
+按 [nextday-raw-1000-top100-capacity-100m.yaml](https://github.com/runchengxie/quant-deep-learning/blob/main/configs/nextday-raw-1000-top100-capacity-100m.yaml) 的冻结合同完成 seed 0、1、2。模型有 100,817,575 个参数，目标为下一交易日开盘到收盘的个股超额收益，checkpoint 按 2024 validation 日均 Rank IC 选择。训练期为 2021 至 2023，验证期为 2024。工作集共 118,078 个样本，其中 train 为 70,805 个，validation 为 23,472 个。数据指纹为 `f8a17e63d0716f9e48fd05f9a269bb61cea5bff81e9a7acf90c4a42e47505e5c`。
 
 seed 0 使用源码版本 `56f99d9`，seed 1 和 2 使用合并后的 `95a3a90`。三次训练的模型、数据、目标、优化器、选模指标和早停合同一致。结果如下：
 
