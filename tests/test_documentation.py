@@ -4,7 +4,6 @@ import hashlib
 import re
 from pathlib import Path
 
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
@@ -136,14 +135,16 @@ def test_external_comparison_archival_source_is_unchanged() -> None:
 def test_repository_identity_is_quant_deep_learning() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     migration_status = (ROOT / "MIGRATION-STATUS.md").read_text(encoding="utf-8")
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    project = pyproject.split("[project]", maxsplit=1)[1].split("\n[", maxsplit=1)[0]
+    scripts = pyproject.split("[project.scripts]", maxsplit=1)[1].split("\n[", maxsplit=1)[0]
 
     assert "# Quant Deep Learning" in readme
-    assert project["name"] == "quant-deep-learning"
+    assert re.search(r'(?m)^name = "quant-deep-learning"$', project)
     assert "Canonical owner: `quant-deep-learning`" in migration_status
     assert "historical migration decision" in migration_status.lower()
-    assert "ticknet-eventstream-train" in project["scripts"]
-    assert "ticknet-research" in project["scripts"]
+    assert re.search(r"(?m)^ticknet-eventstream-train =", scripts)
+    assert re.search(r"(?m)^ticknet-research =", scripts)
 
 
 def test_fi2010_reproduction_is_a_first_party_package() -> None:
