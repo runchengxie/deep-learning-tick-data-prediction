@@ -32,6 +32,15 @@ ENGLISH_DOCUMENTS = {
     "docs/references/debang-minute-gru-notes.md",
     "docs/references/deeplob-paper-notes.md",
     "legacy/notebooks/README.md",
+    "docs/nextday/cross-sectional-prediction.md",
+    "docs/nextday/eventstream.md",
+    "docs/nextday/h5-rolling-eventstream-roadmap.md",
+    "docs/nextday/hardware-constraints-and-experiment-roadmap.md",
+    "docs/nextday/multi-horizon-data-expansion-roadmap.md",
+    "docs/nextday/nextday-100m-raw1000-benchmark.md",
+    "docs/nextday/raw-200-end-to-end-pipeline.md",
+    "docs/nextday/raw-data-expansion-roadmap.md",
+    "docs/reports/multi-horizon-decision-2026-08-10/source-inspection.md",
 }
 
 

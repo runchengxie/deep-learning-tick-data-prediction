@@ -1,68 +1,66 @@
-# 原始盘口数据扩充路线
+# Raw Order-Book Data Expansion Roadmap
 
-## 决策
+## Decision
 
-本文记录五年 raw 工作集的扩充过程。数据生成、多周期标签、raw-1000 Top-100 和四格三 seed 容量矩阵现已完成。最新矩阵选择 `1M/raw-200` 作为唯一候选，暂停继续扩大容量和窗口。完整结果见 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
+The five-year raw datasets, multi-horizon labels, raw-1000 Top-100 run, and controlled four-cell, three-seed capacity matrix are complete. The latest matrix selected `1M/raw-200` as the only candidate; further expansion of model capacity and event windows is paused. See the [multi-horizon data expansion roadmap](multi-horizon-data-expansion-roadmap.md) for the full results.
 
-早期 2024 Top-100 raw-200 pilot 的 1,033,383 参数模型在 seed 0、1、2 上取得 `0.02145`、`0.02054` 和 `0.01893` 的最佳验证 Rank IC，平均为 `0.02031`，seed 间样本标准差为 `0.00127`。这组结果使用的股票样本集合与后来的固定 Top-100 矩阵不同，只保留为阶段记录。
+In the earlier 2024 Top-100 raw-200 pilot, the 1,033,383-parameter model achieved best validation Rank IC values of `0.02145`, `0.02054`, and `0.01893` for seeds 0, 1, and 2. The mean was `0.02031`, with a sample standard deviation of `0.00127`. That pilot used a different stock sample from the later fixed Top-100 matrix and is retained only as a stage record.
 
-正式工作集固定为 2021 至 2025 年、动态 Top-400、每个股票日最后 200 个有效 snapshot 事件。训练、验证和测试沿用 `configs/nextday.yaml`，2021 至 2023 年训练，2024 年验证，2025 年保持锁定。数据生成不得读取或计算 2025 年模型指标。
+The formal working set covers 2021–2025, a dynamic Top-400 universe, and the final 200 valid snapshot events per stock-day. The split in `configs/nextday.yaml` uses 2021–2023 for training, 2024 for validation, and keeps 2025 locked. Data generation must not read or calculate model metrics for 2025.
 
-## 已确认资源
+## Available resources (inventory on 2026-08-09)
 
-2026-08-09 只读盘点结果：
-
-| 项目 | 状态 |
+| Resource | Inventory |
 |---|---:|
-| 2021 snapshot 月文件 | 12 个，157.48 GiB |
-| 2022 snapshot 月文件 | 12 个，174.18 GiB |
-| 2023 snapshot 月文件 | 12 个，168.74 GiB |
-| 2024 snapshot 月文件 | 12 个，182.16 GiB |
-| 2025 snapshot 月文件 | 12 个，201.58 GiB |
-| 60 个规范月文件 | 全部存在，共 884.14 GiB |
-| 远程 NVMe 可用空间 | 610 GiB |
-| 原始数据盘可用空间 | 761 GiB |
-| Google Drive 套餐 | 200GB，2026-08-10 已升级 |
+| 2021 monthly snapshot files | 12 files, 157.48 GiB |
+| 2022 monthly snapshot files | 12 files, 174.18 GiB |
+| 2023 monthly snapshot files | 12 files, 168.74 GiB |
+| 2024 monthly snapshot files | 12 files, 182.16 GiB |
+| 2025 monthly snapshot files | 12 files, 201.58 GiB |
+| Canonical monthly files | All 60 present, 884.14 GiB total |
+| Free space on remote NVMe | 610 GiB |
+| Free space on raw-data disk | 761 GiB |
+| Google Drive plan | 200 GB, upgraded on 2026-08-10 |
 
-预计最多约 48 万个股票日。raw-200 的 float16 紧凑工作集约 7 至 8 GiB，适合先写入远程 NVMe，通过审计后再上传 Drive。原始 Parquet 保留在数据盘，不上传 Drive。
+The expected maximum is about 480,000 stock-days. The compact float16 raw-200 working set is approximately 7–8 GiB. It can be written to remote NVMe first and uploaded to Drive after audit. Raw Parquet remains on the data disk.
 
-## 阶段 0：冻结数据契约
+## Stage 0: Freeze the data contract
 
-正式配置使用 `configs/nextday-raw.yaml`，以下字段在本轮生成期间保持不变：
+The formal configuration is `configs/nextday-raw.yaml`. Keep these fields fixed while generating the dataset:
 
-- `start_date: 2021-01-01`、`end_date: 2025-12-31`
+- `start_date: 2021-01-01` and `end_date: 2025-12-31`
 - `top_n: 400`
-- `scan_start_time_ms: 18000000`、`signal_time_ms: 19500000`
-- `chunks_per_sample: 2`、`chunk_size: 100`
+- `scan_start_time_ms: 18000000` and `signal_time_ms: 19500000`
+- `chunks_per_sample: 2` and `chunk_size: 100`
 - `min_valid_events: 200`
 - `storage_dtype: float16`
-- 动态股票池只使用历史 20 日成交额，至少 15 个有效观测
+- The dynamic universe uses only the prior 20 days of turnover, with at least 15 valid observations.
 
-任何字段变化都生成新的输出目录和数据指纹，不覆盖正式工作集。
+Any change requires a new output directory and dataset fingerprint. Never overwrite the formal working set.
 
-## 阶段 1：单月 Top-400 预检
+## Stage 1: Single-month Top-400 preflight
 
-先运行隔离配置：
+Run the isolated configuration first:
 
 ```bash
 .venv/bin/ticknet-nextday-prepare-snapshot \
   --config configs/nextday-raw-200-preflight.yaml
 ```
 
-产物写入 `data/nextday-raw-200-preflight-202101-top400/`。通过条件：
+Output is written to `data/nextday-raw-200-preflight-202101-top400/`. Acceptance criteria:
 
-- `manifest.json`、`data-audit.json` 和全部 shard 均存在
-- universe 的最小值、中位数和最大值均有审计统计，中位股票数为 400
-- `written_samples > 0`，不存在重复股票日
-- 所有 shard 的 SHA-256 与 manifest 一致
-- `last_event_timestamp <= signal_timestamp`
-- 读取 `NextDayShardDataset` 后样本形状为 `2 × 100 × 40`
+- `manifest.json`, `data-audit.json`, and every shard are present.
+- Minimum, median, and maximum universe sizes are audited; the median is 400 stocks.
+- `written_samples > 0`, with no duplicate stock-days.
+- Every shard SHA-256 matches the manifest.
+- `last_event_timestamp <= signal_timestamp`.
+- `NextDayShardDataset` reads samples with shape `2 × 100 × 40`.
 
-预检只验证工程链路，不用于模型结论。
+The preflight validates the engineering path only; it does not support a model-performance conclusion.
 
-## 阶段 2：生成五年 raw-200
+## Stage 2: Generate five years of raw-200
 
-预检通过后运行：
+After the preflight passes, run:
 
 ```bash
 mkdir -p logs
@@ -71,11 +69,11 @@ mkdir -p logs
   > logs/prepare-nextday-raw-200.log 2>&1
 ```
 
-目标目录是 `data/nextday-raw-200/`。2024 Top-100 pilot 用时约 35 分钟，五年 Top-400 需要扫描更大的股票集合，预算按 8 至 14 小时安排。生成期间不要启动第二个同目录任务。
+The destination is `data/nextday-raw-200/`. The 2024 Top-100 pilot took about 35 minutes. Budget 8–14 hours for five years of Top-400 data because the stock universe is larger. Do not start another job against the same output directory.
 
-`raw_snapshot` 写入器对单个 shard 使用原子替换，完整 manifest 在全部样本写完后生成，目前仍不支持月级断点续跑。进程中断后保留的 shard 不能视为完整数据集，重跑前应确认没有仍在运行的任务。raw-1000 已经用独立目录生成。未来再次生成大型 raw 工作集前，应先实现按月物化和 manifest 合并，减少重复扫描。
+`raw_snapshot` atomically replaces individual shards, but writes the complete manifest only after all samples finish. Monthly resume is not supported. Shards left by an interrupted process do not constitute a complete dataset; check that no job is still running before restarting. Raw-1000 was generated into a separate directory. Before generating another large working set, implement monthly materialization and manifest merging to avoid rescanning data.
 
-进度检查：
+Check progress with:
 
 ```bash
 pgrep -af "ticknet-nextday-prepare-snapshot"
@@ -84,28 +82,28 @@ find data/nextday-raw-200/shards -maxdepth 1 -name "part-*.npy" | wc -l
 tail -n 50 logs/prepare-nextday-raw-200.log
 ```
 
-## 阶段 3：完整性和覆盖审计
+## Stage 3: Integrity and coverage audit
 
-生成完成后执行：
+After generation:
 
-1. 校验 manifest 指纹和全部 shard SHA-256。
-2. 汇总每年、每月、每交易日样本数和股票覆盖。
-3. 汇总 `missing_snapshot`、`insufficient_events`、`invalid_lob_rows` 和逐日备份回退月份。
-4. 用 `configs/nextday.yaml` 构造 train、val、test 数据集，确认日期与标签日期均在各自区间。
-5. 抽样检查归一化数值范围、类别比例和连续目标分布。
-6. 保存只含聚合统计的审计摘要，不把真实数据或完整 manifest 提交到 Git。
+1. Verify the manifest fingerprint and every shard SHA-256.
+2. Summarize sample counts and stock coverage by year, month, and trading day.
+3. Summarize `missing_snapshot`, `insufficient_events`, `invalid_lob_rows`, and daily-backup fallback months.
+4. Build train, validation, and test datasets using `configs/nextday.yaml`; confirm both trading and label dates fall within their respective intervals.
+5. Sample-check normalized value ranges, class proportions, and continuous targets.
+6. Save an aggregate-only audit summary. Do not commit real data or the full manifest to Git.
 
-最低验收门槛：
+Minimum acceptance criteria:
 
-- 2021 至 2025 每个有目标的月份均有样本
-- 数据指纹稳定，重复校验得到同一结果
-- 训练、验证、测试日期无交集，跨边界标签已 purge
-- 每日有效股票数足以计算 Top-400 口径的横截面指标
-- fallback 使用的月份和文件数有明确记录
+- Every month with targets from 2021 through 2025 contains samples.
+- Repeated integrity checks produce the same fingerprint.
+- Train, validation, and test dates do not overlap, and cross-boundary labels are purged.
+- Each day has enough eligible stocks to calculate cross-sectional Top-400 metrics.
+- Fallback months and file counts are recorded.
 
-## 阶段 4：上传 Drive
+## Stage 4: Upload to Drive
 
-本地审计通过后，上传紧凑工作集：
+After the local audit passes, upload the compact working set:
 
 ```bash
 rclone copy data/nextday-raw-200 \
@@ -113,29 +111,29 @@ rclone copy data/nextday-raw-200 \
   --checksum --transfers 4 --checkers 8 --progress
 ```
 
-上传后用 `rclone check` 复核。Drive 长期只保留当前工作集、配置、checkpoint 和结果。后续 raw-1000 Top-100 已经按独立目录生成并完成实验，raw-500 没有启动。大型工作集继续采用轮换保存，避免正式版本与临时副本同时占用空间。
+Verify the upload with `rclone check`. Long-term Drive storage should contain only the current working set, configuration, checkpoints, and results. The raw-1000 Top-100 set was generated and evaluated separately; raw-500 was not started. Rotate large working sets to avoid retaining both formal and temporary copies.
 
-## 阶段 5：数据优先的模型比较（已完成）
+## Stage 5: Data-first model comparison (complete)
 
-先固定相同数据、日期和训练预算，比较：
+With data, dates, and training budget fixed, compare:
 
-1. Logistic 或 HGB 聚合基线
-2. 86,775 参数 raw-200 模型
-3. 1,033,383 参数 raw-200 模型
+1. An aggregated Logistic or HGB baseline.
+2. The 86,775-parameter raw-200 model.
+3. The 1,033,383-parameter raw-200 model.
 
-验证期至少使用 seed 0、1、2，汇报均值、样本标准差、月度 IC 和正 IC 月份比例。2025 测试集在模型、超参数和 seed 列表冻结前保持锁定，不按测试结果选择模型。
+Use at least seeds 0, 1, and 2 on validation. Report the mean, sample standard deviation, monthly IC, and proportion of positive-IC months. Keep 2025 locked until the model, hyperparameters, and seed list are frozen. Do not select a model using test results.
 
-继续扩大容量的条件：1M 模型在多个 seed 和月份上稳定优于 86k 模型，而且改善要来自多数月份，不能只靠少数极端交易日。条件未满足时保留小模型。
+Continue capacity expansion only if the 1M model consistently outperforms the 86k model across multiple seeds and months, with gains across most months rather than a few extreme days. Otherwise retain the smaller model.
 
-## 阶段 6：窗口扩展（已停止）
+## Stage 6: Window expansion (stopped)
 
-以下是当时的启动门槛。后续实验已经生成 raw-1000 Top-100，并完成 `1M/raw-200`、`1M/raw-1000`、`100M/raw-200` 和 `100M/raw-1000` 的三 seed 比较。窗口主效应接近零，容量主效应为负，当前不再生成更长或更大的正式工作集。
+The following were initial launch gates. Later runs generated raw-1000 Top-100 and completed three-seed comparisons for `1M/raw-200`, `1M/raw-1000`, `100M/raw-200`, and `100M/raw-1000`. The window main effect was near zero and the capacity main effect was negative. No larger or longer formal working set is being generated.
 
-| 工作集 | 五年预计空间 | 启动条件 |
+| Working set | Estimated five-year storage | Launch gate |
 |---|---:|---|
-| raw-200 Top-400 | 约 8 GiB | 已生成 |
-| raw-500 Top-100 | 约 5 GiB | 先检查长窗口是否有增量 |
-| raw-500 Top-400 | 约 20 GiB | Top-100 增量稳定 |
-| raw-1000 Top-400 | 约 40 GiB | 未启动，Top-100 未显示稳定增益 |
+| raw-200 Top-400 | About 8 GiB | Generated |
+| raw-500 Top-100 | About 5 GiB | First test for a longer-window gain |
+| raw-500 Top-400 | About 20 GiB | Stable Top-100 gain |
+| raw-1000 Top-400 | About 40 GiB | Not started; Top-100 did not show stable gain |
 
-每一级都应与相同日期、股票池和标签下的分钟模型比较。本轮已经触发停止条件，后续只有在提出新的数据机制或模型机制并通过低成本试验后，才重新讨论窗口扩展。
+At each stage, compare against a minute-level model using the same dates, universe, and labels. The current stop condition has been met. Reconsider window expansion only after proposing a new data or model mechanism and passing a low-cost experiment.

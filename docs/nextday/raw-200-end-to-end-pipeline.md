@@ -1,134 +1,119 @@
-# 原始盘口端到端主线
+# Raw-200 End-to-End Pipeline
 
-本文说明原始十档快照从本地加工到锁定测试的操作流程。资源门槛见[资源策略与试验门槛](../research/resource-strategy-and-pilot-gates.md)。本文保留 raw-200 pilot 的执行记录，当前状态以[项目现状](../project-status.md)为准。
+This guide describes the workflow from local processing of ten-level snapshots to locked-test evaluation. Resource gates are documented in the [resource strategy](../research/resource-strategy-and-pilot-gates.md). This page preserves the raw-200 pilot execution record; the [project status](../project-status.md) is the source of current status.
 
-## 1. 目标与现状
+## 1. Goal and status
 
-### 目标
+### Goal
 
-输入是每个股票日 14:55 前最后 200 个十档盘口 snapshot tick，输出次日开盘到收盘的超额收益分数，以及下跌、中性、上涨三分类概率。模型用共享 DeepLOB 编码 2 个 100-event 块，GRU 汇总后接双头输出。默认配置有 86,775 个参数，容量扩展配置有 1,033,383 个参数，两者都可以在单卡 Colab 会话内训练。
+For each stock-day, use the final 200 ten-level order-book snapshots available before 14:55. Predict next-day open-to-close excess return and probabilities for down, neutral, and up classes. A shared DeepLOB encoder processes two 100-event chunks; a GRU aggregates the chunks before two prediction heads. The default model has 86,775 parameters; the capacity variant has 1,033,383. Both fit a single-GPU Colab session.
 
-### 现状
+### Status
 
-- `raw_snapshot.py` 数据准备链路、`train.py` 训练器和 raw 配置都已就位。raw-200、raw-1000、约 1M 参数和 100M 参数均有真实训练结果。
-- 五年 Top-400 raw-200 工作集和五年 Top-100 raw-1000 工作集已经生成。四格三 seed 受控矩阵选择 `1M/raw-200` 作为唯一候选，继续扩容和加长窗口已经停止。完整数字见 [multi-horizon-data-expansion-roadmap.md](multi-horizon-data-expansion-roadmap.md)。
-- 数据加工在本地主机完成，Colab 只做训练。现行调度入口为 `scripts/run_colab_nextday.py`。
-- 本地主机 CPU 实测约 8.5 股票日每秒，三年分块 DeepLOB 一个 epoch 约 9.8 小时，正式训练必须上 Colab 或云 GPU。
+- The `raw_snapshot.py` preparation path, `train.py` trainer, and raw configurations are implemented. Real training results exist for raw-200, raw-1000, approximately 1M parameters, and 100M parameters.
+- Five-year Top-400 raw-200 and Top-100 raw-1000 datasets have been generated. A controlled four-cell, three-seed matrix selected `1M/raw-200` as the sole candidate. Further capacity and window expansion stopped; full results are in the [multi-horizon data expansion roadmap](multi-horizon-data-expansion-roadmap.md).
+- Data preparation runs locally; Colab is used for training. The current orchestration entry point is `scripts/run_colab_nextday.py`.
+- The local CPU processes about 8.5 stock-days per second. One epoch of the three-year chunked DeepLOB workload takes about 9.8 hours, so formal training requires Colab or a cloud GPU.
 
-## 2. 数据加工（本地主机，不占 Colab 额度）
+## 2. Local data preparation
 
-训练数据在本地从移动硬盘生成。Drive 只保存筛选后的 float16 工作集、配置、checkpoint 和结果，原始 Parquet 不上传。
+Training data is built locally from the external drive. Drive stores only the filtered float16 working set, configuration, checkpoints, and results. Raw Parquet files are not uploaded.
 
-### 入口与配置
+Run the pilot preparation:
 
 ```bash
-.venv/bin/ticknet-nextday-prepare-snapshot \
-  --config configs/nextday-raw-pilot.yaml
+.venv/bin/ticknet-nextday-prepare-snapshot --config configs/nextday-raw-pilot.yaml
 ```
 
-关键参数来自 `configs/nextday-raw-pilot.yaml`：
+Important parameters in `configs/nextday-raw-pilot.yaml`:
 
-- `start_date / end_date`：2024 全年。
-- `scan_start_time_ms`：只读 14:30 起的 tick。
-- `signal_time_ms`：14:55，作为信号时点，之后的数据绝不进入样本。
-- `chunks_per_sample: 2`、`chunk_size: 100`：200 tick 切成 2 个 100-event 块。
-- `min_valid_events: 200`：不足 200 个有效 tick 的股票日丢弃。
-- `top_n: 100`：每天动态选前 100 只股票，股票池只使用信号时点前已知信息。
-- `storage_dtype: float16`：Colab 工作集。
-- `samples_per_shard: 2048`：分片粒度。
+- `start_date` and `end_date`: the 2024 calendar year.
+- `scan_start_time_ms`: read events starting at 14:30.
+- `signal_time_ms`: 14:55. No later data may enter a sample.
+- `chunks_per_sample: 2` and `chunk_size: 100`: divide 200 events into two 100-event chunks.
+- `min_valid_events: 200`: discard stock-days with fewer than 200 valid events.
+- `top_n: 100`: select 100 stocks dynamically each day, using only information available before the signal time.
+- `storage_dtype: float16`: compact storage for the Colab working set.
+- `samples_per_shard: 2048`: shard size.
 
-### 产物
+Outputs include `manifest.json` (shard paths, sample rows, SHA-256 hashes, and dataset fingerprint), float16 arrays at `shards/part-*.npy` with layout `samples × chunks × time × 40`, and `data-audit.json` (universe coverage, extraction statistics, and label distribution).
 
-`data/nextday-raw-pilot-2024-top100/`：
+Accept the prepared dataset only when:
 
-- `manifest.json`：数据清单，含分片路径、样本行号、sha256 和 dataset_fingerprint。
-- `shards/part-*.npy`：float16 分片，布局 `samples × chunks × time × 40`。
-- `data-audit.json`：股票池覆盖、抽取统计、标签分布。
+- All input timestamps are at or before the 14:55 signal time.
+- The input and label dates are adjacent trading days, and date splits do not overlap.
+- Each stock-day contributes at most one sample.
+- Every shard SHA-256 and manifest fingerprint is complete and can be verified in Colab.
 
-### 数据加工验收
-
-- 输入时间严格早于或等于 14:55 信号时点。
-- 输入日和标签日是相邻交易日，日期切分无交集。
-- 每个股票日只有一个样本。
-- 分片 sha256 齐全且 manifest 指纹一致，Colab 端可以校验。
-
-## 3. 门槛式推进（阶段记录）
+## 3. Stage gates (historical execution sequence)
 
 ```text
-本地数据加工（第 2 节，占 CPU 但不占 Colab 额度）
-   ↓ 验收数据审计
-Logistic 基线（本地 CPU，证明分片有信息）
-   ↓ 验证期 IC 为正、无泄漏
-Colab 吞吐测试 + 100 batch 试跑（确认预算与断点续训）
-   ↓ 每 epoch 时间可接受、resume 正常
-pilot 训练（2024H1 训练 / Q3 验证 / Q4 测试锁定）
-   ↓ 固定种子验证期比较，冻结配置
-解锁锁定测试（只评估一次，不再选模型）
+Local data preparation
+  → audit the dataset
+  → Logistic baseline on local CPU (confirm the features carry information)
+  → Colab throughput and 100-batch run (confirm budget and resume)
+  → pilot training: 2024 H1 train / Q3 validation / Q4 locked test
+  → compare fixed seeds on validation and freeze the configuration
+  → unlock the test for one evaluation only
 ```
 
-### 3.1 Logistic 基线（先于深度模型）
+### 3.1 Logistic baseline
 
-roadmap 要求先过 Logistic，证明分片里真有信息，同时校验管线无泄漏。
+Run the Logistic baseline before the deep model. It checks that the shards contain predictive information and provides an initial leakage check.
 
-### 3.2 Colab 吞吐与 100 batch 试跑
+### 3.2 Colab throughput and 100-batch run
 
-Colab 自动化由 `scripts/run_colab_nextday.py` 负责。正式运行前先加 `--dry-run` 检查会话、配置、数据目录和输出目录。下面的命令展示 `1M/raw-200` 单 seed 训练入口，测试区继续锁定：
+Colab automation is handled by `scripts/run_colab_nextday.py`. Before a formal run, use `--dry-run` to check the session, configuration, data directory, and output directory. The following command shows the single-seed `1M/raw-200` training entry point; the test period remains locked:
 
 ```bash
 python scripts/run_colab_nextday.py \
   --workflow capacity-matrix-train \
   --matrix-cell 1m-raw200 \
-  --session ticknet-capacity-matrix-1m-raw200 \
-  --gpu A100 \
   --seeds 0 \
-  --no-evaluate-test \
-  --local-output-dir artifacts/capacity-matrix/1m-raw200/seed0
+  --session ticknet-raw200-1m-seed0 \
+  --gpu A100 \
+  --keep-on-failure \
+  --local-output-dir artifacts/raw200-1m/seed0
 ```
 
-运行时确认：
+Confirm that the GPU is available (`torch.cuda.is_available()` is true), the working set copies from Drive to `/content` with a matching fingerprint, training resumes from a checkpoint, and the checkpoint is written back to Drive.
 
-- GPU 可达，`torch.cuda.is_available()` 为真。
-- 工作集能从 Drive 复制到 `/content` 临时盘，且校验指纹一致。
-- 训练能断点续训，checkpoint 写回 Drive。
+### 3.3 Pilot training and locked test
 
-### 3.3 pilot 训练与锁定测试
+- Train on 2024 H1, validate on Q3, and keep Q4 locked.
+- Compare a fixed set of random seeds on validation and freeze the configuration.
+- `EVALUATE_LOCKED_TEST` unlocks the test only when an explicit confirmation string is supplied; evaluate it once.
+- Report mean and standard deviation of test Rank IC and Macro F1 across seeds. Do not select a seed using test results.
 
-- 2024H1 训练、Q3 验证、Q4 测试锁定。
-- 固定多个随机种子做验证期比较并冻结配置。
-- `EVALUATE_LOCKED_TEST` 只有显式填确认字符串才解锁，解锁后只评估一次。
-- 报告跨 seed 的测试 Rank IC 和 Macro F1 均值与标准差，不按测试结果选 seed。
+### 3.4 One-million-parameter capacity experiment
 
-### 3.4 百万参数容量实验
+`configs/nextday-raw-1m-pilot.yaml` changes only model capacity while reusing the raw-200 pilot inputs, labels, date splits, and training hyperparameters.
 
-`configs/nextday-raw-1m-pilot.yaml` 只改变模型容量，复用 raw-200 pilot 的输入、标签、日期切分和训练超参：
-
-| 结构参数 | 86k 基线 | 1.03M 容量实验 |
+| Architecture setting | 86k baseline | 1.03M capacity variant |
 |---|---:|---:|
-| `conv_channels` | 16 | 32 |
-| `inception_channels` | 32 | 64 |
-| `intraday_embedding_size` | 64 | 320 |
-| `day_hidden_size` | 64 | 192 |
-| 总参数量 | 86,775 | 1,033,383 |
+| Convolution width | 16 | 32 |
+| Inception branch width | 32 | 64 |
+| Chunk embedding | 64 | 320 |
+| Day-level GRU hidden size | 64 | 192 |
+| Total parameters | 86,775 | 1,033,383 |
 
-容量实验通过独立 YAML 固定模型结构和数据合同，再用 Colab CLI 分别运行 seed 0、1、2。2024Q4 已用于既有 pilot 结果，只作开发诊断。本轮用验证期 Rank IC、Macro F1、训练耗时和跨 seed 波动比较容量增量，该区间不再作为 locked test。只有训练指标提高而验证指标不提高时，停止继续扩容。
+An independent YAML file freezes the architecture and data contract. Run seeds 0, 1, and 2 separately through the Colab CLI. 2024 Q4 was already used for pilot results and is development evidence, not a new locked test. Compare validation Rank IC, Macro F1, training time, and cross-seed variation. Stop expanding capacity if training metrics improve without validation gains.
 
-## 4. 充分利用 Colab 的约定
+## 4. Colab operating conventions
 
-1. 训练期间不通过 Drive 挂载点随机读 NPY，先复制到 `/content`。
-2. checkpoint 走 Drive，会话断了可以接着跑。
-3. 锁定测试由纯评估入口完成，不创建优化器，不读 last checkpoint。
-4. 只用 sha256 校验过的分片，指纹不一致就停止。
+1. Copy NPY files to `/content` before training; do not perform random reads through a mounted Drive path.
+2. Store checkpoints on Drive so interrupted sessions can resume.
+3. Evaluate locked tests through the pure evaluation entry point; it does not create an optimizer or load a `last` checkpoint.
+4. Use only shards whose SHA-256 values have been checked. Stop if fingerprints differ.
 
-## 5. 停止信号
+## 5. Stop conditions
 
-出现任一停止信号就停止扩大模型，停止本身是有效的研究结论。完整的停止信号清单见 [硬件约束与分阶段实验路线](hardware-constraints-and-experiment-roadmap.md) 的评估和停止规则一节。
+Any stop condition means capacity expansion should pause; that itself is a valid research result. See the evaluation and stop rules in the [hardware and experiment roadmap](hardware-constraints-and-experiment-roadmap.md).
 
-## 6. 当前动作
+## 6. Current actions
 
-1. 固定 `1M/raw-200` 的三个 checkpoint、seed 聚合方式和验收指标。
-2. 预先写明 2025 锁定测试的触发条件和通过条件。
-3. 满足门槛后一次性评估 2025，测试结果不得用于重新选择模型。
+1. Freeze the three `1M/raw-200` checkpoints, seed aggregation method, and acceptance metrics.
+2. State the trigger and pass criteria for the 2025 locked test in advance.
+3. Evaluate 2025 once the gate is met. Do not use test results to select a new model.
 
-项目整体工作顺序见[项目现状](../project-status.md)。
-
-参考：`configs/nextday-raw-pilot.yaml`、`configs/nextday-pilot.yaml`、`configs/nextday-raw-1m-pilot.yaml`、[Colab CLI 自动化](../dev/colab-cli-automation.md)和[原始数据扩容路线](raw-data-expansion-roadmap.md)。历史交互入口已转换为 `legacy/notebooks/nextday_end_to_end.py`。
+The overall sequence is in [project status](../project-status.md). Relevant references are `configs/nextday-raw-pilot.yaml`, `configs/nextday-pilot.yaml`, `configs/nextday-raw-1m-pilot.yaml`, the [Colab CLI guide](../dev/colab-cli-automation.md), and the [raw-data expansion roadmap](raw-data-expansion-roadmap.md). The former interactive entry point is preserved at `legacy/notebooks/nextday_end_to_end.py`.
