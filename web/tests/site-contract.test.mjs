@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { publicDocuments, documentRoute, documentSlug } from '../src/content/public-documents.mjs';
 import { studies, evidenceCutoff } from '../src/content/studies.mjs';
+import { studyReports } from '../src/content/study-reports.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
 
@@ -53,4 +54,35 @@ test('research summaries retain evidence provenance and distinguish ranking from
   }
   const status = readFileSync(resolve(root, 'docs/project-status.md'), 'utf8');
   assert.match(status, /negative net active return|no viable region/i);
+});
+
+test('each research detail page has bilingual, source-linked evidence sections and charts', () => {
+  assert.deepEqual(Object.keys(studyReports).sort(), studies.map((study) => study.id).sort());
+  for (const study of studies) {
+    const report = studyReports[study.id];
+    assert.ok(report.sections.length >= 3, `${study.id} needs detailed sections`);
+    assert.ok(report.sources.length >= 2, `${study.id} needs source links`);
+    for (const source of report.sources) {
+      assert.ok(publicDocuments.includes(source.path), `${source.path} must be public`);
+      assert.ok(source.label.en && source.label.zh);
+    }
+    for (const section of report.sections) {
+      assert.ok(section.title.en && section.title.zh);
+      assert.ok(section.paragraphs.length > 0);
+      for (const paragraph of section.paragraphs) assert.ok(paragraph.en && paragraph.zh);
+      if (section.pipeline) assert.ok(section.pipeline.steps.length >= 3);
+      if (section.chart) {
+        assert.ok(section.chart.categories.length > 0);
+        assert.equal(section.chart.series.length, section.chart.categories[0].values.length);
+        for (const category of section.chart.categories) {
+          assert.equal(category.values.length, section.chart.series.length);
+          for (const point of category.values) assert.ok(point.value >= section.chart.min && point.value <= section.chart.max);
+        }
+      }
+      if (section.matrix) assert.equal(section.matrix.ks.length * section.matrix.buffers.length, 16);
+    }
+  }
+  assert.ok(studyReports['event-stream-ranking'].sections.filter((section) => section.chart).length >= 2);
+  assert.ok(studyReports['raw-order-book-capacity'].sections.filter((section) => section.chart).length >= 2);
+  assert.ok(studyReports['minute-baselines'].sections.some((section) => section.matrix));
 });

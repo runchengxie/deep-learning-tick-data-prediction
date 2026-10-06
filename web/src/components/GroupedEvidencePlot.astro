@@ -1,0 +1,57 @@
+---
+interface Point {
+  value: number;
+  error?: number;
+  display: string;
+}
+interface Category {
+  label: { en: string; zh: string };
+  values: Point[];
+}
+interface Props {
+  kind: 'grouped' | 'diverging';
+  min: number;
+  max: number;
+  title: { en: string; zh: string };
+  description: { en: string; zh: string };
+  axisMin: { en: string; zh: string };
+  axisMax: { en: string; zh: string };
+  categories: Category[];
+  series: Array<{ en: string; zh: string }>;
+}
+const { kind, min, max, title, description, axisMin, axisMax, categories, series } = Astro.props;
+const zero = Math.max(0, Math.min(100, ((0 - min) / (max - min)) * 100));
+const position = (value: number) => Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+const barGeometry = (value: number) => {
+  const point = position(value);
+  return { left: `${Math.min(zero, point)}%`, width: `${Math.abs(point - zero)}%` };
+};
+---
+<figure class={`evidence-plot ${kind === 'diverging' ? 'is-diverging' : ''}`}>
+  <figcaption>
+    <h3 data-i18n-en={title.en} data-i18n-zh={title.zh}>{title.en}</h3>
+    <p data-i18n-en={description.en} data-i18n-zh={description.zh}>{description.en}</p>
+  </figcaption>
+  <div class="plot-legend" aria-label="Series legend" data-i18n-label-en="Series legend" data-i18n-label-zh="图例">
+    {series.map((item, index) => <span class={`plot-legend-item plot-series-${index}`}><i aria-hidden="true"></i><span data-i18n-en={item.en} data-i18n-zh={item.zh}>{item.en}</span></span>)}
+  </div>
+  <div class="plot-categories">
+    {categories.map((category) => <section class="plot-category" aria-label={category.label.en} data-i18n-label-en={category.label.en} data-i18n-label-zh={category.label.zh}>
+      <h4 data-i18n-en={category.label.en} data-i18n-zh={category.label.zh}>{category.label.en}</h4>
+      {category.values.map((point, index) => {
+        const low = position(point.value - (point.error ?? 0));
+        const high = position(point.value + (point.error ?? 0));
+        return <div class="plot-row">
+          <span class="plot-series-label" data-i18n-en={series[index].en} data-i18n-zh={series[index].zh}>{series[index].en}</span>
+          <span class="plot-track" aria-hidden="true">
+            <i class="plot-zero" style={`left:${zero}%`}></i>
+            <i class={`plot-bar plot-series-${index}`} style={barGeometry(point.value)}></i>
+            {point.error !== undefined && <i class={`plot-whisker plot-series-${index}`} style={`left:${low}%;width:${high - low}%`}><b></b><b></b></i>}
+          </span>
+          <strong class="plot-number">{point.display}</strong>
+        </div>;
+      })}
+    </section>)}
+  </div>
+  <div class="plot-axis" aria-hidden="true"><span data-i18n-en={axisMin.en} data-i18n-zh={axisMin.zh}>{axisMin.en}</span><span class="plot-axis-zero" style={`left:${zero}%`}>{min < 0 ? '0' : ''}</span><span data-i18n-en={axisMax.en} data-i18n-zh={axisMax.zh}>{axisMax.en}</span></div>
+</figure>

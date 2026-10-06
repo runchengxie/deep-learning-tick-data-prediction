@@ -1,0 +1,43 @@
+---
+import DecisionMatrix from './DecisionMatrix.astro';
+import GroupedEvidencePlot from './GroupedEvidencePlot.astro';
+import StudyPipeline from './StudyPipeline.astro';
+
+interface Copy { en: string; zh: string }
+interface Props {
+  report: {
+    sections: Array<{
+      title: Copy;
+      paragraphs: Copy[];
+      pipeline?: { title: Copy; steps: Copy[] };
+      chart?: any;
+      matrix?: any;
+      metrics?: Array<{ value: string; label: Copy }>;
+      callout?: { title: Copy; body: Copy };
+    }>;
+    sources: Array<{ path: string; label: Copy }>;
+  };
+  base: string;
+}
+const { report, base } = Astro.props;
+---
+<section class="container study-report" aria-labelledby="study-report-title">
+  <div class="report-heading">
+    <span class="eyebrow" data-i18n-en="Detailed study" data-i18n-zh="研究详解">Detailed study</span>
+    <h2 id="study-report-title" data-i18n-en="Methods, evidence, and limits" data-i18n-zh="方法、证据与局限">Methods, evidence, and limits</h2>
+    <p data-i18n-en="The charts and notes below summarize the linked research records. They keep validation, out-of-sample, and portfolio results distinct." data-i18n-zh="以下图表和说明根据来源研究记录整理，并分别呈现验证集、样本外和组合评估结果。">The charts and notes below summarize the linked research records. They keep validation, out-of-sample, and portfolio results distinct.</p>
+  </div>
+  {report.sections.map((section) => <section class="report-section">
+    <h3 data-i18n-en={section.title.en} data-i18n-zh={section.title.zh}>{section.title.en}</h3>
+    <div class="report-copy">{section.paragraphs.map((paragraph) => <p data-i18n-en={paragraph.en} data-i18n-zh={paragraph.zh}>{paragraph.en}</p>)}</div>
+    {section.pipeline && <StudyPipeline {...section.pipeline} />}
+    {section.chart && <GroupedEvidencePlot {...section.chart} />}
+    {section.matrix && <DecisionMatrix {...section.matrix} />}
+    {section.metrics && <div class="report-metrics">{section.metrics.map((metric) => <div class="report-metric"><strong>{metric.value}</strong><span data-i18n-en={metric.label.en} data-i18n-zh={metric.label.zh}>{metric.label.en}</span></div>)}</div>}
+    {section.callout && <aside class="report-callout"><strong data-i18n-en={section.callout.title.en} data-i18n-zh={section.callout.title.zh}>{section.callout.title.en}</strong><p data-i18n-en={section.callout.body.en} data-i18n-zh={section.callout.body.zh}>{section.callout.body.en}</p></aside>}
+  </section>)}
+  <nav class="report-sources" aria-label="Source records" data-i18n-label-en="Source records" data-i18n-label-zh="来源记录">
+    <h3 data-i18n-en="Read the source records" data-i18n-zh="查看原始研究记录">Read the source records</h3>
+    <ul>{report.sources.map((source) => <li><a href={`${base}${source.path.replace(/^docs\//, '').replace(/\.md$/, '')}/`} data-i18n-en={source.label.en} data-i18n-zh={source.label.zh}>{source.label.en}</a></li>)}</ul>
+  </nav>
+</section>

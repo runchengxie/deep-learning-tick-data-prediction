@@ -1,0 +1,16 @@
+---
+interface Props {
+  title: { en: string; zh: string };
+  steps: Array<{ en: string; zh: string }>;
+}
+const { title, steps } = Astro.props;
+---
+<figure class="study-pipeline">
+  <figcaption data-i18n-en={title.en} data-i18n-zh={title.zh}>{title.en}</figcaption>
+  <ol>
+    {steps.map((step, index) => <li>
+      <span class="pipeline-index">{String(index + 1).padStart(2, '0')}</span>
+      <span data-i18n-en={step.en} data-i18n-zh={step.zh}>{step.en}</span>
+    </li>)}
+  </ol>
+</figure>
