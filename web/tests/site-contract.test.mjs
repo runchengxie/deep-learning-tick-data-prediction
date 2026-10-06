@@ -19,6 +19,30 @@ test('public documentation is an explicit, valid source allowlist', () => {
   }
 });
 
+test('site offers persistent Chinese and dark-mode preferences', () => {
+  const layout = readFileSync(resolve(root, 'web/src/layouts/SiteLayout.astro'), 'utf8');
+  const styles = readFileSync(resolve(root, 'web/src/styles/global.css'), 'utf8');
+  const home = readFileSync(resolve(root, 'web/src/pages/index.astro'), 'utf8');
+  const detail = readFileSync(resolve(root, 'web/src/pages/studies/[id].astro'), 'utf8');
+  const article = readFileSync(resolve(root, 'web/src/layouts/ArticleLayout.astro'), 'utf8');
+
+  assert.match(layout, /data-locale-toggle/);
+  assert.match(layout, /data-theme-toggle/);
+  assert.match(layout, /qdl-locale/);
+  assert.match(layout, /qdl-theme/);
+  assert.match(home, /data-i18n-zh=/);
+  assert.match(detail, /data-i18n-zh=/);
+  assert.match(article, /currently available in English/);
+  assert.match(styles, /:root\[data-theme="dark"\]/);
+  assert.match(layout, /prefers-color-scheme: dark/);
+  assert.match(layout, /localStorage\.setItem\('qdl-locale'/);
+  assert.match(layout, /localStorage\.setItem\('qdl-theme'/);
+  for (const study of studies) {
+    assert.ok(study.zh?.title && study.zh?.summary && study.zh?.openQuestion);
+    assert.equal(study.zh.values.length, study.values.length);
+  }
+});
+
 test('research summaries retain evidence provenance and distinguish ranking from returns', () => {
   assert.match(evidenceCutoff, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(new Set(studies.map((study) => study.id)).size, studies.length);

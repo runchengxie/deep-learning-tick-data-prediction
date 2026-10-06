@@ -15,7 +15,6 @@ CJK_PROSE = re.compile(r"[\u3400-\u9fff]")
 ENGLISH_DOCUMENTS = {
     "README.md",
     "AGENTS.md",
-    "MIGRATION-STATUS.md",
     "docs/index.md",
     "docs/documentation-index.md",
     "docs/project-status.md",
@@ -82,7 +81,6 @@ def _markdown_files() -> list[Path]:
     return [
         ROOT / "README.md",
         ROOT / "AGENTS.md",
-        ROOT / "MIGRATION-STATUS.md",
         *sorted(path for path in (ROOT / "docs").rglob("*.md") if path.is_file()),
     ]
 
@@ -159,6 +157,15 @@ def test_repository_identity_is_quant_deep_learning() -> None:
     assert "quant-research" in boundaries
     assert re.search(r"(?m)^ticknet-eventstream-train =", scripts)
     assert re.search(r"(?m)^ticknet-research =", scripts)
+
+
+def test_migration_pointer_is_removed_and_quality_baseline_lives_in_docs() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    baseline = ROOT / "docs" / ".code-quality-baseline.json"
+
+    assert not (ROOT / "MIGRATION-STATUS.md").exists()
+    assert baseline.is_file()
+    assert "--baseline docs/.code-quality-baseline.json" in workflow
 
 
 def test_fi2010_reproduction_is_a_first_party_package() -> None:

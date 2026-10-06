@@ -6,26 +6,30 @@ interface Props {
   max: number;
   values: Array<{ label: string; value: number; display: string }>;
   source: string;
+  titleZh?: string;
+  descriptionZh?: string;
+  metricZh?: string;
+  valueLabelsZh?: string[];
 }
-const { title, description, metric, max, values, source } = Astro.props;
+const { title, description, metric, max, values, source, titleZh, descriptionZh, metricZh, valueLabelsZh = [] } = Astro.props;
 ---
 <figure class="evidence-chart">
   <figcaption>
-    <span class="eyebrow">{metric}</span>
-    <h3>{title}</h3>
-    <p>{description}</p>
+    <span class="eyebrow" data-i18n-en={metric} data-i18n-zh={metricZh ?? metric}>{metric}</span>
+    <h3 data-i18n-en={title} data-i18n-zh={titleZh ?? title}>{title}</h3>
+    <p data-i18n-en={description} data-i18n-zh={descriptionZh ?? description}>{description}</p>
   </figcaption>
   <table>
     <tbody>
       {values.map((item) => {
         const width = Math.max(0, Math.min(100, item.value / max * 100));
         return <tr>
-          <th scope="row">{item.label}</th>
+          <th scope="row" data-i18n-en={item.label} data-i18n-zh={valueLabelsZh[values.indexOf(item)] ?? item.label}>{item.label}</th>
           <td class="bar-cell"><span class="bar-track"><span class="bar-fill" style={`width:${width}%`}></span></span></td>
           <td class="bar-value">{item.display}</td>
         </tr>;
       })}
     </tbody>
   </table>
-  <p class="chart-source">Source: <a href={source}>{source}</a>. Bars share the scale shown by the largest value.</p>
+  <p class="chart-source"><span data-i18n-en="Source: " data-i18n-zh="来源：">Source: </span><a href={source}>{source}</a><span data-i18n-en=". Bars share the scale shown by the largest value." data-i18n-zh="。柱状图按最大值共用比例尺。">. Bars share the scale shown by the largest value.</span></p>
 </figure>

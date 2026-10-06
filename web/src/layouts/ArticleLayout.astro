@@ -13,10 +13,11 @@ const base = import.meta.env.BASE_URL;
 <SiteLayout title={title} description={description ?? `Public technical documentation: ${title}`}>
   <div class="article-shell">
     <aside class="article-sidebar">
-      <a href={`${base}documentation/`}>← Documentation index</a>
-      <p>Technical reference</p>
+      <a href={`${base}documentation/`} data-i18n-en="← Documentation index" data-i18n-zh="← 返回文档索引">← Documentation index</a>
+      <p data-i18n-en="Technical reference" data-i18n-zh="技术参考">Technical reference</p>
       <code>{source}</code>
-      {headings.length > 1 && <nav aria-label="On this page"><strong>On this page</strong><ul>{headings.filter((heading) => heading.depth > 1).map((heading) => <li class={`toc-depth-${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ul></nav>}
+      <p class="language-note" data-i18n-en="This technical record is currently available in English." data-i18n-zh="这篇技术文档目前仅提供英文版。">This technical record is currently available in English.</p>
+      {headings.length > 1 && <nav aria-label="On this page"><strong data-i18n-en="On this page" data-i18n-zh="本页目录">On this page</strong><ul>{headings.filter((heading) => heading.depth > 1).map((heading) => <li class={`toc-depth-${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ul></nav>}
     </aside>
     <article class="article-content" set:html={html}></article>
   </div>

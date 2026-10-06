@@ -10,24 +10,72 @@ const base = import.meta.env.BASE_URL;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <meta name="theme-color" content="#f3f0e9" />
+    <script is:inline>
+      (() => {
+        try {
+          const theme = localStorage.getItem('qdl-theme');
+          document.documentElement.dataset.theme = theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.lang = localStorage.getItem('qdl-locale') === 'zh' ? 'zh-CN' : 'en';
+        } catch {
+          document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+      })();
+    </script>
     <title>{title} · Quant Deep Learning</title>
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
-      <a class="wordmark" href={base}><span class="wordmark-mark">QD</span><span>Quant Deep Learning<small>Independent research lab</small></span></a>
-      <nav aria-label="Main navigation">
-        <a href={`${base}studies/`}>Studies</a>
-        <a href={`${base}documentation/`}>Documentation</a>
-        <a href={`${base}search/`}>Search</a>
-        <a class="github-link" href="https://github.com/runchengxie/quant-deep-learning">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="wordmark" href={base}><span class="wordmark-mark">QD</span><span>Quant Deep Learning<small data-i18n-en="Independent research lab" data-i18n-zh="独立量化研究项目">Independent research lab</small></span></a>
+      <nav aria-label="Main navigation" data-i18n-label-en="Main navigation" data-i18n-label-zh="主导航">
+        <a href={`${base}studies/`} data-i18n-en="Studies" data-i18n-zh="研究">Studies</a>
+        <a href={`${base}documentation/`} data-i18n-en="Documentation" data-i18n-zh="技术文档">Documentation</a>
+        <a href={`${base}search/`} data-i18n-en="Search" data-i18n-zh="搜索">Search</a>
+        <a class="github-link" href="https://github.com/runchengxie/quant-deep-learning"><span data-i18n-en="GitHub" data-i18n-zh="GitHub">GitHub</span> <span aria-hidden="true">↗</span></a>
+        <button class="preference-button" type="button" data-locale-toggle aria-label="Switch language">中文</button>
+        <button class="preference-button" type="button" data-theme-toggle aria-label="Toggle dark mode">◐</button>
       </nav>
     </header>
     <main id="main"><slot /></main>
     <footer class="site-footer">
-      <span>Research first. Evidence before claims.</span>
-      <span>Static public site · <a href="https://github.com/runchengxie/quant-deep-learning">source on GitHub</a></span>
+      <span data-i18n-en="Research first. Evidence before claims." data-i18n-zh="研究优先，结论以证据为准。">Research first. Evidence before claims.</span>
+      <span><span data-i18n-en="Static public site · " data-i18n-zh="公开静态站点 · ">Static public site · </span><a href="https://github.com/runchengxie/quant-deep-learning" data-i18n-en="source on GitHub" data-i18n-zh="GitHub 源码">source on GitHub</a></span>
     </footer>
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const localeButton = document.querySelector('[data-locale-toggle]');
+        const themeButton = document.querySelector('[data-theme-toggle]');
+        let locale = 'en';
+        const setLocale = (nextLocale) => {
+          locale = nextLocale;
+          root.lang = locale === 'zh' ? 'zh-CN' : 'en';
+          document.querySelectorAll('[data-i18n-en][data-i18n-zh]').forEach((node) => {
+            node.textContent = node.getAttribute(locale === 'zh' ? 'data-i18n-zh' : 'data-i18n-en');
+          });
+          document.querySelectorAll('[data-i18n-label-en][data-i18n-label-zh]').forEach((node) => {
+            node.setAttribute('aria-label', node.getAttribute(locale === 'zh' ? 'data-i18n-label-zh' : 'data-i18n-label-en'));
+          });
+          localeButton.textContent = locale === 'zh' ? 'EN' : '中文';
+          localeButton.setAttribute('aria-label', locale === 'zh' ? '切换到英文' : 'Switch language to Chinese');
+          themeButton.setAttribute('aria-label', locale === 'zh' ? (root.dataset.theme === 'dark' ? '切换为浅色模式' : '切换为暗色模式') : (root.dataset.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'));
+          try { localStorage.setItem('qdl-locale', locale); } catch {}
+        };
+        const setTheme = (theme, persist = true) => {
+          root.dataset.theme = theme;
+          document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#171b19' : '#f3f0e9';
+          themeButton.textContent = theme === 'dark' ? '☼' : '◐';
+          themeButton.setAttribute('aria-label', locale === 'zh' ? (theme === 'dark' ? '切换为浅色模式' : '切换为暗色模式') : (theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'));
+          if (persist) { try { localStorage.setItem('qdl-theme', theme); } catch {} }
+        };
+        let theme = root.dataset.theme || 'light';
+        try { locale = localStorage.getItem('qdl-locale') === 'zh' ? 'zh' : 'en'; } catch {}
+        setLocale(locale);
+        setTheme(theme, false);
+        localeButton.addEventListener('click', () => setLocale(root.lang === 'zh-CN' ? 'en' : 'zh'));
+        themeButton.addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+      })();
+    </script>
   </body>
 </html>
