@@ -18,6 +18,14 @@ export const studies = [
       { label: 'Seed 2', value: 0.03291, display: '0.03291' },
     ],
     openQuestion: 'Does this ranking signal persist across more time periods and translate into net portfolio returns?',
+    zh: {
+      title: '事件流模型：三个随机种子均呈现排序信号', stage: '样本外结果；能否转化为交易收益仍未解决',
+      sample: '训练：2025年8–10月 · 验证：2025年11月 · 样本外：2025年12月',
+      summary: '三个1亿参数模型在12月的Rank IC均为正。另一项联合模型评估在计入成本后仍亏损，因此排序效果不等于交易收益。',
+      chartTitle: '2025年12月样本外Rank IC（按随机种子）', chartDescription: '三个独立随机种子在一个留出月份上的结果。数值均为正，但观察窗口较短。', metric: 'Rank IC',
+      openQuestion: '这一排序信号能否在更长时间内持续，并转化为扣除成本后的组合收益？',
+      values: ['种子 0', '种子 1', '种子 2'],
+    },
   },
   {
     id: 'raw-order-book-capacity',
@@ -37,6 +45,14 @@ export const studies = [
       { label: '100M · raw-1000', value: 0.03152, display: '0.03152 ± 0.00287' },
     ],
     openQuestion: 'Can the retained candidate pass a future locked out-of-sample evaluation?',
+    zh: {
+      title: '原始盘口：小模型仍是当前候选方案', stage: '验证集对比；尚未开启锁定测试集',
+      sample: 'Top-100股票池 · 2021–2023训练 · 2024验证 · 每种配置三个随机种子',
+      summary: '受控对比中，1M参数模型与200事件窗口表现较好。更大模型和更长输入没有带来稳定的验证集提升。',
+      chartTitle: '不同模型规模与输入窗口的验证集Rank IC', chartDescription: '四种受控配置的三随机种子均值。表格中的误差范围是样本标准差。', metric: '验证集Rank IC均值 ± 样本标准差',
+      openQuestion: '当前保留的候选方案能否通过未来的锁定样本外评估？',
+      values: ['1M · raw-200', '1M · raw-1000', '100M · raw-200', '100M · raw-1000'],
+    },
   },
   {
     id: 'minute-baselines',
@@ -56,5 +72,13 @@ export const studies = [
       { label: '2025', value: 0.0304, display: '0.0304' },
     ],
     openQuestion: 'Can the signal survive realistic portfolio construction, turnover, and trading costs?',
+    zh: {
+      title: '分钟特征：排序指标为正，但未覆盖交易成本', stage: '已完成正式成本评估；没有发现可交易区域',
+      sample: '2025年下半年 · 54个月度分片 · 436,800个候选样本',
+      summary: '正式评估期内，HGB模型的股票排序优于随机水平，但测试的64种组合设置都未达到单边10个基点的成本门槛。',
+      chartTitle: '历史滚动样本外Rank IC', chartDescription: '2022至2025年滚动测试结果。单独的2025年下半年成本矩阵包含54个月度分片，图中最后一个柱并非该矩阵结果。', metric: '日均Rank IC',
+      openQuestion: '在现实的组合构建、换手和交易成本下，这个信号能否保留下来？',
+      values: ['2022年', '2023年', '2024年', '2025年'],
+    },
   },
 ];

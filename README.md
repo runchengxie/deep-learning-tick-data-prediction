@@ -63,4 +63,4 @@ src/ticknet/fi2010/      FI-2010 DeepLOB reproduction package
 examples/                Historical Colab workflow snapshots
 ```
 
-The Python import namespace remains `ticknet` for compatibility. Current repository ownership is recorded in [Repository Boundaries](docs/architecture/repository-boundaries.md). The old [MIGRATION-STATUS.md](MIGRATION-STATUS.md) path remains as a compatibility pointer. Contributor and agent rules are in [AGENTS.md](AGENTS.md).
+The Python import namespace remains `ticknet` for compatibility. Current repository ownership is recorded in [Repository Boundaries](docs/architecture/repository-boundaries.md). Contributor and agent rules are in [AGENTS.md](AGENTS.md).

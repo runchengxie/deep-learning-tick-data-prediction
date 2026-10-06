@@ -3,9 +3,9 @@ import SiteLayout from '../layouts/SiteLayout.astro';
 const base = import.meta.env.BASE_URL;
 ---
 <SiteLayout title="Search documentation and studies">
-  <section class="container study-hero"><span class="eyebrow">Project search</span><h1>Find a method, model, or result</h1><p class="muted">Search the technical and research documents that are approved for this public site.</p>
-    <form class="search-form" id="site-search"><label class="skip-link" for="query">Search terms</label><input id="query" name="q" type="search" placeholder="Try “event stream”, “cost”, or “DeepLOB”"/><button type="submit">Search</button></form><p id="search-status" class="muted" aria-live="polite">Search runs in your browser against the published documentation index.</p><div id="search-results" class="search-results"></div>
-    <noscript><p>Search requires JavaScript. You can <a href={`${base}documentation/`}>browse the documentation index</a>.</p></noscript>
+  <section class="container study-hero"><span class="eyebrow" data-i18n-en="Project search" data-i18n-zh="站内搜索">Project search</span><h1 data-i18n-en="Find a method, model, or result" data-i18n-zh="查找方法、模型或研究结果">Find a method, model, or result</h1><p class="muted" data-i18n-en="Search the technical and research documents that are approved for this public site." data-i18n-zh="搜索本站已审核并公开的技术文档和研究记录。">Search the technical and research documents that are approved for this public site.</p>
+    <form class="search-form" id="site-search"><label class="skip-link" for="query" data-i18n-en="Search terms" data-i18n-zh="搜索词">Search terms</label><input id="query" name="q" type="search" placeholder="Try “event stream”, “cost”, or “DeepLOB”" data-placeholder-en="Try “event stream”, “cost”, or “DeepLOB”" data-placeholder-zh="试试“事件流”“成本”或“DeepLOB”"/><button type="submit" data-i18n-en="Search" data-i18n-zh="搜索">Search</button></form><p id="search-status" class="muted" aria-live="polite" data-i18n-en="Search runs in your browser against the published documentation index." data-i18n-zh="搜索在浏览器中运行，检索已发布的文档索引。">Search runs in your browser against the published documentation index.</p><div id="search-results" class="search-results"></div>
+    <noscript><p><span data-i18n-en="Search requires JavaScript. You can " data-i18n-zh="搜索功能需要启用 JavaScript。你可以">Search requires JavaScript. You can </span><a href={`${base}documentation/`} data-i18n-en="browse the documentation index" data-i18n-zh="浏览文档索引">browse the documentation index</a>.</p></noscript>
   </section>
   <script define:vars={{ base }}>
     const form = document.querySelector('#site-search');
@@ -13,14 +13,18 @@ const base = import.meta.env.BASE_URL;
     const status = document.querySelector('#search-status');
     const results = document.querySelector('#search-results');
     let index = [];
-    fetch(`${base}search-index.json`).then((response) => response.json()).then((items) => { index = items; }).catch(() => { status.textContent = 'The search index is unavailable. Browse the documentation index instead.'; });
+    const text = (en, zh) => document.documentElement.lang === 'zh-CN' ? zh : en;
+    const updatePlaceholder = () => { input.placeholder = text(input.dataset.placeholderEn, input.dataset.placeholderZh); };
+    updatePlaceholder();
+    document.querySelector('[data-locale-toggle]').addEventListener('click', () => setTimeout(updatePlaceholder));
+    fetch(`${base}search-index.json`).then((response) => response.json()).then((items) => { index = items; }).catch(() => { status.textContent = text('The search index is unavailable. Browse the documentation index instead.', '搜索索引暂不可用，请改为浏览文档索引。'); });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const terms = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
       results.replaceChildren();
-      if (!terms.length) { status.textContent = 'Enter one or more search terms.'; return; }
+      if (!terms.length) { status.textContent = text('Enter one or more search terms.', '请输入一个或多个搜索词。'); return; }
       const matches = index.filter((item) => terms.every((term) => `${item.title} ${item.text}`.toLowerCase().includes(term))).slice(0, 20);
-      status.textContent = `${matches.length} matching document${matches.length === 1 ? '' : 's'}.`;
+      status.textContent = text(`${matches.length} matching document${matches.length === 1 ? '' : 's'}.`, `找到 ${matches.length} 篇匹配文档。`);
       for (const item of matches) {
         const link = document.createElement('a'); link.className = 'search-result'; link.href = item.route;
         const title = document.createElement('strong'); title.textContent = item.title;
