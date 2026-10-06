@@ -1,4 +1,4 @@
-"""运行本地质量门禁，供人工执行和 pre-push hook 调用。"""
+"""运行供开发者手动执行的本地质量检查。"""
 
 from __future__ import annotations
 

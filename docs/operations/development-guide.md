@@ -108,7 +108,7 @@ Research workflow tests cover:
 - Baseline selection from Registry to ResearchContext, return paths for failures and audits, stable fingerprints, and novelty-replay rejection
 - Shared context for Brainstorm and Critic, budget and executor limits, and context-review snapshots
 
-The smoke script checks the DeepLOB forward pass, softmax, gradients, parameter count, and FI-2010 dataset windows using synthetic data. It does not read real data. `scripts/check.py` and the local pre-push hook run it.
+The smoke script checks the DeepLOB forward pass, softmax, gradients, parameter count, and FI-2010 dataset windows using synthetic data. It does not read real data. `scripts/check.py` includes it in the manual Python quality checks.
 
 ## Quality gates
 

@@ -1,6 +1,6 @@
 # Quant Deep Learning
 
-Quant Deep Learning is an independent research project for end-to-end deep-learning models on structured market data. It began as a DeepLOB reproduction and now focuses on next-day cross-sectional prediction from Chinese A-share market data, including order-book snapshots, minute-level inputs, and L2 event streams.
+Quant Deep Learning is an independent research project on end-to-end deep-learning models for structured market data. It began with a DeepLOB reproduction and now focuses on next-day cross-sectional prediction from Chinese A-share data, using order-book snapshots, minute-level inputs, and L2 event streams.
 
 The project owns model-specific representations, training, inference, evaluation, and study records. It can run without `quant-platform` or `quant-research`. `quant-market-data-platform` is the upstream provider; `quant-backtest-runtime` is the downstream artifact consumer. Neither side needs to import this repository's Python modules. See the [repository boundaries](docs/architecture/repository-boundaries.md).
 
