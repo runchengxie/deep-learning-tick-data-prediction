@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deep-learning-tick-data-prediction-ci-${{ github.event.pull_request.number || github.ref }}
+  group: quant-deep-learning-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

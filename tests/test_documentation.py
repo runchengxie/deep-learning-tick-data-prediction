@@ -58,6 +58,20 @@ ENGLISH_DOCUMENTS = {
     "docs/research/topk-agentx-m2d-registry-context.md",
     "docs/research/topk-agentx-m3-topk-diagnostics.md",
     "docs/research/topk-agentx-research-roadmap.md",
+    "docs/superpowers/plans/2026-08-25-m3-eventstream-representation.md",
+    "docs/superpowers/plans/2026-08-27-historical-data-eligibility.md",
+    "docs/superpowers/plans/2026-08-27-opening-coverage-inventory.md",
+    "docs/superpowers/plans/2026-08-27-opening-ledger-audit.md",
+    "docs/superpowers/plans/2026-08-27-shanghai-contract-audit.md",
+    "docs/superpowers/plans/2026-08-28-l2-audit-and-task-weight.md",
+    "docs/superpowers/plans/2026-08-30-l2-exchange-sequence-ordering.md",
+    "docs/superpowers/plans/2026-09-02-systemd-workflow-cleanup.md",
+    "docs/superpowers/plans/2026-09-03-public-ci-quality-gate.md",
+    "docs/superpowers/plans/2026-10-05-quant-deep-learning-public-site-and-english-docs.md",
+    "docs/superpowers/specs/2026-08-25-m3-eventstream-representation-design.md",
+    "docs/superpowers/specs/2026-08-30-l2-exchange-sequence-ordering-design.md",
+    "docs/superpowers/specs/2026-10-05-quant-deep-learning-reorganization-design.md",
+    "docs/superpowers/specs/2026-08-26-market-simulator-design.md",
 }
 
 
@@ -66,11 +80,7 @@ def _markdown_files() -> list[Path]:
         ROOT / "README.md",
         ROOT / "AGENTS.md",
         ROOT / "MIGRATION-STATUS.md",
-        *sorted(
-            path
-            for path in (ROOT / "docs").rglob("*.md")
-            if "superpowers" not in path.relative_to(ROOT / "docs").parts
-        ),
+        *sorted(path for path in (ROOT / "docs").rglob("*.md") if path.is_file()),
     ]
 
 
@@ -207,7 +217,4 @@ def test_maintained_documentation_is_written_in_english() -> None:
 
 def test_english_inventory_covers_all_maintained_markdown() -> None:
     maintained = {path.relative_to(ROOT).as_posix() for path in _markdown_files()}
-    excluded = {
-        path.relative_to(ROOT).as_posix() for path in (ROOT / "docs" / "superpowers").rglob("*.md")
-    }
-    assert maintained - excluded == ENGLISH_DOCUMENTS
+    assert maintained == ENGLISH_DOCUMENTS

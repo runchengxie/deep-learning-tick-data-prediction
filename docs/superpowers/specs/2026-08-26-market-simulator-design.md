@@ -1,46 +1,48 @@
-# 市场模拟器子系统设计（第二阶段）
+# Market Simulator Subsystem Design (Phase 2)
 
-日期：2026-08-26
-状态：Draft（实现中）
-关联：第一阶段 `agent/m3-eventstream-representation`（PR #96，已合并）
+Date: 2026-08-26
+Status: Draft (implementation in progress)
+Related work: Phase 1, `agent/m3-eventstream-representation` (PR #96, merged)
 
-## 目标
+## Goal
 
-在 deep-learning-tick-data-prediction 中新增一个独立子系统 `src/ticknet/simulator/`，实现：
+Add an independent `src/ticknet/simulator/` subsystem to the former `deep-learning-tick-data-prediction` project. It will implement:
 
-1. 确定性撮合引擎（matching engine），能够消费保留原始 OrderID 的订单流并维护十档订单簿
-2. 生成式市场模拟器：以真实初始盘口为 prefix，用 eventstream Transformer 生成背景订单流，插入外部干预订单（如 TWAP 子单），经撮合引擎回放产出合成市场轨迹
-3. 冲击成本估计接口：把候选执行单放入模拟器，估计真实冲击 / slippage
+1. A deterministic matching engine that consumes order flows with original `OrderID` values and maintains a ten-level limit order book.
+2. A generative market simulator that uses a real initial book as a prefix, generates background order flows with the event-stream Transformer, inserts external intervention orders such as TWAP child orders, and replays them through the matching engine to produce synthetic market trajectories.
+3. An interface for estimating market impact by placing candidate execution orders into the simulator and estimating realized impact and slippage.
 
-## 非目标（本阶段不做）
+## Out of Scope for This Phase
 
-- 不修改 `eventstream` 预测主链路（第一阶段已完成 LOB prefix / 双锚点 / VQ）
-- 不做跨资产、跨市场相关性联动
-- 不扩模型到 150M/1B（Scaling 实验单独排期）
-- 不直接替换 next-day Alpha 信号，模拟器先作为独立成本估计 / 沙盒工具
+- Changing the primary `eventstream` prediction path (Phase 1 completed LOB prefixes, dual anchors, and VQ).
+- Modeling cross-asset or cross-market correlations.
+- Scaling the model to 150M or 1B parameters; scaling experiments are scheduled separately.
+- Directly replacing next-day alpha signals. Initially, the simulator is a standalone cost-estimation and sandbox tool.
 
-## 为什么需要新数据契约
+## Why a New Data Contract Is Needed
 
-`eventstream/config.py` 明确说明：原始 OrderID / DealID / BuyID / SellID 已丢弃，关联信息提炼为撤单年龄等派生特征。预测任务下这是合理取舍。但撮合引擎需要精确识别撤单对应的挂单（含时间优先队列），没有原始 ID 无法重建。因此 simulator 必须读取或重建一套保留 ID 的 simulator pack，与预测用的 eventstream pack 解耦，互不污染。
+`eventstream/config.py` documents that raw `OrderID`, `DealID`, `BuyID`, and `SellID` values are discarded, while their relationships are distilled into derived features such as cancel age. This is a reasonable trade-off for prediction. A matching engine, however, must identify the exact resting order associated with a cancel, including its time-priority queue position. That cannot be reconstructed without the original identifiers.
 
-## 模块边界（遵循 AGENTS.md）
+The simulator must therefore read or rebuild a simulator pack that preserves IDs. This pack remains separate from the prediction event-stream pack so the two contracts do not affect each other.
 
-- `src/ticknet/simulator/` 新模块，负责撮合引擎、生成式回放、冲击估计
-- 不直接 import `nextday` 实现，通过 CLI / 配置与 `eventstream` 解耦，可复用其 tokenizer / model 加载
-- 测试用合成数据，不依赖真实 L2 全量数据
+## Module Boundaries (Following AGENTS.md)
 
-## 实施顺序
+- The new `src/ticknet/simulator/` module owns the matching engine, generative replay, and impact estimation.
+- Do not directly import `nextday` implementations. Use CLI/configuration to decouple from `eventstream`, while allowing reuse of its tokenizer and model loader.
+- Tests use synthetic data and do not require the full raw L2 dataset.
 
-1. `simulator/pack.py`：从原始 L2 解析保留 OrderID 的 simulator pack（RED test 先行）
-2. `simulator/matching.py`：撮合引擎，消费 order/cancel 事件，维护十档 LOB
-3. `simulator/engine_correctness_test`：用真实初始盘口 + 真实 order stream 回放，重建盘口须与真实 snapshot 对上（correctness gate）
-4. `simulator/generator.py`：加载 eventstream Transformer，生成背景订单 token
-5. `simulator/replay.py`：闭环回放（prefix + 背景流 + 外部干预 → 轨迹）
-6. `simulator/impact.py`：冲击成本估计接口
-7. 文档与 CLI 入口
+## Implementation Order
 
-## 验收门槛
+1. `simulator/pack.py`: parse raw L2 while preserving `OrderID` values into a simulator pack (write a failing test first).
+2. `simulator/matching.py`: build a matching engine that processes order and cancel events and maintains the ten-level book.
+3. `simulator/engine_correctness_test`: replay a real initial book and real order stream and require the reconstructed book to match the real snapshot (correctness gate).
+4. `simulator/generator.py`: load the event-stream Transformer and generate background order tokens.
+5. `simulator/replay.py`: run closed-loop replay (prefix + background flow + external intervention → trajectory).
+6. `simulator/impact.py`: add the market-impact estimation interface.
+7. Add documentation and CLI entry points.
 
-- matching engine 对合成序列的撮合结果与手算一致
-- engine correctness test：重建盘口与真实 snapshot 在容差内一致
-- 冲击曲线在双对数坐标下可观测，数值仅作研究用途，不宣称实盘因果
+## Acceptance Criteria
+
+- Matching results for synthetic sequences agree with hand calculations.
+- The engine correctness test reconstructs the real snapshot within tolerance.
+- The impact curve is observable on log-log axes. Values are for research use only and do not establish live-trading causality.

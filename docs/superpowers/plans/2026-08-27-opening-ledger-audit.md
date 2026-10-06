@@ -1,67 +1,67 @@
 # Opening Ledger Audit Implementation Plan
 
-> For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> For agentic workers: use the `superpowers:subagent-driven-development` or `superpowers:executing-plans` skill. Steps use checkbox syntax for tracking.
 
-Goal：建立可复跑的盘前订单身份账本审计，跨股票和交易日验证盘前委托、成交、撤单能否重建开盘前十档盘口。
+**Goal:** Build a reproducible audit of pre-open order identities across stocks and trading days, and test whether pre-open orders, trades, and cancels can reconstruct the ten-level book before the open.
 
-Architecture：在 `simulator` 下新增纯函数审计模块，先从盘前订单生成订单级剩余量，再应用盘前成交和撤单，最后聚合前十档并与第一张完整连续竞价快照比较。CLI 只负责从 raw L2 数据读取样本、输出 JSON 摘要，不把未经验证的账本直接接入撮合回放。
+**Architecture:** Add a pure audit module under `simulator`. Start with pre-open orders to calculate remaining quantities, apply pre-open trades and cancels, aggregate the best ten price levels, and compare them with the first complete continuous-session snapshot. The CLI reads explicit samples from raw L2 data and writes a JSON summary; it does not connect an unverified ledger directly to matching replay.
 
-Tech Stack：Python 3.10、dataclasses、PyArrow Parquet、pytest、argparse。
+**Tech stack:** Python 3.10, dataclasses, PyArrow Parquet, pytest, and argparse.
 
-Spec：`docs/nextday/eventstream.md` 与 `src/ticknet/eventstream/config.py` 中的 raw L2 文件契约。
+**Spec:** The raw L2 file contract in `docs/nextday/eventstream.md` and `src/ticknet/eventstream/config.py`.
 
 ## Global Constraints
 
-- 测试只使用合成数据，不依赖 6TB 硬盘或外部服务。
-- 价格按 raw L2 已缩放的整数分处理，数量按股处理。
-- 盘前账本只使用 `time_ms < 0` 的委托、成交和撤单，`time_ms == 0` 的连续竞价事件留给后续回放。
-- 审计结果必须区分精确匹配、不可比较、未知成交身份、未知撤单身份和数量不一致。
-- 不改变现有 `day_input_files()` 返回结构，不修改 eventstream 打包格式。
+- Tests use synthetic data only; they do not depend on the 6 TB disk or external services.
+- Prices are represented as raw L2 scaled integer cents; quantities are in shares.
+- The pre-open ledger uses orders, trades, and cancels with `time_ms < 0`. Continuous-session events at `time_ms == 0` remain for later replay.
+- Audit results distinguish exact matches, non-comparable samples, unknown trade IDs, unknown cancel IDs, and quantity mismatches.
+- Do not change the structure returned by `day_input_files()` or the event-stream packing format.
 
-### Task 1: 订单级盘前账本纯函数
+### Task 1: Pure Order-Level Pre-Open Ledger
 
-Files：
+**Files:**
 - Create: `src/ticknet/simulator/opening_ledger.py`
 - Test: `tests/test_opening_ledger.py`
 
-- [x] 写测试：盘前买卖委托经过成交和部分撤单后，按价格聚合出正确剩余量和前十档。
-- [x] 写测试：未知成交 ID、未知撤单 ID、超出剩余量的成交分别被记录，不静默吞掉。
-- [x] 运行测试确认在模块不存在时按预期失败。
-- [x] 实现 `audit_opening_ledger(orders, trades, cancels, snapshot_levels)`，返回不可变审计结果。
-- [x] 运行测试通过并保持字段含义与 raw L2 单位一致。
+- [x] Test that pre-open buy and sell orders produce the correct remaining quantity and top ten levels after trades and partial cancels.
+- [x] Test that unknown trade IDs, unknown cancel IDs, and trades exceeding the remaining quantity are reported rather than silently ignored.
+- [x] Run the tests and confirm the expected failure while the module is absent.
+- [x] Implement `audit_opening_ledger(orders, trades, cancels, snapshot_levels)` and return an immutable audit result.
+- [x] Run the tests and verify that fields retain the raw L2 units.
 
-### Task 2: 真实 Parquet 样本读取
+### Task 2: Read Real Parquet Samples
 
-Files：
+**Files:**
 - Modify: `src/ticknet/simulator/opening_ledger.py`
 - Test: `tests/test_opening_ledger.py`
 
-- [x] 写测试：从合成 `order_preopen`、`trades` 和 `snapshot` Parquet 读取指定股票日，并选出首个完整非负快照。
-- [x] 运行测试确认读取接口尚未实现时失败。
-- [x] 实现 `audit_opening_day(day, ticker, raw_root)`，使用 `day_preopen_file()`、`day_input_files()` 和现有 snapshot 解析约定。
-- [x] 对盘前交易按 `BuyID`、`SellID` 扣减对应订单，对盘前撤单按 `OrderID` 扣减，保留未知身份计数和数量。
-- [x] 运行测试通过，验证股票过滤、日期过滤、价格单位和快照缺档状态。
+- [x] Test reading a specified stock-day from synthetic `order_preopen`, `trades`, and `snapshot` Parquet files, including selection of the first complete non-negative snapshot.
+- [x] Confirm the read-interface tests fail before implementation.
+- [x] Implement `audit_opening_day(day, ticker, raw_root)` using `day_preopen_file()`, `day_input_files()`, and the existing snapshot parser.
+- [x] Deduct pre-open trades from their matching orders using `BuyID` and `SellID`; deduct pre-open cancels using `OrderID`; retain counts and quantities for unknown identities.
+- [x] Run tests for stock and date filtering, price units, and incomplete snapshot levels.
 
-### Task 3: 跨股票跨日期 CLI 与摘要
+### Task 3: Cross-Stock and Cross-Date CLI
 
-Files：
+**Files:**
 - Create: `scripts/audit_opening_ledger.py`
 - Test: `tests/test_opening_ledger_cli.py`
 
-- [x] 写测试：CLI 接受多个 `--sample YYYYMMDD:TICKER`，输出 JSON，并汇总 exact、mismatch、not_comparable 和身份缺口。
-- [x] 运行测试确认 CLI 在实现前失败。
-- [x] 实现 CLI 的显式样本模式和 `--raw-root` 参数，避免默认扫描数 TB 数据。
-- [x] 输出每个样本的十档价格差、数量差、未知 ID 和订单覆盖率，汇总只对可比较样本计算比例。
-- [x] 用 2021、2023、2025 三个年份的深市样本和至少一个沪市样本执行真实审计。
+- [x] Test multiple `--sample YYYYMMDD:TICKER` inputs, JSON output, and summaries for exact, mismatched, non-comparable, and identity-gap outcomes.
+- [x] Confirm the tests fail before the CLI exists.
+- [x] Implement explicit sample selection and `--raw-root`; avoid default scans across terabytes of data.
+- [x] Report per-sample differences across ten price levels, unknown IDs, and order coverage; calculate aggregate rates only over comparable samples.
+- [x] Run real audits on Shenzhen samples from 2021, 2023, and 2025, plus at least one Shanghai sample.
 
-### Task 4: 文档、质量门禁与 PR
+### Task 4: Documentation, Quality Gates, and PR
 
-Files：
+**Files:**
 - Modify: `docs/project-status.md`
 - Modify: `docs/nextday/eventstream.md`
 
-- [x] 将真实审计命令和结果写入现状文档，明确样本范围、数据日期和限制。
-- [x] 运行 `pre-commit run --all-files`。
-- [x] 运行 `python scripts/check.py`。
-- [ ] 提交、推送、创建 PR，合并到 `main`。
-- [ ] 合并后删除分支和 worktree，确认 `main` 与 `origin/main` 同步且干净。
+- [x] Record the real-audit command and results, including sample scope, data dates, and limitations.
+- [x] Run `pre-commit run --all-files`.
+- [x] Run `python scripts/check.py`.
+- [ ] Commit, push, create a PR, and merge it into `main`.
+- [ ] After the merge, remove the branch and worktree; verify that `main` is clean and synchronized with `origin/main`.
