@@ -8,6 +8,7 @@ def test_public_ci_runs_on_main_push_and_pull_request() -> None:
     assert "  push:" in workflow
     assert "    branches: [main]" in workflow
     assert "  pull_request:" in workflow
+    assert "group: quant-deep-learning-ci-" in workflow
 
 
 def test_public_ci_runs_static_checks_tests_and_coverage() -> None:

@@ -1,54 +1,54 @@
 # Historical Data Eligibility Implementation Plan
 
-> For agentic workers: REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans (recommended). Steps use checkbox syntax for tracking.
+> For agentic workers: use the `superpowers:subagent-driven-development` or `superpowers:executing-plans` skill. Steps use checkbox syntax for tracking.
 
-Goal：建立 2021 至 2025 历史 raw L2 股票日准入清单，冻结 2026，并区分深市主数据和沪市研究数据。
+**Goal:** Build an eligibility manifest for historical raw L2 stock-days from 2021 through 2025, freeze 2026, and distinguish the primary Shenzhen dataset from Shanghai research data.
 
-Architecture：在现有 CoverageRow 之上增加纯数据准入模块。准入只依据文件覆盖、股票覆盖、盘前委托和交易日范围，不把未经证明的沪市 lag 写入规则。CLI 输出 JSON、CSV 和分层计数。
+**Architecture:** Add a pure data-eligibility module on top of the existing `CoverageRow`. Eligibility depends only on file coverage, stock coverage, pre-open orders, and the trading-day range. Do not encode an unverified Shanghai lag into the rules. The CLI outputs JSON, CSV, and stratified counts.
 
-Tech Stack：Python 3.10、dataclasses、argparse、csv、json、pytest。
+**Tech stack:** Python 3.10, dataclasses, argparse, csv, json, and pytest.
 
-Spec：docs/research/opening-coverage-inventory-2026-08-27.md。
+**Spec:** `docs/research/opening-coverage-inventory-2026-08-27.md`.
 
 ## Global Constraints
 
-- 2026 年数据不进入历史准入清单。
-- 深市主数据要求三类文件存在、股票出现在三类文件、存在盘前订单。
-- 沪市研究数据使用同样的文件完整性条件，但必须单独标记 lag 未校准。
-- 不改变撮合器、事件流打包格式和沪市默认 lag。
-- 合成测试不依赖 6TB 硬盘。
+- Data from 2026 is excluded from the historical eligibility manifest.
+- The primary Shenzhen dataset requires all three file types, stock coverage in all three, and pre-open orders.
+- Shanghai research data uses the same file-completeness rules but must be marked as having an uncalibrated lag.
+- Do not change the matcher, event-stream packing format, or default Shanghai lag.
+- Synthetic tests must not depend on the 6 TB disk.
 
-### Task 1: 准入判定
+### Task 1: Eligibility Classification
 
-Files：
-- Create: src/ticknet/simulator/eligibility.py
-- Test: tests/test_historical_eligibility.py
+**Files:**
+- Create: `src/ticknet/simulator/eligibility.py`
+- Test: `tests/test_historical_eligibility.py`
 
-- [ ] 写测试覆盖深市主数据、沪市研究数据、缺文件、缺股票、2026 排除和无盘前订单。
-- [ ] 运行测试确认模块不存在导致失败。
-- [ ] 实现 EligibilityRow、classify_coverage 和 summarize_eligibility。
-- [ ] 运行 focused pytest。
-- [ ] 提交 feat: add historical data eligibility rules。
+- [ ] Write tests for the primary Shenzhen dataset, Shanghai research data, missing files, missing stocks, exclusion of 2026, and days without pre-open orders.
+- [ ] Run the tests and confirm they fail because the module does not exist.
+- [ ] Implement `EligibilityRow`, `classify_coverage`, and `summarize_eligibility`.
+- [ ] Run the focused pytest suite.
+- [ ] Commit as `feat: add historical data eligibility rules`.
 
-### Task 2: 准入清单 CLI
+### Task 2: Eligibility Manifest CLI
 
-Files：
-- Create: scripts/build_historical_data_manifest.py
-- Modify: tests/test_historical_eligibility.py
-- Modify: docs/README.md
+**Files:**
+- Create: `scripts/build_historical_data_manifest.py`
+- Modify: `tests/test_historical_eligibility.py`
+- Modify: `docs/documentation-index.md`
 
-- [ ] 写 JSON、CSV 和分层摘要测试并确认失败。
-- [ ] 实现 --raw-root、--json-output、--csv-output、--start-year、--end-year 和 --limit-days。
-- [ ] 运行 focused pytest 和 --help。
-- [ ] 提交 feat: add historical data manifest CLI。
+- [ ] Write tests for JSON, CSV, and stratified summaries, and confirm they fail.
+- [ ] Implement `--raw-root`, `--json-output`, `--csv-output`, `--start-year`, `--end-year`, and `--limit-days`.
+- [ ] Run focused pytest and `--help`.
+- [ ] Commit as `feat: add historical data manifest CLI`.
 
-### Task 3: 研究记录和质量门禁
+### Task 3: Research Record and Quality Gates
 
-Files：
-- Create: docs/research/historical-data-eligibility-2026-08-27.md
-- Modify: docs/project-status.md
+**Files:**
+- Create: `docs/research/historical-data-eligibility-2026-08-27.md`
+- Modify: `docs/project-status.md`
 
-- [ ] 记录 2021 至 2025 的准入定义、深市主数据和沪市研究数据边界。
-- [ ] 记录交易所公开接口资料支持的普遍性背景和本数据集特有的缺口。
-- [ ] 运行 focused pytest、pre-commit、scripts/check.py、git diff --check。
-- [ ] 推送、创建 PR、合并 main，删除分支和 worktree，验证 main 同步。
+- [ ] Document the 2021–2025 eligibility definition and the boundaries between the primary Shenzhen dataset and Shanghai research data.
+- [ ] Record general context supported by public exchange interface documentation and gaps specific to this dataset.
+- [ ] Run focused pytest, pre-commit, `scripts/check.py`, and `git diff --check`.
+- [ ] Push, create and merge a PR into `main`, remove the task branch and worktree, and verify that `main` is synchronized.
