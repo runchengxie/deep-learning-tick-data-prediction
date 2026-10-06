@@ -8,7 +8,7 @@
 > - Source PDF: cited but not included in this public repository because redistribution rights have not been established
 > - Training and backtest data: minute data from 2018-01-01 through 2024-06-21; factor and portfolio statistics from 2019-01-01 through 2024-06-21
 
-These notes were prepared from the full extracted PDF. They first summarize the main findings, then follow the report's structure to record its methods, performance, and limitations, and conclude with implications and an independent assessment for this project's minute-data research.
+These notes are based on the full text extracted from the source PDF. They summarize the main findings, follow the report's structure to describe its methods, results, and limitations, and conclude with implications for this project's minute-data research.
 
 ## Main findings
 
