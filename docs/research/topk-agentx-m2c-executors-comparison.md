@@ -1,18 +1,18 @@
-# M2c：Prediction 导出、实验比较与滚动稳健性
+# M2c: Prediction Export, Experiment Comparison, and Walk-Forward Robustness
 
-M2c 补齐三个确定性 executor，从 Registry 物化已登记预测、比较多 seed 实验，以及把多个已完成实验聚合为 walk-forward 稳健性证据。它们只消费已有 artifact 和指标，不重新训练，也不会扩大 locked 数据权限。
+M2c added three deterministic executors: materialize registered predictions from Registry, compare experiments across seeds, and aggregate completed experiments into walk-forward robustness evidence. They consume existing artifacts and metrics; they do not retrain models or broaden locked-data permissions.
 
-## Prediction export 的边界
+## Prediction export boundary
 
-`export_predictions` 只处理 Registry 中已经登记的 prediction artifact，不做任意 checkpoint 的通用推理。不同模型的输入、checkpoint 和推理命令尚未形成统一契约，因此当前实现只允许物化已有预测：
+`export_predictions` handles only prediction artifacts already registered in Registry. It does not provide generic inference for arbitrary checkpoints: model inputs, checkpoints, and inference commands do not yet share a universal contract.
 
-1. `source_experiment_id` 必须存在并处于 `completed`、`frozen` 或 `locked_tested`。
-2. 指定 seed 和名称的 artifact 必须唯一，文件 SHA-256 必须与 Registry 一致。
-3. Parquet 必须包含 `symbol`、`trading_date`、`label_date`、`target_return` 和 `score`。
-4. 文件按原始字节复制到本次实验的独立 seed 目录，再次核对 SHA-256。
-5. Runner 对复制后的 predictions 重新执行日期协议检查和 Audit，不能借导出绕过 locked test。
+1. `source_experiment_id` must exist and be `completed`, `frozen`, or `locked_tested`.
+2. The artifact for the requested seed and name must be unique, and its file SHA-256 must match Registry.
+3. Parquet must contain `symbol`, `trading_date`, `label_date`, `target_return`, and `score`.
+4. Copy original bytes into the new experiment's isolated seed directory and verify SHA-256 again.
+5. The Runner rechecks date protocol and runs Audit on the copy; export cannot bypass locked-test checks.
 
-最小输入如下：
+Minimal spec:
 
 ```yaml
 experiment_type: prediction_export
@@ -24,20 +24,15 @@ inputs:
 seeds: [0]
 ```
 
-真正的 checkpoint 推理仍由固定训练和推理 executor 负责。等 M4 选定排序模型库和统一命令后，再决定是否增加模型特定的导出入口。
+Checkpoint inference remains the responsibility of fixed training or inference executors. After M4 selects a ranking-model library and standard command, consider adding model-specific export.
 
-## 多 seed 实验比较
+## Multi-seed experiment comparison
 
-`compare_experiments` 从 Registry 读取至少两个已完成实验，对每个声明指标输出：
+`compare_experiments` reads at least two completed experiments. For each declared metric, it reports every seed's value, mean, sample standard deviation, minimum and maximum; raw mean difference from baseline (`delta_vs_baseline_mean`); direction-normalized improvement where positive always means better (`improvement_vs_baseline_mean`); and matched-seed count, paired raw difference, and direction-normalized paired improvement.
 
-- 各 seed 原值、均值、样本标准差、最小值和最大值。
-- 相对 baseline 的原始均值差 `delta_vs_baseline_mean`。
-- 按指标方向归一、正值恒表示更好的 `improvement_vs_baseline_mean`。
-- 同 seed 配对数量、原始配对差和方向归一后的配对改善。
+By default, compared experiments must share a non-empty dataset fingerprint. Use `walk_forward_robustness` for different time windows. A justified diagnostic may set `require_same_fingerprint: false`; output retains each source fingerprint and must not be described as a controlled ablation.
 
-默认还要求所有待比较实验具有同一个非空 dataset fingerprint。跨时间窗口的实验应使用 `walk_forward_robustness`。确有诊断需求时可以显式设置 `require_same_fingerprint: false`，此时输出仍保留每个来源的数据指纹，不能把结果解释为受控消融。
-
-指标默认 `higher`，Brier、误差、回撤等越低越好的指标必须显式声明：
+Metrics default to higher-is-better. Explicitly mark Brier score, error, drawdown, and other lower-is-better metrics:
 
 ```yaml
 experiment_type: comparison
@@ -53,7 +48,7 @@ inputs:
 seeds: [0]
 ```
 
-CLI 也支持同一语义：
+Equivalent CLI:
 
 ```bash
 ticknet-research compare \
@@ -63,13 +58,13 @@ ticknet-research compare \
   --lower-is-better validation.brier_score
 ```
 
-输出保存为 `comparison.json`，并保留每个来源的状态、Evaluation 决策和数据指纹。结果自身的 dataset fingerprint 是来源实验 ID 与各自数据指纹的稳定聚合哈希，不能伪装成某一个来源实验。
+Output is `comparison.json`, retaining each source state, Evaluation decision, and data fingerprint. Its own dataset fingerprint is a stable aggregate hash over source experiment IDs and their fingerprints; it must not masquerade as one source experiment's fingerprint.
 
-## Walk-forward 稳健性
+## Walk-forward robustness
 
-`walk_forward_robustness` 把每个来源实验视为一个时间窗口，先在窗口内汇总 seed，再跨窗口报告均值、样本标准差、最小值、最大值和最差窗口。默认要求至少三个窗口且每个窗口具有不同、非空的 dataset fingerprint，避免把同一切分重复登记后冒充滚动验证。
+`walk_forward_robustness` treats each source experiment as one time window, aggregates seeds within each window, then reports mean, sample standard deviation, minimum, maximum, and worst window across windows. By default, require at least three windows with distinct, non-empty fingerprints so repeated registration of one split cannot pose as rolling validation.
 
-最差窗口尊重指标方向，Rank IC 取窗口均值最小者，Brier 取窗口均值最大者。用于 gate 时，高优指标一般约束 `window_min`，低优指标一般约束 `window_max`。例如：
+Worst-window selection respects metric direction: the lowest window mean for Rank IC, highest for Brier. For gates, higher-is-better metrics generally constrain `window_min`; lower-is-better metrics constrain `window_max`.
 
 ```yaml
 experiment_type: robustness
@@ -85,10 +80,10 @@ inputs:
 seeds: [0]
 ```
 
-输出保存为 `walk-forward.json`。本 executor 只聚合已登记窗口，不自行生成时间切分。窗口边界、purge 和标签协议仍由来源训练实验负责。
+Output is `walk-forward.json`. The executor aggregates registered windows but does not generate splits. Source experiments remain responsible for window boundaries, purging, and label protocols.
 
-## 安全失败与当前剩余项
+## Deterministic failures and remaining work
 
-未知实验、未完成实验、缺指标、重复 ID、错误指标方向、窗口不足、重复数据指纹、artifact 缺失或 checksum 改变都会确定性失败，并由 Runner 记录失败 run。`train_ranker` 仍显式不支持，不会回退为其他训练入口，状态见 [topk-agentx-m2a-deterministic-loop.md](topk-agentx-m2a-deterministic-loop.md)。
+Unknown or incomplete experiments, missing metrics, duplicate IDs, invalid metric direction, too few windows, duplicate fingerprints, missing artifacts, or changed checksums fail deterministically; the Runner records the failed run. `train_ranker` remains explicitly unsupported and never falls back to another training command. See [M2a](topk-agentx-m2a-deterministic-loop.md).
 
-M2 的 Registry 到 ResearchContext 回流已经由 M2d 完成，见 [topk-agentx-m2d-registry-context.md](topk-agentx-m2d-registry-context.md)。
+M2d completed Registry-to-ResearchContext feedback; see [M2d](topk-agentx-m2d-registry-context.md).

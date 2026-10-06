@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pytest
 
-from legacy.scripts.convert_fi2010 import TOTAL_ROWS, _read_txt, main
+from ticknet.fi2010.scripts.convert_fi2010 import TOTAL_ROWS, _read_txt, main
 
 
 def _official_matrix(samples: int = 12) -> np.ndarray:

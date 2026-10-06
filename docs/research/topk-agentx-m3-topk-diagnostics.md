@@ -1,32 +1,25 @@
-# M3 Top-K、buffer 与成本矩阵诊断
+# M3 Top-K, Buffer, and Cost-Matrix Diagnostics
 
-## 当前结论
+## Current conclusion
 
-M3 v2 已完成正式分钟特征物化、HGB、预测登记和 64 组 Top-K 成本矩阵。2025 年下半年 HGB 每日 Rank IC 为 0.06994，六个月月度 IC 均为正。成本矩阵使用 124 个相同评估日，每日恰有 400 个候选，并包含不可买、不可卖和调出股票状态。
+M3 v2 completed formal minute-feature materialization, HGB training, prediction registration, and a 64-cell Top-K cost matrix. HGB daily Rank IC was 0.06994 in the second half of 2025, with positive monthly IC in all six months. The matrix used the same 124 evaluation days, exactly 400 candidates per day, and explicit cannot-buy, cannot-sell, and out-of-universe holding states.
 
-正式结论为 `NO_TRADEABLE_REGION`。单边 10bp 成本和 5bp 卖出印花税下，16 个 K 与 buffer 候选的成本后主动收益全部为负。绝对净收益最高的是 `K=100、buffer=50`，日均净收益为 12.15bp，净 Sharpe 为 1.41。同期 Top-400 等权基准表现更好，该组合的日均净主动收益为 -4.75bp，六个月中只有一个月为正。
+Formal decision: `NO_TRADEABLE_REGION`. At 10 bp one-way cost plus 5 bp sell stamp duty, all 16 K/buffer candidates had negative cost-adjusted active return. `K=100, buffer=50` had the highest absolute net return: 12.15 bp daily and net Sharpe 1.41. The Top-400 equal-weight benchmark did better; this portfolio's mean daily net active return was -4.75 bp, with only one positive month out of six.
 
-全部策略的主动收益盈亏平衡单边成本最高约为 4.33bp，对应 `K=100、buffer=50`，低于 10bp 决策成本。这个组合的绝对收益盈亏平衡成本约为 24.51bp，较高数值包含同期市场整体上涨，不能单独解释为预测信号收益。buffer 能降低换手并改善绝对净收益，仍不足以形成相对等权基准的稳定增量。
+Across all strategies, the highest break-even one-way cost for active returns was about 4.33 bp (`K=100, buffer=50`), below the 10 bp decision cost. This portfolio's absolute-return break-even cost was about 24.51 bp, but that includes the broad market's rise and is not standalone evidence of predictive alpha. Buffers reduced turnover and improved absolute net return, but did not produce a stable gain over the equal-weight benchmark.
 
-早期 Top-100 冒烟也得到 `NO_TRADEABLE_REGION`，但它缺少正式交易状态和 Registry 数据指纹，只保留为工程历史证据。
+An earlier Top-100 smoke run also yielded `NO_TRADEABLE_REGION`, but lacked formal trading states and a Registry fingerprint; retain it as engineering history only.
 
-## 诊断契约
+## Diagnostic input contract
 
-`topk_cost_sweep` 支持两种互斥来源：
+`topk_cost_sweep` accepts exactly one of two sources:
 
-- `predictions_path`：只用于开发冒烟。输出记录源文件 SHA-256，但没有 Registry 数据指纹。
-- `source_experiment_id`：从 Registry 选择唯一 seed 和 artifact，读取前校验状态、路径、SHA-256 和锁定日期边界，再把文件物化到本次独立 seed 目录。源实验的数据指纹会传递到 M3 实验。
+- `predictions_path`: development smoke tests only. The output records source-file SHA-256 but has no Registry data fingerprint.
+- `source_experiment_id`: select a unique seed and artifact from Registry. Before reading, verify state, path, SHA-256, and locked-date boundary, then materialize the file into this run's isolated seed directory. Propagate the source experiment's fingerprint to M3.
 
-`evaluation_mode: formal` 还会强制以下条件：
+`evaluation_mode: formal` additionally requires the Registry source, `require_tradability: true`, `require_universe_membership: true` with daily counts checked against `expected_universe_size`, `missing_holding_policy: error`, `target_return_contract: next_open_to_following_open`, and a buffer grid containing 0 as a fixed comparison.
 
-- 使用 `source_experiment_id`，不能使用任意文件路径。
-- `require_tradability: true`。
-- `require_universe_membership: true`，并按 `expected_universe_size` 校验每日候选数。
-- `missing_holding_policy: error`。
-- `target_return_contract: next_open_to_following_open`。
-- buffer 网格包含 0，作为换手和收益变化的固定对照。
-
-正式模式不再只相信上游 spec 的文字声明。`import_predictions` 会先校验 Parquet 内容与 metadata，通过后才物化为 Registry prediction artifact。`topk_cost_sweep` 消费时会用 Registry `dataset_fingerprint` 再校验一次。metadata 必须包含：
+Formal mode validates prediction content and metadata instead of trusting prose in the upstream spec. `import_predictions` validates Parquet and metadata before registering it as a Registry prediction artifact. `topk_cost_sweep` rechecks the Registry `dataset_fingerprint` at consumption time. Required metadata:
 
 - `ticknet.dataset_fingerprint`
 - `ticknet.target_return_contract=next_open_to_following_open`
@@ -34,9 +27,9 @@ M3 v2 已完成正式分钟特征物化、HGB、预测登记和 64 组 Top-K 成
 - `ticknet.tradability_contract=next_open_suspension_one_price_limit`
 - `ticknet.suspended_mark_policy=previous_close`
 
-内容必须包含 `symbol`、`trading_date`、`label_date`、`return_end_date`、`target_return`、`score`、`can_buy`、`can_sell` 和 `in_universe`。`return_end_date` 必须晚于 `label_date`，且每个 `label_date` 只能对应一个收益结束日。每个 `label_date` 恰有 `expected_universe_size` 个 `in_universe=true` 候选。调出股票可用 `in_universe=false` 状态行表达次日可卖状态。Audit、排名和股票池基准忽略状态行，组合状态机仍用它处理旧持仓退出或停牌强制持有。
+Required columns are `symbol`, `trading_date`, `label_date`, `return_end_date`, `target_return`, `score`, `can_buy`, `can_sell`, and `in_universe`. `return_end_date` must be after `label_date`, and each `label_date` maps to one return-end date. Every date has exactly `expected_universe_size` rows with `in_universe=true`. Out-of-universe state rows may record whether a removed holding can be sold next day. Audit, ranking, and universe benchmarks ignore state rows; the portfolio state machine uses them to exit or retain existing holdings.
 
-正式预测首次登记使用：
+First register a formal prediction:
 
 ```yaml
 experiment_type: prediction_export
@@ -48,13 +41,13 @@ inputs:
   expected_universe_size: 400
 ```
 
-## 正式输入生成状态
+## Formal input generation
 
-`configs/nextday-minute-formal-2025-v2.yaml` 已把正式 HGB 输入固定为 2021 年 7 月至 2024 年训练、2025 上半年验证、2025 下半年输出。每日股票池只使用信号日以前 20 个交易日成交额，严格保留 400 只候选。模型监督目标是个股 T+1 open 到 T+2 open 减同期基准收益，prediction 中供组合核算的 `target_return` 则保存未减基准的个股持有收益。停牌以此前最近有效收盘价估值，一字涨停不可买、一字跌停不可卖。缺少分钟窗口的候选不从股票池删除，而是保留全 NaN 特征交给 HGB 的缺失值分支，并写出 `feature_available=false`。
+`configs/nextday-minute-formal-2025-v2.yaml` fixes formal HGB inputs to July 2021–2024 training, first-half 2025 validation, and second-half 2025 output. The daily universe uses turnover from the prior 20 trading days and retains exactly 400 stocks. Model supervision is stock T+1 open-to-T+2 open return minus the concurrent benchmark; prediction `target_return` stores the unadjusted stock holding return for portfolio accounting. Suspensions are marked using the latest valid prior close; one-price limit-up is unbuyable and one-price limit-down is unsellable. Candidates without minute windows remain with all-NaN features for HGB's missing-value branch and are marked `feature_available=false`.
 
-v1 配置从 2021 年 1 月开始。恢复物化后确认，2021 年 1 月 4 日至 6 月 4 日的逐日委托文件只有 `0` 和 `3` 开头的深市股票，没有 `6` 开头的沪市股票。前 101 个交易日缺少沪市委托，6 月 7 日开始同时覆盖两个市场。快照和成交源在同期包含沪市，三模态严格对齐后使沪市候选的完整特征为空。现有委托原始文件无法补回缺口，因此 v1 在 14/60 个月处停止，保留原目录和 manifest 作为审计记录。
+The v1 configuration began in January 2021. When materialization resumed, daily order files from 2021-01-04 through 2021-06-04 contained only Shenzhen tickers beginning with `0` or `3`, not Shanghai tickers beginning with `6`. The first 101 trading days lacked Shanghai orders; both markets appeared from June 7. Snapshot and trade sources had Shanghai coverage, so strict three-modality alignment left Shanghai candidate features empty. The missing source orders cannot be recovered. v1 stopped at 14 of 60 months, retaining its directory and manifest as audit evidence.
 
-先把约 110 GB 的源缓存按月物化为可恢复的聚合特征：
+Materialize the approximately 110 GB source cache by month into resumable aggregate features:
 
 ```bash
 uv run python scripts/materialize_minute_features.py \
@@ -62,9 +55,9 @@ uv run python scripts/materialize_minute_features.py \
   --output results/m3-formal-minute-features-v2-202107
 ```
 
-每个月只有在 Parquet 原子落盘并完成 SHA-256 后才会进入 manifest。重复执行相同命令会校验并跳过已有月份。需要单月诊断时可重复传入 `--period YYYY-MM`。manifest 绑定 v2 的全部目标股票日、30 个原始分钟特征的列顺序、窗口参数以及 15 个年度三模态源文件的大小和修改时间。任何身份变化都会停止续跑。正式数据指纹还会对加载后的 120 维聚合特征、标签和交易状态逐值哈希。
+Each month enters the manifest only after atomic Parquet write and SHA-256. Re-running verifies and skips complete months; use `--period YYYY-MM` for one-month diagnostics. The manifest binds v2 target stock-days, the ordered 30 raw minute features, window parameters, and size/mtime for 15 annual three-modality source files. Identity drift blocks resume. The formal fingerprint hashes loaded 120-dimensional aggregate features, labels, and tradability state values.
 
-全部 54 个月完成后运行 HGB：
+After all 54 months, run HGB:
 
 ```bash
 uv run python scripts/run_minute_baseline.py \
@@ -75,54 +68,47 @@ uv run python scripts/run_minute_baseline.py \
   --output results/nextday-minute-formal-2025-v2.json
 ```
 
-本地真实数据证据：
+## Formal data evidence
 
-- v2 manifest 状态为 `complete`，54 个分片共 436,800 行，其中 436,256 行有完整特征，544 行保留为全 NaN，覆盖率为 99.88%。全部分片通过 SHA-256 复核，没有临时或残缺文件。物化耗时 4,240.2 秒，峰值内存约 1.71GB。
-- v2 数据切分包含 339,600 个训练样本、46,000 个验证样本和 49,600 个测试样本。验证 Rank IC 为 0.08091，测试 Rank IC 为 0.06994，测试 Macro F1 为 0.32129，MCC 为 0.13208。
-- prediction 共 51,489 行，包含 49,600 个候选和 1,889 条状态行。124 个日期每天均为 400 个候选，其中 863 行不可买、849 行不可卖。prediction SHA-256 为 `bdeb2cbe7de8b894fd246ff56c31e49e510c0c38eac115687047c096a9a2a45d`。
-- 正式数据指纹为 `6ca055086c8885bcb866da01af4481a95d58c1334ed3fe0b574cca5b66dcbb7a`。预测已登记为 `PRED-HGB-400-OPEN2OPEN-001`，成本矩阵已登记为 `TRD-TOPK-400-001`。
-- v1 的日线面板覆盖 2021-01-04 至 2025-12-29 共 1,210 个完整信号日，每日均为 400 个候选，合计 484,000 个候选标签。股票池本身完整，早期委托源的市场覆盖不完整。
-- 另生成 13,329 条调出股票状态行。候选及状态中记录到 3,282 条停牌、264 条一字涨停和 209 条一字跌停状态。
-- 2025-07-01 的真实 L2 单日抽取请求 400 个候选，399 个有完整三模态分钟行，1 个走全 NaN 缺失特征路径。读取 6 个相关 row group，按日期元数据跳过 835 个无关 row group。
-- 物化已完成 2025-07 至 2025-12 共 6 个月、49,600 个候选，其中 49,408 个有特征、192 个保留为全 NaN，真实特征覆盖率 99.61%。各月缺失数依次为 7、33、15、112、11、14，不能因 2025-10 缺失较多而静默缩小 Top-400。
-- L2 抽取已从逐分钟 Python 对象改为按股票日连续数组分组，并向量化去重、尾部截取和三模态对齐。独立重跑 2025-07 生成的 Parquet 与旧版 SHA-256 完全一致，耗时由 100.3 秒降至 72.4 秒，峰值内存由约 2.26 GB 降至 1.69 GB。新版其余月份耗时在 62.0 至 82.6 秒之间，批次峰值不超过 1.72 GB。累计 manifest 的峰值仍为历史旧版 2.26 GB，符合取全程最大值的定义。
-- v1 manifest 状态为 `in_progress`，完成 14/60 个月，共 114,400 行，其中 94,573 行有特征，19,827 行保留为全 NaN。14 个分片均通过身份、SHA-256、行数、日期边界和 Parquet metadata 校验，没有临时或残缺文件。
-- v1 的 2021 年 1 月至 5 月缺失数依次为 3,969/8,000、2,911/6,000、4,447/9,200、4,061/8,400、3,437/7,200。2021 年 6 月缺失 786/8,400，7 月和 8 月分别只缺失 17/8,800 和 7/8,800。这个断点与委托源从 6 月 7 日开始出现沪市股票一致。
-- 正式 HGB 已实测拒绝残缺 manifest，并列出缺失月份，不会用部分数据训练。相同月份重跑会先验证身份与分片 SHA-256 再跳过。
-- 所有日线面板显式截断到 2025-12-31。prediction 契约新增 `return_end_date`，防止 2025 样本借用 2026 locked 收益。
+- The v2 manifest is `complete`: 54 shards and 436,800 rows; 436,256 have complete features and 544 remain all-NaN, for 99.88% feature coverage. All shard SHA-256 checks passed; there are no temporary or partial files. Materialization took 4,240.2 seconds and peaked near 1.71 GB RAM.
+- Splits contain 339,600 training, 46,000 validation, and 49,600 test samples. Validation Rank IC is 0.08091; test Rank IC 0.06994, Macro F1 0.32129, and MCC 0.13208.
+- Prediction has 51,489 rows: 49,600 candidates and 1,889 state rows. Each of 124 dates has 400 candidates; 863 rows are unbuyable and 849 unsellable. Prediction SHA-256: `bdeb2cbe7de8b894fd246ff56c31e49e510c0c38eac115687047c096a9a2a45d`.
+- Formal data fingerprint: `6ca055086c8885bcb866da01af4481a95d58c1334ed3fe0b574cca5b66dcbb7a`. Predictions are registered as `PRED-HGB-400-OPEN2OPEN-001`; the cost matrix as `TRD-TOPK-400-001`.
+- The v1 daily panel spans 2021-01-04 to 2025-12-29: 1,210 complete signal days with 400 candidates each, 484,000 candidate labels total. Universe coverage was complete; early order-source market coverage was not.
+- A further 13,329 out-of-universe state rows were generated. Candidate and state rows record 3,282 suspensions, 264 one-price limit-ups, and 209 one-price limit-downs.
+- A single-day extraction for 2025-07-01 requested 400 candidates: 399 had complete three-modality minute rows and one used the all-NaN path. It read 6 relevant row groups and skipped 835 unrelated groups using date metadata.
+- Materialization completed July–December 2025: six months and 49,600 candidates, with 49,408 feature-complete and 192 all-NaN rows (99.61% coverage). Monthly missing counts were 7, 33, 15, 112, 11, and 14. Do not silently shrink Top-400 because October 2025 has more missing features.
+- L2 extraction changed from per-minute Python objects to contiguous stock-day arrays with vectorized deduplication, tail selection, and three-modality alignment. An independent July 2025 rerun produced identical Parquet SHA-256; runtime fell from 100.3 to 72.4 seconds and peak memory from about 2.26 to 1.69 GB. Other months took 62.0–82.6 seconds, with batch peaks under 1.72 GB. The cumulative manifest peak remains 2.26 GB from the older implementation, consistent with recording the full-run maximum.
+- v1 manifest remains `in_progress` at 14/60 months: 114,400 rows, of which 94,573 have features and 19,827 are all-NaN. All 14 shards passed identity, SHA-256, row count, date boundary, and Parquet metadata checks; no partial files remain.
+- v1 missing counts for January–May 2021 were 3,969/8,000, 2,911/6,000, 4,447/9,200, 4,061/8,400, and 3,437/7,200. June missed 786/8,400; July and August missed 17/8,800 and 7/8,800. The discontinuity matches Shanghai order files beginning June 7.
+- Formal HGB rejects incomplete manifests and lists missing months. Re-running a month verifies identity and shard SHA-256 before skipping it.
+- Daily panels are explicitly capped at 2025-12-31. Prediction contracts add `return_end_date`, preventing 2025 samples from using locked 2026 returns.
 
-这些结果证明数据口径、资源边界、恢复和缺失路径可执行。v2 已避开 v1 的早期委托覆盖缺口，并形成正式 M3 结论。
+Together, these checks establish executable data semantics, resource limits, resumability, and missing-data behavior. v2 avoids v1's early order-coverage gap and supports the formal M3 conclusion.
 
-## 甜点区判定
+## Tradeable-region criteria
 
-默认在单边 10bp 成本下逐个评估 K 和 buffer。候选必须同时满足：
+By default, evaluate each K/buffer at 10 bp one-way cost. A candidate must satisfy all conditions:
 
-1. 至少 60 个完全可比评估日。
-2. 净 Sharpe 大于 0。
-3. 扣除本策略交易成本后，日均收益高于未扣成本的当日股票池等权收益。
-4. 至少一半月份的成本后日均超额收益为正。
-5. 毛超额收益绝对值最大的 5 天贡献不超过全部交易日绝对毛超额收益的 50%。
-6. 非零 buffer 相对 buffer=0 降低换手，且成本节省足以覆盖毛收益变化。
+1. At least 60 fully comparable evaluation days.
+2. Net Sharpe above zero.
+3. Mean daily return after this strategy's costs exceeds the same-day equal-weight universe return before costs.
+4. Cost-adjusted daily excess return is positive in at least half of months.
+5. The five largest absolute gross-excess-return days contribute no more than 50% of total absolute gross excess return.
+6. A non-zero buffer lowers turnover versus buffer 0, and saved costs cover the gross-return change.
 
-第 3 条使用未扣成本的股票池等权收益，属于偏严格门槛。未来若实现可实际交易的无信号组合，应把它以同一交易状态和成本模型作为独立基线，同时保留当前门槛，避免弱 alpha 被基准换手掩盖。
+Criterion 3 uses a pre-cost equal-weight benchmark and is intentionally strict. If a truly tradable no-signal portfolio is implemented later, compare it under identical states and costs while retaining this gate so benchmark turnover cannot hide weak alpha.
 
-每个 K、buffer 还输出两种解析成本门槛：
+Each K/buffer also reports two analytic cost thresholds:
 
-- `absolute_return_breakeven_per_side_bps`：组合绝对净收益归零时的单边成本。
-- `active_return_breakeven_per_side_bps`：相对当日股票池等权收益归零时的单边成本。
+- `absolute_return_breakeven_per_side_bps`: one-way cost where absolute net return reaches zero.
+- `active_return_breakeven_per_side_bps`: one-way cost where return versus equal-weight universe reaches zero.
 
-第二个指标用于判断预测信号是否覆盖交易成本。第一个指标会受到市场整体涨跌影响，不能单独解释为模型 alpha。
+The second tests whether predictive value covers trading costs. The first is affected by broad market direction and is not standalone evidence of model alpha.
 
-## Artifacts
+## Artifacts and formal spec
 
-每次运行生成：
-
-- `source-predictions.parquet`：经过 SHA-256 校验后物化的本次输入。
-- `topk-sweep.json`：全部组合的 M1 summary 和 M3 诊断。
-- `m3-diagnostic.json`：精简的矩阵、阈值、候选排序、成本门槛、来源身份和最终状态。
-- `topk/k*.buffer*.cost*/`：每个组合的 summary、daily、holdings 和 trades。
-
-正式 spec 的 `inputs` 片段：
+Each run writes `source-predictions.parquet` (materialized input after SHA-256 verification), `topk-sweep.json` (M1 summaries plus M3 diagnostics), `m3-diagnostic.json` (matrix, thresholds, candidate ranking, break-even costs, source identity, final state), and per-combination `topk/k*.buffer*.cost*/` summaries, daily rows, holdings, and trades.
 
 ```yaml
 experiment_type: cost_analysis
@@ -145,7 +131,7 @@ inputs:
   expected_universe_size: 400
 ```
 
-完整运行仍通过统一入口：
+Run through the unified entry point:
 
 ```bash
 ticknet-research \
@@ -154,46 +140,27 @@ ticknet-research \
   run --spec path/to/m3-formal.yaml --id TRD-TOPK-400-001
 ```
 
-## 2025 工程冒烟证据
+## 2025 engineering smoke evidence
 
-输入文件：
+Input: `results/predictions-rolling-2025.parquet`, SHA-256 `ee2f8c2c4dd1be56c45138f8e6ca5de48539a8a899c5f9ea3dbcc4c15867eeba`. Output: `results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/`.
 
-```text
-results/predictions-rolling-2025.parquet
-SHA-256 ee2f8c2c4dd1be56c45138f8e6ca5de48539a8a899c5f9ea3dbcc4c15867eeba
-```
-
-输出位置：
-
-```text
-results/m3-topk-smoke-2025/TRD-TOPK-SMOKE-001/
-```
-
-关键结果：
-
-| 项目 | 结果 |
+| Metric | Result |
 |---|---:|
-| 完整组合数 | 64 |
-| 可比日期 | 91 |
-| 日期范围 | 2025-07-02 至 2025-12-31 |
-| 10bp 甜点区数量 | 0 |
-| K25、buffer50 日均单边换手 | 25.42% |
-| K25、buffer50 成本后相对等权日均收益 | -1.75bp |
-| K25、buffer50 相对收益盈亏平衡单边成本 | 6.55bp |
-| K25、buffer0 日均单边换手 | 69.22% |
-| K25、buffer50 相对 buffer0 的日均净收益改善 | 10.57bp |
+| Complete portfolios | 64 |
+| Comparable days | 91 |
+| Tradeable regions at 10 bp | 0 |
+| K=25, buffer=50 mean daily one-way turnover | 25.42% |
+| K=25, buffer=50 mean cost-adjusted active return | -1.75 bp |
+| K=25, buffer=50 active-return break-even one-way cost | 6.55 bp |
+| K=25, buffer=0 mean daily one-way turnover | 69.22% |
+| K=25, buffer=50 net-return improvement vs buffer 0 | 10.57 bp/day |
 
-工程 gate `diagnostic.grid.validated_combinations >= 64` 通过，Runner 决策为 `EXTEND`。这里的 `EXTEND` 只表示诊断链路完整，不表示交易策略通过。交易判断由 `diagnostic.decision.status=NO_TRADEABLE_REGION` 给出。
+Engineering gate `diagnostic.grid.validated_combinations >= 64` passed and Runner returned `EXTEND`. Here `EXTEND` means the diagnostics pipeline is complete, not that the strategy passed. Trading status is `diagnostic.decision.status=NO_TRADEABLE_REGION`.
 
-## 结论与下一步
+## Conclusion and next steps
 
-M3 已完成：
+M3 is complete: v2's 54-month materialization, formal HGB, prediction registration, and full cost matrix are done. No candidate passed at 10 bp, so do not run `TRD-BUFFER-400-001`, which depends on a qualifying region. M4 compares HGB with LambdaMART on the same fingerprint, checks whether checkpoint prediction targets mismatch Top-K ranking, and adds NDCG, precision, and risk-exposure diagnostics. Current evidence does not support expensive order-book pretraining or a neural ranking loss.
 
-1. v2 的 54 个月物化、正式 HGB、prediction 登记和完整成本矩阵均已完成。
-2. 10bp 下没有通过门槛的候选区域，因此不运行依赖候选区域的 `TRD-BUFFER-400-001` 稳健性扩展。
-3. 下一步进入 M4，用相同数据指纹比较 HGB 与 LambdaMART，检查点预测目标与 Top-K 排序目标是否错配，并补齐 NDCG、Precision 和风险暴露诊断。
-4. 当前结果不支持进入高成本盘口预训练或神经排序损失。
+Formal experiments use separate Registry `results/m3-formal-registry-v2.sqlite` and artifact directory `results/m3-formal-experiments-v2/`. The older `results/registry.sqlite` remains read-only historical evidence.
 
-正式实验使用独立 Registry `results/m3-formal-registry-v2.sqlite` 和独立产物目录 `results/m3-formal-experiments-v2/`。旧 `results/registry.sqlite` 保留为只读历史证据。
-
-现有 `results/predictions-rolling-2025.parquet` 已用正式 validator 实测拒绝，缺少 `can_buy`、`can_sell` 和 `in_universe`。这是一条确定性失败边界，不会用默认可交易状态伪装成正式输入。
+The existing `results/predictions-rolling-2025.parquet` was rejected by the formal validator because it lacks `can_buy`, `can_sell`, and `in_universe`. This deterministic failure boundary prevents missing tradability data from being disguised as universally tradable input.

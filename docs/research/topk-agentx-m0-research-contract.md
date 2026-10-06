@@ -1,101 +1,88 @@
-# M0 研究契约与数据权限审计
+# M0 Research Contract and Data-Access Audit
 
-本文记录 M0 完成时冻结的数据权限。M0 至 M2 均已完成，当前研究进度见[项目现状](../project-status.md)。
+This page records the data-access boundaries frozen at M0 completion. M0–M2 are complete; current progress is in [project status](../project-status.md).
 
-## 结论
+## Decision
 
-Top-K 与 AgentX 新研究系列使用 `topk-agentx-v1` 协议：
+The Top-K and AgentX research series uses protocol `topk-agentx-v1`:
 
-- 2021 至 2024 用于研究开发，2025 用于已见滚动验证。
-- 2025 已被用于形成新假设，不再称为本研究系列的未见 locked test。
-- 2026-01-01 起全部数据进入锁定区，Research Runner 不得读取。
-- 截至 2026-08-08，2026 数据只完整对齐到 2026-04-24，共 73 个交易日，未达到至少 120 个交易日的最终确认要求。锁定区已经封存，暂不执行正式评估。
+- 2021–2024 are research-development data; 2025 is seen rolling-validation data.
+- Since 2025 has informed new hypotheses, it is not an unseen locked test for this series.
+- All data from 2026-01-01 onward is locked and must not be read by the Research Runner.
+- As of 2026-08-08, 2026 data was fully aligned only through 2026-04-24 (73 trading days), below the 120-day minimum for final confirmation. The locked period remains sealed; no formal evaluation is authorized.
 
-协议配置见 `configs/research-protocol-topk-v1.yaml`。默认 `ResearchProtocol` 使用相同边界，也支持从版本化 YAML 加载。旧实验中 2025 locked 的说法只描述当时的历史协议。
+The versioned configuration is `configs/research-protocol-topk-v1.yaml`. The default `ResearchProtocol` uses the same boundary and can also load versioned YAML. References to a locked 2025 period in older experiments describe the historical protocol at that time.
 
-## 2026 数据可用性审计
+## Audit of 2026 data availability
 
-审计只读取文件名、Parquet schema、metadata 和日期边界，没有读取 2026 收益或运行任何模型。数据根目录是 `/mnt/data/hdd6t/quant-data-lake`。
+The audit read filenames, Parquet schemas, metadata, and date boundaries only. It did not read 2026 returns or run models. Data root: `/mnt/data/hdd6t/quant-data-lake`.
 
-| 数据源 | 2026 可用范围 | 结论 |
+| Source | Available 2026 range | Finding |
 |---|---|---|
-| 原始 snapshot 月文件 | 202601、202602、202603 | 三个月文件 metadata 可读 |
-| 原始 snapshot 日文件 | 2026-04-01 至 04-24，06-08 至 06-30，07-01 至 07-24 | 5 月缺失，4 月后不连续 |
-| 分钟 snapshot cache | 2026-01-05 至 2026-04-24，73 日 | 与标签侧当前上限一致 |
-| 分钟 order cache | 2026-01-05 至 2026-04-24，73 日 | 与标签侧当前上限一致 |
-| 分钟 trade cache | 2026-01-05 至 2026-04-24，73 日 | 与标签侧当前上限一致 |
-| 原始 minbar | 2026-01-05 09:31 至 2026-04-24 14:57 | metadata 共 88,506,750 行 |
-| open、close、volume 宽表 | 2016-01-04 至 2026-04-24 | 三表日期严格同上限 |
-| daily basic 分区 | 2026-01-05 至 2026-04-24，73 日 | 可用于流动性股票池和状态连接 |
-| 中证全指代理基准 | 至 2026-04-24 | open、close 可用于同期基准收益 |
+| Raw monthly snapshots | 202601, 202602, 202603 | Metadata readable for all three months |
+| Raw daily snapshots | 2026-04-01–04-24, 06-08–06-30, 07-01–07-24 | May missing; gaps after April |
+| Minute snapshot cache | 2026-01-05–04-24, 73 days | Same current upper bound as label inputs |
+| Minute order cache | 2026-01-05–04-24, 73 days | Same current upper bound as label inputs |
+| Minute trade cache | 2026-01-05–04-24, 73 days | Same current upper bound as label inputs |
+| Raw minbar | 2026-01-05 09:31–2026-04-24 14:57 | Metadata contains 88,506,750 rows |
+| Open, close, volume wide tables | 2016-01-04–2026-04-24 | All three tables share this exact upper bound |
+| Daily-basic partitions | 2026-01-05–04-24, 73 days | Available for liquidity universe and state joins |
+| CSI All Share proxy benchmark | Through 2026-04-24 | Open and close available for concurrent returns |
 
-2026 Q1 的三个分钟 cache 各有 56 个交易日。原始 snapshot 的 1 至 3 月月文件分别包含 448,705,364、303,096,683 和 478,486,263 行，Parquet metadata 可正常读取。
+Each of the three Q1 2026 minute caches has 56 trading days. The raw monthly snapshot files for January, February, and March contain 448,705,364, 303,096,683, and 478,486,263 rows; their Parquet metadata is readable.
 
-### 权限决定
+### Access rules
 
-当前数据足以确认 2026 是可建设的最终样本外区间，但长度不足以立即解锁。执行规则是：
+The available data suggests 2026 can serve as a final out-of-sample period, but it is too short to unlock. Rules:
 
-1. M1 至 M8 只使用最大交易日不晚于 2025-12-31 的 manifest。
-2. 2026 数据可以继续由数据工程任务补齐，但不能用于特征选择、模型选择或阈值调优。
-3. 当 snapshot、分钟缓存、日线、交易状态和基准对齐达到至少 120 个交易日后，才提交一次独立 locked-test 批准。
-4. 正式批准绑定协议版本、实验 ID、checkpoint SHA-256、预测文件 SHA-256 和数据指纹。
+1. M1–M8 use manifests whose latest trading day is no later than 2025-12-31.
+2. Data engineering may complete the 2026 dataset, but it cannot inform feature selection, model selection, or threshold tuning.
+3. Request one independent locked-test approval only after snapshots, minute caches, daily bars, trading states, and benchmark align for at least 120 trading days.
+4. Approval binds protocol version, experiment ID, checkpoint SHA-256, prediction SHA-256, and dataset fingerprint.
 
-## 交易契约
+## Trading contract
 
-统一配置见 `configs/topk-portfolio-v1.yaml`。
+The unified configuration is `configs/topk-portfolio-v1.yaml`.
 
-### 股票池与信号
+### Universe and signal
 
-- 每日股票池使用信号时点前可得的 20 日成交额代理，选择动态 Top 400。
-- 至少需要 15 个有效历史观测。
-- 动态 Top 100 只用于冒烟，不生成正式交易结论。
-- 模型在 T 日 14:55 产生分数。
+- Select a dynamic Top-400 universe using a trailing 20-day turnover proxy available before the signal time.
+- Require at least 15 valid historical observations.
+- Dynamic Top-100 is for smoke tests only and cannot support formal trading conclusions.
+- Models emit scores at 14:55 on day T.
 
-### 执行与收益
+### Execution and returns
 
-正式日频策略定义为：
+The formal daily strategy is:
 
 ```text
-T 日 14:55 产生分数
-  -> T+1 开盘按分数调仓
-  -> 持有到 T+2 开盘再次调仓
-  -> 收益为 T+1 open 到 T+2 open
+Score at 14:55 on T
+  → rebalance at the T+1 open
+  → hold until the next rebalance at the T+2 open
+  → measure return from T+1 open to T+2 open
 ```
 
-该定义让持仓延续、成分换手和收益区间一致。基准使用中证全指代理的相同 open-to-open 区间。
+This aligns continuing holdings, constituent turnover, and the return interval. The benchmark uses the concurrent open-to-open CSI All Share proxy return.
 
-现有 next-open-to-same-close 标签保留为诊断目标。若按该目标做日内策略，必须假设每日开盘建仓、收盘平仓，并对全部仓位收取完整双边成本。不能继续用相邻 Top-K 成分差异代表全部交易成本。
+Existing next-open-to-same-close labels remain diagnostic. A strategy using them must assume it enters at each open and exits at each close, charging full round-trip costs on all positions. Differences in adjacent Top-K membership alone are not a valid proxy for all transaction costs.
 
-### 组合与成本
+### Portfolio and costs
 
-- long-only 等权组合
-- `K = 25 / 50 / 75 / 100`
-- 退出缓冲 `0 / 10 / 25 / 50`
-- 单边佣金与冲击成本 `5 / 10 / 15 / 20 bp`
-- 卖出印花税 `5 bp`
-- 初始建仓计入成本
+- Equal-weight, long-only portfolio.
+- `K = 25 / 50 / 75 / 100`.
+- Exit buffer `0 / 10 / 25 / 50`.
+- One-way commission and impact `5 / 10 / 15 / 20 bp`.
+- Sell stamp duty `5 bp`.
+- Include initial entry costs.
 
-新买入必须在 T+1 开盘可交易，停牌或一字涨跌停不得假设成交。已有持仓无法卖出时继续持有，不能从组合中静默删除。缺少交易状态的数据只能用于冒烟，不能进入正式结果。
+New positions must be tradable at the T+1 open; do not assume fills for suspensions or limit-up/down stocks. If an existing holding cannot be sold, keep it in the portfolio. Do not silently remove it. Data without trading-state fields is smoke-test-only, not formal evidence.
 
-## 基线冻结
+## Frozen baselines
 
-基线清单见 [baselines/topk-agentx-v1.json](../baselines/topk-agentx-v1.json)，基于提交 `bc9949825ff1a37dbfc2e4e96bcd91c46221333c` 捕获。清单保存文件大小、SHA-256 和主要历史指标。
+The baseline manifest is [baselines/topk-agentx-v1.json](../baselines/topk-agentx-v1.json), captured from commit `bc9949825ff1a37dbfc2e4e96bcd91c46221333c`. It records file sizes, SHA-256 hashes, and key historical metrics.
 
-已冻结的本地证据包括：
+Frozen local evidence includes 2022–2025 rolling minute HGB results, 2025 OOS prediction rows, the 2024 three-seed minute TCN locked-test summary, and the aggregated Logistic baseline from the raw-200 pilot. The complete five-seed raw-200 DeepLOB locked-test result exists only in the external Drive history; the repository has no corresponding verifiable result file, so no SHA-256 is fabricated. Add it to the baseline manifest only after retrieving and verifying it locally.
 
-- 2022 至 2025 分钟 HGB 滚动结果
-- 2025 样本外预测明细
-- 2024 分钟 TCN 3 seed 锁定测试汇总
-- raw-200 pilot 的聚合 Logistic 基线
+## M0 acceptance
 
-raw-200 DeepLOB 5 seed 的完整锁定结果目前只在外部 Drive 历史目录中，仓库本地没有可核对的对应结果文件。本轮不为它编造 SHA-256。迁移回本地并验证后再追加到基线清单。
-
-## M0 验收
-
-- 研究和锁定日期由版本化协议明确区分。
-- 2026 manifest 会被默认 ResearchProtocol 确定性拒绝。
-- Top-K 的股票池、信号、执行、收益、成本和不可交易规则已经固定。
-- 现有关键本地 artifact 已保存 SHA-256。
-- 2026 locked 数据长度不足时保持封存，不把不完整结果用于研究反馈。
-
-M0 完成。下一步进入 M1，实施 fixed-K long-only 评估内核。
+Research and locked dates are separated in a versioned protocol; the default `ResearchProtocol` deterministically rejects 2026 manifests; universe, signal, execution, return, cost, and untradable rules are fixed; key local artifacts have SHA-256 records; and the incomplete 2026 locked period remains sealed. M0 is complete. M1 implements the fixed-K long-only evaluation engine.

@@ -1,7 +1,7 @@
 """主链路与 FI-2010 复现共用的训练工具测试。
 
 这些工具保留在 ``ticknet.train`` 中，被次日预测主链路（``ticknet.nextday``）
-复用。FI-2010 专属的训练/调度逻辑测试已归档到 ``legacy/tests``。
+复用。FI-2010 专属训练与调度测试位于 ``tests/test_fi2010_train.py``。
 """
 
 from __future__ import annotations

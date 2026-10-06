@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "deep-learning-tick-data-prediction"
+name = "quant-deep-learning"
 version = "0.2.0"
-description = "PyTorch DeepLOB 模型与 A 股次日横截面方向预测"
+description = "End-to-end quantitative deep-learning research for structured market data"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "mkdocs-material>=9.6,<10",
     "pre-commit>=4.0,<5",
     "pytest>=8.0,<10",
     "pytest-cov>=5.0,<8",
@@ -33,7 +34,11 @@ dev = [
 [project.scripts]
 ticknet-eventstream-joint-cache = "ticknet.eventstream.joint_cache:main"
 ticknet-eventstream-joint-train = "ticknet.eventstream.joint:main"
-ticknet-fi2010-train = "legacy.fi2010_train:main"
+ticknet-fi2010-train = "ticknet.fi2010.train:main"
+ticknet-fi2010-convert = "ticknet.fi2010.scripts.convert_fi2010:main"
+ticknet-fi2010-plot = "ticknet.fi2010.scripts.plot_curves:main"
+ticknet-fi2010-colab = "ticknet.fi2010.scripts.run_colab:main"
+ticknet-fi2010-smoke-test = "ticknet.fi2010.scripts.fi2010_smoke_test:main"
 ticknet-nextday-train = "ticknet.nextday.train:main"
 ticknet-nextday-evaluate = "ticknet.nextday.train:evaluate_main"
 ticknet-nextday-evaluate-horizons = "ticknet.nextday.horizon_cli:main"
@@ -68,7 +73,7 @@ namespaces = false
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["legacy/notebooks"]
+extend-exclude = ["examples/historical-workflows"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "C4", "C90", "PT", "SIM", "RUF"]
@@ -85,7 +90,6 @@ max-complexity = 15
 "scripts/smoke_test.py" = ["E402"]
 "scripts/prepare_minute_shards.py" = ["C901"]
 "src/ticknet/nextday/minute_tcn.py" = ["C901"]
-"legacy/scripts/fi2010_smoke_test.py" = ["E402"]
 # 以下两处高复杂度是已知技术债，将在 PR-3 拆分上帝文件（dataset.py / train.py）时解决。
 "src/ticknet/nextday/dataset.py" = ["C901"]
 "src/ticknet/nextday/train.py" = ["C901"]
@@ -110,7 +114,7 @@ skip_covered = true
 research-code-quality = { git = "https://github.com/runchengxie/research-code-quality.git", rev = "1c754c3" }
 
 [[tool.ty.overrides]]
-include = ["legacy/notebooks/**"]
+include = ["examples/historical-workflows/**"]
 rules = { unresolved-import = "ignore" }
 
 [[tool.ty.overrides]]

@@ -1,361 +1,341 @@
 # AgentX: Towards Agent-Driven Self-Iteration of Industrial Recommender Systems
 
-> 论文信息
-> - 作者：AgentX Team（Kuaishou，共 62 位作者）
-> - 单位：快手（Kuaishou）
-> - arXiv：[2606.26859v2](https://arxiv.org/abs/2606.26859) [cs.AI], 2026-06-26
-> - 类型：工业技术报告（production technical report）
+> Paper information
+> - Authors: AgentX Team (62 authors)
+> - Organization: Kuaishou
+> - arXiv: [2606.26859v2](https://arxiv.org/abs/2606.26859), cs.AI, 2026-06-26
+> - Type: Industrial technical report
 
 ---
 
-## 摘要（Abstract）
+## Abstract
 
-推荐算法迭代正从绑定工程师的手工艺式流程，转向工业化研究闭环，但被一个结构性执行瓶颈卡住。从想法到上线仍依赖人类工程师生成假设、修改生产代码、上线 A/B 实验、归因线上结果。创新因此随人头线性增长，无法随证据、算力和实验知识复合增长。
+The paper describes a shift from engineer-dependent, manual recommender-system iteration toward an industrial research loop. A structural execution bottleneck remains: engineers still generate hypotheses, change production code, launch A/B tests, and attribute online results. Innovation therefore scales with headcount and individual productivity rather than compounding with accumulated evidence, compute, and experiment knowledge.
 
-本文提出 AgentX，一个已投产的多智能体系统，从根本上重构了这条生产函数。它作为自我演化的开发引擎，以任何人工流程都无法持续的规模和速度，自主生成、实现、评估并学习推荐实验。
+The authors propose AgentX, a production multi-agent system that autonomously generates, implements, evaluates, and learns from recommender-system experiments. It coordinates four connected stages:
 
-系统在一个闭环中编排四个紧耦合阶段：
+- **Brainstorm Agent:** combines historical experiments, system architecture, data analysis, and external research into ranked, actionable proposals.
+- **Developing Agent:** turns each proposal into production-ready code through repository-grounded generation and reliability checks.
+- **Evaluation Agent:** safely launches experiments, applies guardrail-veto A/B decisions, and records both successful and failed outcomes as structured knowledge.
+- **Harness Evolution (SGPO):** converts execution traces into semantic gradient updates that improve the agents, moving the system from automation toward self-improvement.
 
-- Brainstorm Agent：把历史实验、系统架构、数据分析、外部研究综合成排序过的、可执行的提案。
-- Developing Agent：通过仓库锚定的代码生成和多维可靠性验证，把每个提案变成生产就绪代码。
-- Evaluation Agent：安全上线，用护栏否决（guardrail veto）做 A/B 判断，把成功和失败都沉淀为结构化知识资产。
-- Harness Evolution（SGPO）：把执行轨迹提炼成语义梯度更新，持续打磨 Agent 自身，让系统从自动化走向自我改进。
+In a three-week deployment in Kuaishou's main-feed and local-services recommendations, three AgentX workers turned 374 ideas into 10 launchable results. Worker throughput doubled each week through self-evolution. The paper reports eightfold concurrency, 3.7 times the business value of human engineers, a 0.561% increase in user time spent, and more than RMB 100 million in annualized revenue.
 
-在快手 App 三周部署中（主信息流 + 生活服务推荐），三个 AgentX worker 把 374 个想法转化为 10 个可上线结果。每个 worker 吞吐每周翻倍（自我演化），带来 8 倍并发、相对人工工程师 3.7 倍业务价值、0.561% 用户时长提升、年化超 1 亿元收入。
-
-同一闭环也扩展到模型侧研究，做自主论文复现、模块消融和跨论文架构组合。
+The same loop was extended to model research for autonomous paper reproduction, module ablation, and cross-paper architecture combinations.
 
 ---
 
-## I. 引言与动机（Introduction）
+## I. Introduction and motivation
 
-核心观察：推荐算法迭代的瓶颈不在模型能力，而在 idea-to-launch 循环仍依赖人手。每个假设、每段生产代码、每次 A/B 实验、每次归因都要人工完成，创新速度被工程师头数乘个人速度锁死，无法随证据积累复合增长。
+The paper argues that recommender-system iteration is limited less by model capability than by a human-dependent idea-to-launch loop. Each hypothesis, production-code change, A/B test, and attribution task requires manual work. Innovation speed is bounded by engineer headcount multiplied by individual productivity instead of compounding as evidence accumulates.
 
-AgentX 的目标是把这条串行的人工链，改写成并行、可复合、可演化的自动闭环。论文用三个研究问题评估：
+AgentX aims to replace this serial human process with a parallel, compounding, evolving loop. The paper evaluates three research questions:
 
-- RQ1：AgentX 是否缩短了 idea-to-rollout 周期？
-- RQ2：是否每个 worker 产出更多 rollout 级结果？
-- RQ3：AgentX 上线的实验是否带来可测量的线上指标提升？
+- RQ1: Does AgentX shorten the idea-to-rollout cycle?
+- RQ2: Does each worker produce more rollout-level results?
+- RQ3: Do AgentX launches produce measurable online improvements?
 
----
+## II. Related work
 
-## II. 相关工作（Related Work）
+The paper distinguishes two lines of work:
 
-两条线：
+- LLM-driven AutoML uses language models for hyperparameter or architecture search, but is usually offline, limited to one task, and driven by a fixed reward.
+- Agentic automation for recommender systems applies agents to recommendation workflows, but often does not close the loop in production.
 
-- LLM-driven AutoML：用 LLM 做超参搜索或架构搜索，但通常离线、单一任务、奖励信号固定。
-- Agentic Automation for RecSys：用 Agent 做推荐系统自动化，但多数没有进入生产闭环。
+AgentX differs in three ways. Its reward comes from delayed online A/B feedback, which offline metrics cannot replace. An execution trace alone is not enough to judge success; guardrails and human review are required. The optimization objective itself changes with business needs. A production agent loop must therefore run continuously rather than as a one-off job.
 
-AgentX 的差异在三点。奖励信号来自延迟的线上 A/B 反馈，离线指标不能替代。单次执行轨迹不足以判定成功，需要护栏加人工审查。优化目标本身随业务漂移。因此生产级 agent 闭环必须持续运行，不能一次跑完。
+## III. Multi-agent design framework
 
----
+Industrial recommendation agents differ from agents for mathematics, code, or sandboxed ML benchmarks in three important ways:
 
-## III. 多智能体设计框架（Multi-Agent Design Framework）
+1. The reward is delayed online A/B feedback, not an offline metric.
+2. A deployment must pass guardrails and human review before a score is available.
+3. The objective changes with business goals, traffic composition, and platform constraints.
 
-设计前提：工业推荐系统的 agent 任务，与数学、代码、沙箱 ML benchmark 有三个关键差异：
+The loop is divided into four stages. The first three carry intent through online validation. The fourth uses execution traces to improve the loop itself.
 
-1. 奖励信号在延迟的线上 A/B 反馈里，不在离线指标里。
-2. 一次部署要先过护栏和人工审查，分数才会出现。
-3. 优化目标随业务目标、流量构成、平台约束漂移。
-
-因此闭环被拆成四个阶段。前三个共同把意图送过线上验证，第四个把轨迹反馈回来改进闭环本身：
-
-| 阶段 | 职责 |
+| Stage | Responsibility |
 |---|---|
-| Brainstorm | 把模糊意图变成少量排序过的可执行提案（有界探索 + 证据加权生成） |
-| Developing | 仓库锚定生成 + 面向验证的实现循环，把提案变成生产代码 |
-| Evaluation | 管理上线与流量分配，护栏否决式 A/B 判断，把线上结果资产化 |
-| Harness Evolution | 基于累计轨迹更新各 subagent 规范（SGPO），只通过 paired replay 准入 |
+| Brainstorm | Turn an ambiguous request into a small ranked set of actionable proposals through bounded exploration and evidence-weighted generation |
+| Developing | Use repository-grounded generation and a verification-oriented implementation loop to turn a proposal into production code |
+| Evaluation | Manage launch and traffic allocation, apply guardrail-veto A/B decisions, and preserve online outcomes |
+| Harness Evolution | Update subagent instructions from accumulated traces (SGPO), admitting changes only through paired replay |
 
-共享的 Data Layer 持久化所有产物。Knowledge Base 存实践经验，Agent Data Management 存实验报告，Monitoring Platform 持续观察健康度。
-
----
+A shared Data Layer persists artifacts. The Knowledge Base stores practice and experience, Agent Data Management stores experiment reports, and the Monitoring Platform continuously observes system health.
 
 ## IV. Brainstorm Agent
 
-入口点，决定下游可以实现、评估、上线什么。它把模糊优化意图收敛成少量、排序过、可执行的实验提案，不生成一长串看起来合理的想法。每个提案必须有生产证据支撑、限定在允许的改动面上、精确到可被编码、上线和诊断。
+Brainstorm determines what downstream agents can implement, evaluate, and launch. It narrows an ambiguous optimization request to a small ranked set of actionable experiments instead of producing a long list of plausible-sounding ideas. Each proposal needs production evidence, must stay within the permitted change area, and must be specific enough to implement, launch, and diagnose.
 
-### IV.1 歧义问题（The Ambiguity Problem）
+### IV.1 The ambiguity problem
 
-输入刻意欠指定，输出却必须操作精确。探索太自由会发明不存在的信号、特征或越界方向，太保守只会返回熟悉策略的本地变体。设计采用边界设定加证据聚合的模块。先把用户请求规范化为 intake boundary，记录主目标、允许业务范围、禁止改动、已知护栏、候选输出要求和未决问题，让不确定性显式化。
+The input is intentionally underspecified, while the output must be operationally precise. Unbounded exploration can invent unavailable signals or features and cross scope boundaries. Excessive conservatism returns only familiar local variations. The design uses explicit boundaries plus evidence aggregation. It normalizes a request into an intake boundary containing the primary objective, allowed business scope, prohibited changes, known guardrails, requested outputs, and unresolved questions. This makes uncertainty visible.
 
-### IV.2 有界提案探索（Bounded Proposal Exploration）
+### IV.2 Bounded proposal exploration
 
-按批生成，不用单条自由回答的方式。每个候选归入三种成熟度状态：
+Ideas are generated in batches rather than as one free-form answer. Each candidate has one of three maturity states:
 
-- Ready-to-implement：有具体目标、在管线中有命名位置、有合理目标路径、证据足够进评审。
-- Probe-first：有前景但需要特定数据、来源或试跑检查。
-- Moonshot-backlog：依赖未来基础设施、数据或模型能力的方向。
+- **Ready to implement:** has a concrete objective, a named place in the pipeline, a plausible target path, and enough evidence for review.
+- **Probe first:** promising, but needs a specified data check, source, or pilot.
+- **Moonshot backlog:** depends on future infrastructure, data, or model capability.
 
-批量循环按残差推进。每轮把被拒方向、历史重复、违反约束、已覆盖机制写进 avoid set，下一轮在剩余空间搜索，不复述同一批想法。
+The batch loop proceeds by residual search. After each round, rejected directions, historical duplicates, constraint violations, and covered mechanisms enter an avoid set. The next round searches the remaining space rather than repeating the same ideas.
 
-### IV.3 证据加权提案生成（Evidence-Weighted Proposal Generation）
+### IV.3 Evidence-weighted proposal generation
 
-不同候选需要不同证据来源，用权重 𝛼_k(q,c) 混合：
+Candidates draw on different evidence sources, combined using weights `α_k(q,c)`:
 
-| 来源 | 用途 | 高权重场景 |
+| Source | Use | When to give it greater weight |
 |---|---|---|
-| Experiment KB | 历史上线评审、失败教训、业务定义 | 候选依赖新颖性、先验经验或业务语义 |
-| System KB | 架构、特征、管线、DSL、代码作用域 | 候选依赖代码路径可行性 |
-| Data Analysis | 指标定义、SQL、离线统计 | 候选依赖数据模式或分段行为 |
-| Model Research | 论文机制的结构化事实库 | 候选依赖外部新颖性或近期学术证据 |
+| Experiment KB | Historical launch reviews, failure lessons, and business definitions | The candidate depends on novelty, prior experience, or business semantics |
+| System KB | Architecture, features, pipelines, DSLs, and code scope | Feasibility depends on the implementation path |
+| Data Analysis | Metric definitions, SQL, and offline statistics | The candidate depends on data shape or segment behavior |
+| Model Research | Structured facts about mechanisms from papers | The candidate depends on external novelty or recent academic evidence |
 
-候选总得分：
+Candidate score:
 
-```
+```text
 S(c|q) = λo·O + λb·B + λf·F + λh·H + λe·E(c|q) − λr·R(c)
 ```
 
-O 是目标对齐，B 是业务语义有效性，F 是实现可行性，H 是交接完整性，E 是加权证据，R 是风险（重复方向、未决核心信号、范围过宽、不安全权衡）。
+`O` is objective alignment, `B` business-semantic validity, `F` implementation feasibility, `H` handoff completeness, `E` weighted evidence, and `R` risk (duplicate direction, unresolved core signal, excessive scope, or unsafe trade-off).
 
-Experiment KB 存历史启动评审、业务定义、过去结论与教训。不只记成功或失败，还记上下文，包括目标场景、影响用户群、指标变化、启动决定和事后诊断。这样可以防止 Brainstorm 重新发现已知失败或误用业务概念。
+The Experiment KB stores historical launch reviews, business definitions, conclusions, and lessons. It records context as well as success or failure: target scenario, affected users, metric changes, launch decisions, and follow-up diagnosis. This helps prevent Brainstorm from rediscovering known failures or misusing business concepts.
 
-System KB 是结构化领域 wiki，分 schema 层、wiki 层和 raw-source 层，通过 ingest-query-lint 生命周期维护。让 agent 按模块、特征、管线、实现边界检索，避免粗粒度关键词。
+The System KB is a structured domain wiki with schema, wiki, and raw-source layers, maintained through an ingest-query-lint lifecycle. Agents retrieve by module, feature, pipeline, and implementation boundary instead of relying on broad keyword search.
 
-Data Analysis 对依赖数据模式的候选提供实证，防止 agent 对轶事观察过拟合，或基于表面指标移动提方向。
+Data Analysis provides empirical support for candidates that depend on data patterns. It guards against overfitting anecdotes or proposing changes based on superficial metric movements.
 
-Model Research 把论文转成可执行提案知识。每篇论文分解为 typed claims（问题、假设、方法、发现、局限，标注证据强度）、架构组件和跨论文关系（extend、contradict、parallel、apply）。生产基线和特征契约用同一 schema 表示，硬训练约束（流式在线增量训练、无 epoch、禁止 freeze 和 early stopping）在源头约束搜索空间。
+Model Research turns papers into actionable proposal knowledge. Each paper is decomposed into typed claims (question, hypothesis, method, findings, and limitations, each with evidence strength), architecture components, and cross-paper relations (`extend`, `contradict`, `parallel`, and `apply`). Production baselines and feature contracts use the same schema. Hard training constraints, such as streaming online updates, no epochs, and prohibitions on freezing and early stopping, constrain the search space at its source.
 
-### IV.4 校验与实现交接（Validation and Implementation Handoff）
+### IV.4 Validation and implementation handoff
 
-生成后经过 admission step：主目标对齐、业务语义、用户约束、模型分数语义、实现可行性、历史重叠、A/B 参数可行性、成熟度一致性。只通过校验的 ready 候选进入人工审批门。人工评审是聚焦的准入门（approve、revise、defer、reject），不会给每个弱候选打补丁。
+Generated proposals pass admission checks for primary-objective alignment, business semantics, user constraints, model-score semantics, implementation feasibility, historical overlap, A/B parameter feasibility, and maturity consistency. Only validated ready proposals reach a human approval gate. The review is focused (`approve`, `revise`, `defer`, or `reject`) rather than patching every weak candidate.
 
-关键设计：Brainstorm 不写生产代码。每个批准的 idea 产生恰好一个正式实验记录、一份来源 manifest 和一份交接计划（目标行为、所需信号、期望指标路径、护栏、已知实现边界）。Brainstorm 拥有歧义消解、证据加权和提案准入，Developing 拥有代码实现和仓库级验证。
-
----
+Brainstorm does not write production code. Each approved idea produces exactly one formal experiment record, one source manifest, and one handoff plan covering intended behavior, required signals, expected metric direction, guardrails, and known implementation boundaries. Brainstorm owns ambiguity resolution, evidence weighting, and proposal admission. Developing owns code and repository-level verification.
 
 ## V. Developing Agent
 
-把批准提案变成可验证代码产物，走两条并行轨道：
+Developing turns an approved proposal into a verifiable code artifact through two parallel tracks:
 
-- 在线策略轨道：生产代码改动，目标是在不静默失败的前提下安全服务真实流量。
-- 离线模型轨道：训练实验，目标产生足够可信、可积累进知识库的结论。
+- **Online policy track:** changes production code so it can serve real traffic safely without silent failure.
+- **Offline model track:** runs training experiments and produces conclusions reliable enough to accumulate in the knowledge base.
 
-结论可信需四个条件同时成立。实现与声明的因果机制和期望可观察量匹配。隔离专家小组超多数同意。指标由确定性代码从原始日志提取，不靠 LLM 解读。任何 AUC 增益有验证过的因果链归因，无归因的增益是刹车信号。
+The paper requires four conditions for a trustworthy conclusion: the implementation matches the claimed causal mechanism and expected observables; an isolated expert panel reaches a supermajority; deterministic code extracts metrics from raw logs rather than an LLM interpreting them; and any AUC gain has a validated causal attribution chain. A gain without attribution is a stop signal.
 
-### V.1 生产代码可靠性问题
+### V.1 Production-code reliability
 
-编码契约比语法正确严格得多。必须保持提案意图、待在允许代码边界内、只用已验证的仓库原语、通过本地与集成检查、留下可评审改动。主要失败模式是仓库特定的可靠性失败：
+The coding contract is stricter than syntactic correctness. Code must preserve proposal intent, stay within approved boundaries, use verified repository primitives, pass local and integration checks, and leave a reviewable change. The main repository-specific failure modes are:
 
-- Attribute hallucination：编造用户、上下文、物品特征 schema 中的字段（严重度高）。
-- DSL misuse：猜错 ranking DSL 算子名或参数契约。
-- Harness-pattern violations：改错队列、注册不完整、绕过必要安全模式。
+- **Attribute hallucination:** inventing fields in user, context, or item feature schemas (high severity).
+- **DSL misuse:** guessing a ranking-DSL operator or parameter contract incorrectly.
+- **Harness-pattern violations:** changing the wrong queue, omitting registration, or bypassing a required safety mode.
 
-### V.2 仓库锚定代码生成
+### V.2 Repository-grounded code generation
 
-两条地面来源：
+Two grounding sources are used:
 
-1. 项目专属知识库：记录改动模式、注册约定、feature switch 规则、已接受补丁示例。
-2. Case toolbox：一组确定性工具与检查器，强制 agent 使用前先验证事实。
+1. A project-specific knowledge base records change patterns, registration conventions, feature-switch rules, and accepted patch examples.
+2. A case toolbox contains deterministic tools and checkers that agents must use to verify facts.
 
-最重要的规则：特征属性必须先查询再使用。schema 查询工具返回可用字段，agent 必须在读取属性前调用工具，字段名变成已验证事实，不再依赖 LLM 猜测。
+The key rule is to query feature attributes before using them. A schema-query tool returns available fields. Agents must call it before reading an attribute so field names are verified facts rather than model guesses.
 
-### V.3 面向验证的实现循环
+### V.3 Verification-oriented implementation loop
 
-分阶段循环：抽象提案为实现计划、拆成原子子需求、组装补丁、确定性验证。失败反馈是针对性修复指令，不会大范围重新生成。两个验证层：
+The staged loop abstracts a proposal into an implementation plan, decomposes it into atomic requirements, assembles a patch, and runs deterministic checks. Failure feedback gives targeted repair instructions instead of regenerating the whole change. It has two verification layers:
 
-- accuracy loop：实现与计划对比，额外修复轮数计为质量成本。
-- dryrun pipeline：编译加集成检查，干净轨迹只过一次 Dryrun。
+- **Accuracy loop:** compare the implementation with the plan. Additional repair rounds count as a quality cost.
+- **Dry-run pipeline:** compile and run integration checks. A clean trace passes Dryrun once.
 
-### V.4 质量评分
+### V.4 Quality score
 
-八维加权可靠性分数：
+The paper defines an eight-dimension weighted reliability score:
 
-```
+```text
 Q_code = 0.06s1 + 0.12s2 + 0.22s3 + 0.08s4 + 0.06s5 + 0.18s6 + 0.18s7 + 0.10s8
 ```
 
-| 维度 | 含义 | 权重 |
-|---|---|---|
-| N1 | C++ 语法糖违规 | 6% |
-| N2 | Harness 模式违规 | 12% |
-| N3 | 属性幻觉 | 22% |
-| N4 | DSL 检查修正 | 8% |
-| N5 | C++ 语法检查修正 | 6% |
-| N6 | 正确性循环迭代次数 | 18% |
-| N7 | 人工干预次数（硬门） | 18% |
-| N8 | Dryrun 通过 | 10% |
+| Dimension | Meaning | Weight |
+|---|---|---:|
+| N1 | C++ syntax-sugar violations | 6% |
+| N2 | Harness-pattern violations | 12% |
+| N3 | Attribute hallucination | 22% |
+| N4 | DSL-check repair | 8% |
+| N5 | C++ syntax-check repair | 6% |
+| N6 | Correctness-loop iterations | 18% |
+| N7 | Human intervention (hard gate) | 18% |
+| N8 | Dryrun pass | 10% |
 
-三个 severity-S 维度（属性幻觉、正确性循环开销、人工干预）占 58% 权重，最直接威胁自主生产可靠性。N7 是硬二进制门，有人工干预即记 0。
+The three severity-S dimensions (attribute hallucination, correctness-loop overhead, and human intervention) account for 58% of the weight and most directly threaten autonomous production reliability. N7 is a hard binary gate: any human intervention scores zero.
 
-### V.5 模型轨道（Model Developing）
+### V.5 Model-development track
 
-策略：`policy → (code ↔ verify) ∥ experts×N → exec → final_review`，最多 3 次重写。
+The workflow is `policy → (code ↔ verify) ∥ experts×N → exec → final_review`, with at most three rewrites.
 
-- policy：不只声明改什么，还声明声称的因果机制和一组期望可观察量（tf.print、tf.summary，描述健康与病态行为的外观差异）。
-- verify：检查 git diff 与 policy 方向语义匹配，且每个声明可观察量名出现在 diff。
-- expert agents：物理隔离、各自私有知识库、Python 投票计数（达到 ⌈2N/3⌉ 超多数），LLM 不参与投票。
-- exec：纯 Python 状态机，从训练日志正则提取指标，无 LLM。
+- **Policy:** declares not just what to change, but the causal mechanism and expected observables (`tf.print`, `tf.summary`) that distinguish healthy from unhealthy behavior.
+- **Verify:** checks that the git diff matches the policy's semantic direction and that each declared observable appears in the diff.
+- **Expert agents:** run in physical isolation with private knowledge bases. A Python vote counter requires a `⌈2N/3⌉` supermajority; LLMs do not vote.
+- **Exec:** a pure-Python state machine extracts metrics from training logs using regular expressions, without an LLM.
 
-可证伪归因（Falsifiable attribution）：最终评审单独裁决声明的因果链每一环（verified、broken、unclear），Python 确定性折叠。全 verified 记 CLEAR，任一 broken 或 unclear 记 UNCLEAR。AUC 提升但归因 UNCLEAR 是刹车信号。
+**Falsifiable attribution:** final review adjudicates each link in the claimed causal chain as `verified`, `broken`, or `unclear`, then Python folds the results deterministically. All verified links yield `CLEAR`. Any broken or unclear link yields `UNCLEAR`. An AUC gain with `UNCLEAR` attribution is a stop signal.
 
-论文用 RankMixer 案例说明。Round 1 复现乘法门 x·tanh(Vo·x)，AUC +0.0003，但声明的 gate activation 全程近零。Glorot 初始化导致 Vo·x 接近 0、tanh 接近 0，门输出归零、阻断梯度。无因果链强制会记录为成功，强制后归因 UNCLEAR，不记录。Round 2 加残差修复 x·(1+tanh(Vo·x))，ΔAUC=+0.0022 且因果链全部 verified。
+The paper illustrates this with RankMixer. Round 1 reproduced multiplicative gating `x·tanh(Vo·x)` and gained `+0.0003` AUC, but the claimed gate activation stayed near zero. Glorot initialization made `Vo·x` close to zero, so `tanh` was close to zero; the gate output vanished and blocked gradients. Without causal-chain checks this would be recorded as a success. With them, attribution is `UNCLEAR` and the result is not recorded as a success. Round 2 added a residual, `x·(1+tanh(Vo·x))`, and gained `+0.0022` AUC with every causal link verified.
 
-平台失败鲁棒性：纯函数分类器读日志头、尾和 FATAL 行，映射到 reason code。确定性错误（NaN 梯度、特征表冲突）立即放弃。瞬时故障（日志停滞、基础设施中止）重试一次。LLM 网关故障轮换网关。看门狗守护进程对所有活跃 run 应用同一策略。
-
----
+For platform-failure robustness, a pure-function classifier reads log headers, tails, and FATAL lines, then maps them to reason codes. Deterministic errors such as NaN gradients or feature-table conflicts are abandoned immediately. Transient failures such as stalled logs or infrastructure interruption are retried once. LLM gateway failures rotate gateways. A watchdog daemon applies the same policy to all active runs.
 
 ## VI. Evaluation Agent
 
-决定代码改动应该 KEEP、EXTEND、DISCARD，还是作为负面教训回喂。把嘈杂、延迟、部分可观测的线上流量转成可信奖励信号。
+Evaluation decides whether code should be `KEEP`, `EXTEND`, or `DISCARD`, or be returned as a negative lesson. It converts noisy, delayed, partially observable traffic into a trustworthy reward signal.
 
-### VI.1 真实世界奖励问题
+### VI.1 Real-world rewards
 
-离线代理和自省对推荐系统不够。策略可能改善内部分数却损害长期用户体验，因此把线上 A/B 反馈当作系统迭代的权威奖励信号。
+Offline proxies and introspection are insufficient for recommendation systems. A policy may improve an internal score while harming long-term user experience, so online A/B feedback is treated as the authoritative reward for system iteration.
 
-### VI.2 安全部署与流量分配
+### VI.2 Safe deployment and traffic allocation
 
-- 映射到正确的业务域、world、split factor，分配互斥流量桶。
-- 账户绑定实验按 UID，设备端按 device ID，混合人群 UID-first。
-- 欠确定时做预实验平衡检查，选基线差异最小的流量组。
-- 参数改动过工程白名单。配置 rollout 走 canary 路径，观察最小灰度窗口再升全量。
+- Map each experiment to the correct business domain, world, and split factor, then allocate mutually exclusive traffic buckets.
+- Bind account-level experiments by UID, device-side experiments by device ID, and use UID-first binding for mixed populations.
+- When assignment is uncertain, run a pre-experiment balance check and select traffic groups with the smallest baseline differences.
+- Route parameter changes through an engineering allowlist. Use a canary path for configuration rollout, observe the minimum gray-release window, and only then expand to full traffic.
 
-### VI.3 护栏否决式 A/B 判断
+### VI.3 Guardrail-veto A/B decisions
 
-三条护栏设计原则（控制假阴性）：
+Three guardrail principles aim to control false negatives:
 
-1. 业务范围的护栏：每个业务域自己的核心指标和否决阈值。
-2. 复合经济交换指标：综合 LTV 交换分数加权多目标，单个护栏指标负向不自动触发否决。
-3. 阈值是注意信号，不直接拦截。触发时升级人工审查，硬拦截只给严重恶化。
+1. Use business-specific core metrics and veto thresholds for each business domain.
+2. Use a composite economic trade-off score that weights multiple objectives. A negative value in one guardrail metric does not automatically veto.
+3. Treat thresholds as attention signals rather than direct blockers. Triggered thresholds escalate to human review; hard blocks are reserved for severe deterioration.
 
-输出是结构化结论：KEEP、EXTEND、DISCARD 加主效应、护栏状态、统计方法、观察窗口和注意事项。
+The output is structured: `KEEP`, `EXTEND`, or `DISCARD`, with main effects, guardrail status, statistical method, observation window, and caveats.
 
-### VI.4 负面结果资产化（Negative-Result Assetization）
+### VI.4 Negative-result assetization
 
-大多数生产实验不会成功。每条失败实验记录根因（缺失显著性、护栏恶化、流量不匹配、实现侧注意事项、业务上下文不匹配），按管线阶段、业务目标、受影响用户和内容分段、策略杠杆索引。下次 brainstorm 前可检索，避免重蹈失败方向。
+Most production experiments do not succeed. Record each failure's cause, such as missing significance, a worsened guardrail, traffic mismatch, implementation details, or business-context mismatch. Index it by pipeline stage, business objective, affected users, and content segment so Brainstorm can retrieve it before proposing new work.
 
----
+## VII. Harness Evolution (SGPO)
 
-## VII. Harness Evolution（SGPO）
+Production experiment analysis can explain whether a recommendation policy worked, but not why an upstream agent failed. SGPO turns execution traces into subagent-prompt updates and admits them only through paired replay.
 
-生产实验分析解释了推荐策略是否有效，但解释不了为什么上游 agent 失败。SGPO 把执行轨迹变成 subagent prompt 更新，只通过 paired replay 准入。
+Under the constrained harness, the production-safe version updates one subagent's harness specification at a time (instructions, verification rules, output contract, and tool-use discipline) while holding others fixed. This makes each update reviewable and gives old-versus-new replay a meaningful comparison.
 
-受约束的 harness 定义：当前生产安全版一次只更新一个 subagent 的 harness 规范（指令、验证规则、输出契约、工具使用纪律），其他保持固定。这让更新完全可审查，old 与 new 的 replay 对比有意义。
+### VII.1 SGPO-I: conversation traces
 
-### VII.1 SGPO-I（基于对话轨迹）
+- Sample traces from a trace pool and extract rubrics from the initial query.
+- An evaluation agent writes a natural-language loss report, producing semantic gradient `g` that diagnoses missing constraints, weak step ordering, underspecified evidence, and incomplete downstream contracts.
+- A refinement agent turns the gradient into a local harness edit to produce candidate `h'`.
+- Run paired replay on the same tasks for old and new harnesses. Accept only if `ΔJ` exceeds a threshold and safety checks pass. Otherwise make no change and archive the failure mode.
 
-- 从轨迹池采样 trace，从初始查询提取 rubrics。
-- 评估 agent 写自然语言 loss 报告，得到语义梯度 g，诊断缺失约束、弱步骤顺序、欠指定的证据要求和不完整下游契约。
-- 精炼 agent 把梯度转成本地 harness 编辑，得到候选 h'。
-- paired replay：新旧 harness 在同一组 replay 任务上运行，ΔJ 超过阈值且安全检查通过才接受，否则 no-op 并把失败模式归档。
+In the paper's example, the brainstorm subagent evolved over five rounds, raising its replay score from 75.15% to 98.00%. The key accepted edits were concrete contract changes: make the task contract explicit before generating ideas and require each proposal to expose its business causal chain. Generic prompt polishing did not achieve this.
 
-案例：brainstorm subagent 演化 5 轮，replay 分数从 75.15% 升到 98.00%。被接受的关键编辑是具体契约变更，包括生成想法前先显式化任务契约、每个候选暴露业务因果链，通用 prompt 润色起不到这个作用。
+SGPO is not required to improve monotonically. Scores may improve steadily, saturate early, regress temporarily, or recover from noise. Paired replay is intended to expose regressions before a change enters the production harness.
 
-SGPO 不受单调改进约束。轮次可能稳定提升、早期饱和、暂时回归、噪声恢复。关键是 paired replay 在进入生产 harness 前暴露回归。
+### VII.2 SGPO-II: code replay
 
-### VII.2 SGPO-II（基于代码 replay）
+Evidence changes from conversation traces to historical merge-request replays. After filtering, the pool retains human-approved code changes that remain active in the current repository. The five-dimension score weights semantic correctness 40%, requirement coverage 25%, file coverage 20%, default safety 10%, and style consistency 5%. Acceptance requires weighted score at least 4.0 and semantic correctness at least 4.
 
-证据来源从对话轨迹改为历史 MR（merge request）replay。过滤池后保留人工批准的、在当前代码库存活的代码改动。五维评分（语义正确性 40%、需求覆盖 25%、文件覆盖 20%、默认安全 10%、风格一致 5%），通过线为加权分不低于 4.0 且语义正确性不低于 4。
+In the paper's complex asynchronous-module example, the weighted score rose from 2.60 to 4.90 (88%) as the harness accumulated constraints from project-specific failures. A regression example fell from 3.67 to 1.80; paired-replay admission prevented the regression from entering the accepted harness.
 
-案例：复杂异步模块，加权分从 2.60 升到 4.90，提升 88%，因为 harness 从早期失败积累项目特定约束。也存在回归案例（3.67 降到 1.80），paired-replay 准入门防止回归产物进入被接受的 harness 状态。
+### VII.3 Evolution of the model-research exploration pipeline
 
-### VII.3 模型研究探索管线的演化
+The paper describes a three-phase exhaustive loop:
 
-三阶段穷举循环：
+- **Phase 1:** create one reproduction proposal per paper, rank by `ΔAUC` against the production baseline, and send the top 16 to Phase 2.
+- **Phase 2:** isolate each ablatable module and compare the original with an LLM-inferred alternative using strict isolation. A module is considered effective if at least 24 of 32 experiments have positive `ΔAUC`.
+- **Phase 3:** combine findings across papers. Regular rounds graft the highest-`Δ` confirmed module onto top-K lineages. Challenger rounds, every four rounds, apply effective modules to papers ranked 17–32 to preserve diversity.
 
-- Phase 1：每篇论文一个复现提案，按对生产基线 ΔAUC 排序，top-K=16 进 Phase 2。
-- Phase 2：隔离每个可消融模块（orig 与 LLM 推断替代对比），采用严格隔离设计。模块被确认有效，需要在 32 个实验中至少 24 个为正 ΔAUC。
-- Phase 3：跨论文组合，常规轮次把最高 Δ 的已确认模块嫁接到 top-K 谱系。challenger 轮（每 4 轮）对 rank 17 至 32 论文应用有效模块保持多样性。
+Memory-guided pruning works at several levels. Paper-level pruning removes all modules from a paper when its central premise is falsified. Module-level pruning removes a module from combinations when ablation shows no independent contribution. Saturation detection stops when duplicate novelty signatures exceed 80% for two consecutive rounds.
 
-记忆引导剪枝：论文级剪枝，核心前提被证伪时排除该论文所有模块。模块级剪枝，消融无独立贡献时排除出组合。饱和检测，novelty-signature 重复率连续两轮超过 80% 时终止。
+The experience flywheel appends every training round to an append-only event log; the knowledge base is a rebuildable view. Lessons are organized as `anti_patterns` (failure mode plus log and diff patterns) and `playbook` (successful recipes, recorded when `ΔAUC > 0.001`). Each candidate lesson passes two gates: at least two independent runs and an adversarial review by an agent whose sole job is to falsify the claimed causal mechanism. Surviving lessons become `confirmed`; disputed ones become `contested` and are injected with a warning; falsified lessons are permanently excluded.
 
-经验飞轮：每个训练轮次追加到 append-only 事件日志，知识库是日志的可重建视图。lessons 组织为 anti_patterns（失败模式 + 日志、diff 正则）和 playbook（成功配方，ΔAUC 大于 0.001 时记录）。每条候选经验过两个门。阈值门要求至少 2 次独立运行证据。对抗评审门由专职 agent 只负责证伪声称的因果机制。存活记 confirmed，争议记 contested（带警告注入），被证伪则永久排除。
+> Comparison with AgenticRecTune's Skillhub: distilling lessons directly from A/B outcomes does not explain why a change worked. An unexplained lesson is a liability because it may generalize poorly or encode a spurious correlation. Requiring a verified causal explanation before promotion extends falsifiable attribution from one experiment to the knowledge base.
 
-> 与 AgenticRecTune 的 Skillhub 对比：直接从 A/B 结果蒸馏经验，无法解释为什么有效。无解释的经验条目是负债，可能泛化差或编码虚假相关。要求验证过的因果解释再晋升，把可证伪归因标准从单轮提升到知识库层面。
+## VIII. Experiments
 
----
+### VIII.1 Production measurements and loop performance
 
-## VIII. 实验（Experiments）
+The three-week deployment used three workers in two settings: main feed and local services.
 
-### VIII.1 生产测量与循环性能
-
-三周部署，三个 worker，主信息流 + 生活服务两个场景：
-
-| 场景 | Ideas | Idea Pass | Code&Launch | Positive Eval | LR |
-|---|---|---|---|---|---|
-| Main Feed | 361 | 27.7% | 95.0% | 8.4% | 8 |
-| Life Service | 13 | 46.1% | 83.3% | 40.0% | 2 |
+| Setting | Ideas | Idea pass | Code and launch | Positive evaluation | LR |
+|---|---:|---:|---:|---:|---:|
+| Main feed | 361 | 27.7% | 95.0% | 8.4% | 8 |
+| Local services | 13 | 46.1% | 83.3% | 40.0% | 2 |
 | Overall | 374 | 28.34% | 94.3% | 9.9% | 10 |
 
-漏斗：374 个想法，106 个通过（28.3%），100 个上线（94.3%），10 个正评估（9.9%）。
+The funnel had 374 ideas, 106 passes (28.3%), 100 launches (94.3%), and 10 positive evaluations (9.9%).
 
-拒绝原因分布（268 个被拒 idea）惊人地不对称。平台和基础设施约束占 91.4%，包括参数资源冲突 64.7%（目标参数已被 holdout 组合、在飞实验或其他流量 world 占用）、前提 enable flag 未开 6.4%、硬约束或白名单违规 7.5%、缺用户或物品属性 14.5%。真实 agent 错误只占 8.7%。瓶颈在运营侧，不在算法侧。修 A 类缺口能回收约三分之二的流失想法。
+Rejection reasons among 268 rejected ideas were highly asymmetric. Platform and infrastructure constraints accounted for about 91.4%: parameter-resource conflicts 64.7% (the target parameter was already occupied by a holdout configuration, an in-flight experiment, or another traffic world), prerequisite enable flags off 6.4%, hard-constraint or allowlist violations 7.5%, and missing user or item attributes 14.5%. Actual agent errors accounted for 8.7%. The bottleneck was operational, not algorithmic. Fixing category-A gaps could recover about two-thirds of lost ideas.
 
-编码失败模式同样有 95% 以上在基础设施侧。DSL 或 force-enable 接线错误占 35%，C++ 或 MaTX 编译约束 20%，if/else 结构 15%，真实算法错误低于 5%。
+More than 95% of coding failures were also infrastructure-related. DSL or force-enable wiring errors accounted for 35%, C++ or MaTX compilation constraints 20%, if/else structure 15%, and genuine algorithm errors less than 5%.
 
-RQ1（缩短周期）：串行链改为并行管线。三 worker 三周带 374 idea 走完闭环，每 worker 并发实验 12，工程师为 1.5，共 8 倍增益。吞吐几乎随 worker 线性增长。
+**RQ1, shorter cycle:** The serial chain became a parallel pipeline. Three workers ran 374 ideas through the loop in three weeks. Concurrent experiments were 12 per worker versus 1.5 per engineer, an eightfold increase. Throughput was close to linear in worker count.
 
-RQ2（更多 rollout 结果）：3.3 LR 每 worker。每 idea 命中率低于高级工程师（2.7% 对 5.1%，0.53 倍），因为人工 idea 被手选预过滤。但 worker 周的粒度业务价值为 0.0623% 对 0.0167% 的累计时长增益，3.7 倍。用稀缺下的精度换自动化下的规模。
+**RQ2, more rollout results:** AgentX averaged 3.3 LRs per worker. Per-idea hit rate was lower than for senior engineers (2.7% versus 5.1%, or 0.53×), because human ideas were hand-filtered. At worker-week granularity, however, cumulative app-time gain was 0.0623% versus 0.0167%, or 3.7×. The system trades scarce-resource precision for automation at scale.
 
-| 每 worker·周指标 | AgentX | Engineer | Ratio |
-|---|---|---|---|
-| 并发实验 | 12 | 1.5 | 8× |
-| LR 数 | 1.1 | 0.08 | 13.8× |
-| 累计 app-time 增益 | 0.0623% | 0.0167% | 3.7× |
-| 每 idea 上线率 | 2.7% | 5.1% | 0.53× |
+| Per worker-week metric | AgentX | Engineer | Ratio |
+|---|---:|---:|---:|
+| Concurrent experiments | 12 | 1.5 | 8× |
+| LR count | 1.1 | 0.08 | 13.8× |
+| Cumulative app-time gain | 0.0623% | 0.0167% | 3.7× |
+| Launch rate per idea | 2.7% | 5.1% | 0.53× |
 
-RQ3（可测线上增益）：10 个 LR 带来主信息流累计用户消费时长 +0.561%，生活服务年化收入超 1 亿元。自我演化三周内，并发实验从 15 升到 60（4 倍），idea pass 率从 15% 升到 45%（3 倍），每周 LR 从 2 升到 5（2.5 倍）。
+**RQ3, measurable online gains:** Ten LRs increased cumulative main-feed user time spent by 0.561%. Local-services recommendations produced more than RMB 100 million in annualized revenue. During the three-week self-evolution period, concurrent experiments rose from 15 to 60 (4×), idea pass rate from 15% to 45% (3×), and weekly LRs from 2 to 5 (2.5×).
 
-### VIII.2 模型迭代漏斗（独立研究）
+### VIII.2 Model-iteration funnel (independent research)
 
-113 篇候选论文，214 个自动派发实验，180 个完成（84.1%），104 个在公开数据集超基线（57.8%），22 个进线上 A/B（21.2%），5 个线上正（22.7%），2 个 LR（40%）。
+Of 113 candidate papers, 214 experiments were dispatched automatically and 180 completed (84.1%). Of completed runs, 104 beat baselines on public datasets (57.8%). Twenty-two entered online A/B (21.2% of the 104), five evaluated positively (22.7% of 22), and two became LRs (40% of five).
 
-三个观察：
+Three observations:
 
-1. 先扩张后剪枝。先把 214 个组合铺开，再用离线跑完成率、离线性能、业务派发标准过滤，把线上 A/B 载荷降低近一个数量级。
-2. 57.8% 超基线应结合基线简化理解。去掉业务特征和服务约束后的结果，不代表超过完整生产系统，只说明是值得考虑集成的合法模块或架构。
-3. 22 到 5 到 2 是漏斗最紧处。即使离线增益存在，线上正向加启动评审的联合要求把候选集缩小约一个数量级。线上评审门是模型侧 LR 产量的主导瓶颈。
+1. **Expand, then prune.** First explore 214 combinations. Then filter by offline completion, offline performance, and business-launch criteria, reducing online A/B load by nearly an order of magnitude.
+2. **Interpret the 57.8% against a simplified baseline.** Removing business features and serving constraints does not show an improvement over the full production system. It identifies a potentially integrable module or architecture.
+3. **The 22-to-5-to-2 funnel is the tightest stage.** Even when offline gain exists, the joint online-positive and launch-review requirement shrinks candidates by about an order of magnitude. The online review gate is the main limit on model-side LR volume.
 
-2 个 LR 模型带来直播时长 +0.865% 增益。
+The two LR models increased live-stream viewing time by 0.865%.
 
-### VIII.3 Showcase I：端到端实验（PCV 案例）
+### VIII.3 Showcase I: end-to-end experimentation (PCV case)
 
-两轮闭环展示反馈驱动的再设计：
+Two loop iterations show feedback-driven redesign:
 
-- Loop 1（直接 PCV boosting）：Brainstorm 从 5 个候选选中 PCV boosting，Developing 实现 S1 = Br·(1+βP)。线上弱正但不稳。人均时长 +0.034%、用户时长 +0.021%，但活跃设备 -0.023%、18 至 30 岁段 -0.032%。Evaluation 诊断：没有质量门控就直接提升所有高 PCV 内容，混入了低质 bait 内容。
-- Loop 2（约束 PCV ranking）：S2 = Bd·(1+β(u)·G(P))，G(P)=max(P−τ,0) 做质量门控，β(u) 做活动感知动态权重，Bd 做时长导向基分。线上用户时长 +0.071%、real-show +0.118%，体验护栏稳定。两轮学习沉淀为可复用知识。直接 PCV boosting 有噪声，加质量门控、活动感知和时长锚定后更可靠。
+- **Loop 1, direct PCV boosting:** Brainstorm selected PCV boosting from five candidates. Developing implemented `S1 = Br·(1+βP)`. Online effects were weak and unstable: person-level time +0.034%, user time +0.021%, active devices -0.023%, and users aged 18–30 -0.032%. Evaluation found that increasing all high-PCV content without a quality gate admitted low-quality bait content.
+- **Loop 2, constrained PCV ranking:** `S2 = Bd·(1+β(u)·G(P))`, where `G(P)=max(P−τ,0)` is a quality gate, `β(u)` is an activity-aware dynamic weight, and `Bd` is a duration-oriented base score. Online user time increased 0.071%, real-show increased 0.118%, and experience guardrails remained stable. The two loops produced reusable lessons: direct PCV boosting is noisy, while adding a quality gate, activity awareness, and a duration anchor made it more reliable.
 
-### VIII.4 Showcase II：与专家 Agent 共演化
+### VIII.4 Showcase II: co-evolution with expert agents
 
-生活服务场景。推荐决策专家 agent 做用户级诊断，输出自然语言控制建议。AgentX Brainstorm 评估可行性并选 CPM boost 控制动作，Developing 实现 UV 级 CPM boost，Evaluation 线上验证，收入 +4.7%。
+In local services, a recommendation-decision expert agent ran user-level diagnosis and returned natural-language control suggestions. AgentX Brainstorm assessed feasibility and selected a CPM-boost action. Developing implemented a UV-level CPM boost, and Evaluation measured a 4.7% revenue increase.
 
-专家 agent 提供领域诊断（例如司机职业加搜车价，推断汽车广告需求），AgentX 把诊断转成可部署的细粒度原子动作。两者双向共演化。
+The expert agent supplied domain diagnosis, such as inferring car-ad demand from a driver's occupation and vehicle searches. AgentX converted it into deployable, fine-grained atomic actions. The two systems co-evolved in both directions.
 
----
+## IX. Conclusion
 
-## IX. 结论（Conclusion）
+- AgentX changes recommender-system iteration from linear manual effort into a compounding, engineerable lever.
+- The three-week production study reported roughly order-of-magnitude gains in throughput and cumulative online impact.
+- Engineers shift from executing each experiment to deciding which questions are worth exploring and designing more effective agent systems.
+- Trace data connects the two: every underlying system improvement can be inherited by later experiments.
 
-- AgentX 把推荐系统迭代从人工线性加法，改写为可复合、可工程化的杠杆。
-- 三周生产验证，吞吐和累计线上增益各约一个数量级提升。
-- 工程师角色从亲自执行每个实验，转向定义哪些问题值得探索、设计更高效的 agent 系统。
-- 轨迹数据连接两者。底层系统每次改进自动继承到每个后续实验。
+## Relevance to this repository
 
----
+At the time these notes were prepared, `deep-learning-tick-data-prediction` had several foundations related to AgentX, but also important differences.
 
-## 对本项目的启示（Relevance to this repo）
+### Existing foundations
 
-当前 `deep-learning-tick-data-prediction` 已具备 AgentX 的多个地基，但也有关键差异。
+- Strict out-of-time splits, a locked test set, and multiple seeds provide authoritative offline reward signals.
+- `AGENTS.md` requires code agents to run Ruff, `ty`, pytest, and a smoke check after changes, analogous to a Developing Agent harness.
+- Shared Rank IC, after-cost evaluation, dataset fingerprints, and experiment configuration records support structured evaluation.
+- The [reproduction audit](../reproduction-audit.md) distinguishes engineering facts, paper facts, and real training results.
 
-### 已具备
+### Important differences and cautions
 
-- 严格时间外切分 + 锁定测试集 + 多 seed，对应权威奖励信号。
-- `AGENTS.md` 要求代码 agent 修改后跑 ruff、ty、pytest、smoke，对应 Developing Agent 的 harness。
-- 统一 Rank IC、成本后评估、dataset fingerprint、实验配置记录，对应结构化评估。
-- 论文复现纪律：[复现核对](../reproduction-audit.md) 区分工程事实、论文事实、真实训练结果。
+1. **Feedback signal:** AgentX continually produces new online A/B data; this repository uses fixed historical data. Repeated access to the same 2024 validation set could efficiently train an agent to overfit it. Use rolling OOS evaluation (2021–2023 inner CV, 2024 research holdout, 2025 locked test) and physical data isolation.
+2. **Enforce permissions in code, not prompts.** Agents should never have direct locked-test access. Human approval should permit a one-time evaluation.
+3. **Prefer determinism before LLM judgment.** Use deterministic Python for metric extraction, statistical tests, and A/B decisions. LLMs should propose hypotheses and explain results.
+4. **Require a falsification condition.** Every proposal should declare `falsification_condition` so the process remains scientific rather than degrading into AutoML.
+5. **Assetize negative results.** Failed experiments, such as TCN failing to beat HGB or gains disappearing after costs, are knowledge assets. Record them to prevent repetition.
 
-### 需要警惕的关键差异
+### Recommended implementation order at the time
 
-1. 反馈信号。AgentX 用不断产生的新线上 A/B 数据，本项目用固定历史数据。若放任 agent 反复看同一 2024 验证集，会高效率把自己训练成验证集过拟合机器。必须引入滚动样本外（2021 至 2023 inner CV、2024 research holdout、2025 locked test）和物理数据隔离。
-2. 权限由程序控制，不靠 prompt。Agent 永远拿不到 locked test 权限，人放行后一次性评估。
-3. 确定性先于 LLM。指标提取、统计检验、A/B 判断用确定性 Python，LLM 只负责提出假设和解释。
-4. 每个 proposal 必须声明 falsification_condition（可证伪条件），强制做科研，避免退化成 AutoML。
-5. 负面结果资产化。失败的实验（例如 TCN 未超 HGB、成本后收益消失）本身就是知识资产，应入库防止重复。
-
-### 推荐落地顺序
-
-1. Prediction artifact + Audit（保存 val 预测明细，先解释 IC 接近 0 但 spread 高的矛盾）。
-2. ExperimentSpec + Runner + Registry（统一实验入口 + SQLite 实验记忆）。
-3. Research Protocol + locked-test 物理隔离。
-4. Config-only Brainstorm + Critic Agent。
-5. Developer Agent（开放代码修改，worktree + tests + diff review）。
-6. 最后才考虑 SGPO 与 Harness Evolution。
+1. Prediction artifact and audit: save validation prediction details and explain the discrepancy between near-zero IC and high spread.
+2. ExperimentSpec, runner, and registry: unify experiment entry points and SQLite experiment memory.
+3. Research protocol and physical locked-test isolation.
+4. Config-only Brainstorm and Critic agents.
+5. Developer Agent with code-change access, worktrees, tests, and diff review.
+6. Consider SGPO and Harness Evolution only after these foundations.

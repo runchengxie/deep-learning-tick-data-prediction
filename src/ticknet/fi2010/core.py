@@ -1,10 +1,7 @@
-"""FI-2010 论文复现核心：数据集与合成数据。
+"""FI-2010 data constants, synthetic samples, and windowed datasets.
 
-本文件从 ``src/ticknet/dataset.py`` 归档而来，服务于 DeepLOB 论文（FI-2010 数据集）
-的复现实验，与 A 股次日预测主链路无关。归档后独立保留，便于可重复研究。
-
-常量与 ``RandomLOBDataset`` / ``FI2010WindowDataset`` / ``get_dummy_batch`` 均定义为
-FI-2010 专用，不依赖主链路的 A 股配置。
+This package supports the DeepLOB paper reproduction on the FI-2010 benchmark.
+Its dataset and labels are separate from A-share next-day prediction.
 """
 
 from __future__ import annotations
@@ -34,7 +31,7 @@ SETUP2_TEST_CFS = (7, 8, 9)
 
 
 class RandomLOBDataset(Dataset):
-    """供本地冒烟训练使用的合成数据集。"""
+    """Synthetic dataset used by local smoke training."""
 
     def __init__(
         self,
@@ -59,13 +56,13 @@ class RandomLOBDataset(Dataset):
 
 
 class FI2010WindowDataset(Dataset):
-    """从转换后的 FI-2010 数据按需读取滑动窗口。
+    """Read sliding windows on demand from converted FI-2010 data.
 
-    ``setup1`` 对应论文 Table I。每次使用一个 ``CF`` 的 Training 文件
-    训练，并在同一 ``CF`` 的 Testing 文件上测试。
+    ``setup1`` follows paper Table I: train on one ``CF`` Training file and test
+    on the Testing file from that same fold.
 
-    ``setup2`` 对应论文 Table II。它使用 ``CF_7`` 的 Training 文件训练，
-    并在 ``CF_7``、``CF_8`` 和 ``CF_9`` 的 Testing 文件上测试。
+    ``setup2`` follows paper Table II: train on ``CF_7`` Training and test on
+    Testing files from ``CF_7``, ``CF_8``, and ``CF_9``.
     """
 
     def __init__(

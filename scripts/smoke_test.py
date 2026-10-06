@@ -1,10 +1,9 @@
-"""无需真实数据的本地冒烟检查。
+"""Run lightweight synthetic-data model and FI-2010 checks.
 
 运行方式：
 
     python scripts/smoke_test.py
 
-FI-2010 数据集的冒烟检查已归档到 ``legacy/scripts/fi2010_smoke_test.py``。
 """
 
 from __future__ import annotations
@@ -55,7 +54,10 @@ def main() -> None:
     check_forward_pass()
     check_gradient_flow()
     check_parameter_count()
-    print("全部冒烟检查通过。")
+    from ticknet.fi2010.scripts.fi2010_smoke_test import check_fi2010_dataset
+
+    check_fi2010_dataset()
+    print("All smoke checks passed.")
 
 
 if __name__ == "__main__":

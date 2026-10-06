@@ -1,112 +1,81 @@
-# 事件流多任务梯度审计
+# Event-Stream Multi-Task Gradient Audit
 
-`EVT-GRAD-AUDIT-001` 用来判断日级收益任务能否有效更新事件流 Transformer 的共享主干。审计结果将决定下一项训练实验，避免同时改动标签尺度、监督位置和任务权重后无法解释增量来源。
+`EVT-GRAD-AUDIT-001` asks whether the daily-return task effectively updates the shared event-stream Transformer backbone. Its result selects the next training experiment without simultaneously changing label scale, supervision position, and task weights.
 
-## 要回答的问题
+## Questions and protocol
 
-事件流模型同时学习下一事件流类型、下一订单类型、连续值回归和 H5 日级收益。当前日级损失在每个有效事件位置都参与训练，四项任务共用 Transformer 主干。审计主要回答两个问题：
+The model learns next stream type, next order type, continuous-value regression, and H5 daily return. The daily loss currently applies at every valid event position, and all tasks share a Transformer backbone. The audit asks whether the daily gradient is substantially weaker and whether it consistently conflicts with the three generative tasks. Gradient audits describe update strength and direction; they do not replace Rank IC, NDCG, precision, or cost-adjusted return evaluation.
 
-1. 日级任务传到共享主干的梯度是否明显偏弱
-2. 日级任务与三个生成任务的梯度方向是否持续冲突
+Seed 0 is audited on the recent fold's November 2025 validation split and the adjacent `fold-54-oos-202511` October 2025 validation split. For each fold, select 16 evenly spaced fixed batches of 8 validation samples (128 total). Save sample indices, dataset fingerprint, and full batch-tensor fingerprint. Identical inputs, weights, and source should produce identical results.
 
-梯度审计只说明当前训练机制中的更新强度和方向。它不代替 Rank IC、NDCG、Precision 或成本后收益评估。
+Calculate gradients only for shared-backbone parameters, excluding `head_stream`, `head_otype`, `head_reg`, and `head_day`. Use formal loss weights:
 
-## 固定口径
-
-正式审计使用最近折和相邻折的 seed 0：
-
-| 滚动折 | 审计分区 | 模型状态 |
-|---|---|---|
-| 最近折，2025 年 11 月 validation | validation | seed 0 初始化、seed 0 best checkpoint |
-| `fold-54-oos-202511`，2025 年 10 月 validation | validation | seed 0 初始化、seed 0 best checkpoint |
-
-每个滚动折从 validation 分区等距选择 16 个固定 batch，每个 batch 8 个样本，共 128 个样本。审计保存样本下标、数据集指纹和完整 batch 张量指纹。相同输入、权重和源码应产生相同结果。
-
-审计只计算共享主干参数，排除 `head_stream`、`head_otype`、`head_reg` 和 `head_day`。四项损失沿用正式训练权重：
-
-| 任务 | 内容 | 权重 |
+| Task | Objective | Weight |
 |---|---|---:|
-| `stream` | 下一事件流类型交叉熵 | 1.0 |
-| `otype` | 下一订单类型交叉熵 | 0.5 |
-| `reg` | 下一事件连续值 Smooth L1 | 1.0 |
-| `day` | H5 日级收益 Smooth L1 | 1.0 |
+| `stream` | Next stream-type cross-entropy | 1.0 |
+| `otype` | Next order-type cross-entropy | 0.5 |
+| `reg` | Next-event continuous-value Smooth L1 | 1.0 |
+| `day` | H5 daily-return Smooth L1 | 1.0 |
 
-每个 batch 记录以下内容：
+Record weighted and unweighted losses, backbone gradient norms and shares, the daily-gradient norm divided by the median of the three generative-task norms, six pairwise gradient cosine similarities, sample count, valid event positions, valid daily labels, and trading date. Summaries include mean, standard deviation, quantiles, extrema, and negative-cosine share. Initialization and best-checkpoint runs use the same batches with dropout and other training-time randomness disabled.
 
-- 四项未加权损失和加权损失
-- 四项任务对共享主干的梯度范数
-- 各任务梯度范数占比
-- 日级梯度范数与三个生成任务梯度范数中位数的比值
-- 六组两两梯度余弦相似度
-- 样本数、有效事件位置数、有效日级标签数和交易日
+## Preregistered decision gates
 
-汇总结果保留均值、标准差、分位数、极值和负余弦比例。初始化与 best checkpoint 使用同一批数据，并关闭 dropout 等训练期随机行为。
+After both folds complete:
 
-## 预注册决策门槛
+1. If the median daily-gradient ratio at both best checkpoints is at most 0.1, run `EVT-LABEL-SCALE-001`.
+2. If both folds show the same conflict pair with median cosine at most -0.1 and negative-cosine share at least 75%, run `EVT-SUPERVISION-POSITION-001` and review task weights.
+3. If daily gradient strength is normal and no conflict persists, proceed directly to `EVT-SUPERVISION-POSITION-001`.
 
-两个滚动折都完成后，按下面的顺序选择下一项实验：
+The label-scale experiment uses seed 0 only, comparing raw H5 returns with daily cross-sectional winsorized z labels on both folds. Add seeds 1 and 2 only if validation, OOS, and top-group metrics improve on both folds.
 
-1. 两折 best checkpoint 的日级梯度比值中位数都不高于 0.1，进入 `EVT-LABEL-SCALE-001`
-2. 两折存在相同的日级任务冲突对，且余弦中位数不高于 -0.1、负余弦比例不低于 75%，进入 `EVT-SUPERVISION-POSITION-001`，同时复核任务权重
-3. 日级梯度强度正常且没有持续冲突，直接进入 `EVT-SUPERVISION-POSITION-001`
+## Results
 
-标签尺度实验只运行 seed 0，对比原始 H5 收益与每日截面去极值 z 标签。最近折和相邻折使用相同合同。只有两折的 validation、OOS 和头部指标同时改善，才补 seed 1、2。
+Both folds used 16 fixed batches of 8. Source revision: `3e28f04755a881cb72697db2fc50bba031c9f5b0`. Neither locked 2026 nor either fold's OOS entered the runtime.
 
-## 正式结果
-
-两折均使用 16 个固定 batch，每个 batch 8 个样本。审计源码 revision 为 `3e28f04755a881cb72697db2fc50bba031c9f5b0`。2026 锁定区和两折 OOS 都没有进入运行环境。
-
-| 滚动折 | 初始化日级梯度比值中位数 | best checkpoint 日级梯度比值中位数 | best epoch | 持续负相关任务对 |
+| Fold | Initialization median daily-gradient ratio | Best-checkpoint median ratio | Best epoch | Persistent negative-cosine pairs |
 |---|---:|---:|---:|---|
-| 最近折 | 0.61608 | 0.01969 | 4 | 无 |
-| `fold-54-oos-202511` | 0.65568 | 0.03927 | 11 | `reg__day`、`stream__day` |
+| Recent fold | 0.61608 | 0.01969 | 4 | None |
+| `fold-54-oos-202511` | 0.65568 | 0.03927 | 11 | `reg__day`, `stream__day` |
 
-日级任务在初始化时与三个生成任务处于相近量级。训练到 best checkpoint 后，两折的日级梯度只剩生成任务中位数的约 2% 和 4%，都低于 0.1 门槛。相邻折的 `reg__day` 余弦中位数为 -0.34875，负值比例为 81.25%。`stream__day` 余弦中位数为 -0.10432，负值比例为 75%。最近折没有出现相同冲突，因此当前证据不支持先调整任务权重。
+At initialization, the daily task gradient was similar in scale to the generative tasks. At the best checkpoint, it fell to about 2% and 4% of their median on the two folds, below the 0.1 gate. On the adjacent fold, median `reg__day` cosine was -0.34875 (81.25% negative); `stream__day` median cosine was -0.10432 (75% negative). The recent fold did not show the same conflicts, so evidence did not support changing task weights first.
 
-最近折和相邻折结果指纹分别为 `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd` 和 `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`。跨折决策指纹为 `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`。正式决定为 `day_gradient_weak`，下一实验是 `EVT-LABEL-SCALE-001`。标签尺度实验已经完成，正式结果见[事件流标签尺度实验](eventstream-label-scale.md)。
+Result fingerprints: recent fold `2fd3064238b10476a2ddb2a5e54a5155e77b78ab369b7126377866770eb28ccd`; adjacent fold `7ec93b77258d108b673992cd1776e28d652b146cb425a60c8be15e9181bcfe12`; cross-fold decision `9bdef3aad8f9be28f80b0236bfc90f093ce1f3b509d03afaf486f136e1140bbf`. Decision: `day_gradient_weak`; run `EVT-LABEL-SCALE-001`. That experiment is complete; see the [event-stream label-scale study](eventstream-label-scale.md).
 
-## 标签尺度实验合同
+## Label-scale experiment contract
 
-`ticknet-eventstream-target-overlay` 为原物化缓存生成轻量 train 标签覆盖层。事件张量、采样窗口、validation、OOS 和 H3 监控标签保持不变。覆盖层只替换训练批次中的 H5 日级目标，validation 与 OOS 继续使用原始 H5 收益评估。
+`ticknet-eventstream-target-overlay` creates a compact training-label overlay for an existing materialized cache. Event tensors, sampled windows, validation, OOS, and H3 monitoring labels remain unchanged. Only the H5 daily target in training batches changes; validation and OOS continue to use raw H5 returns.
 
-每个有 H5 标签的训练日先按动态截面的全部有限标签计算中位数和原始 MAD，将标签裁剪到中位数加减 5 倍 MAD，再按裁剪后截面的均值和总体标准差转换成 z 标签。因分区边界而没有 H5 标签的样本继续由 `day_valid=0` 屏蔽。覆盖层绑定原物化数据指纹、H5 标签 SHA-256、逐日统计和每个月份文件的 SHA-256。最近折与相邻折分别使用独立覆盖层和训练输出目录。
+For each training date with H5 labels, clip values to the cross-sectional median ± 5 raw MAD, then standardize using the clipped cross-sectional mean and population standard deviation. Samples without H5 labels because of split boundaries remain masked by `day_valid=0`. The overlay binds the original materialized fingerprint, H5-label SHA-256, daily statistics, and each monthly file's SHA-256. Recent and adjacent folds use separate overlays and training output directories.
 
-## 正式运行
+## Reproduction
 
-运行前要求当前 worktree 已提交且保持干净。最近折命令如下：
+Before running, commit the current worktree and ensure it is clean. Audit the recent fold:
 
 ```bash
 python scripts/run_colab_nextday.py \
   --workflow eventstream-recent-gradient-audit \
   --session ticknet-gradient-audit-recent-seed0 \
-  --gpu A100 \
-  --seeds 0 \
-  --audit-batches 16 \
-  --no-evaluate-test \
-  --timeout 7200 \
-  --keep-on-failure \
+  --gpu A100 --seeds 0 --audit-batches 16 \
+  --no-evaluate-test --timeout 7200 --keep-on-failure \
   --local-output-dir artifacts/eventstream-gradient-audit/recent-seed0
 ```
 
-相邻折命令如下：
+Audit the adjacent fold:
 
 ```bash
 python scripts/run_colab_nextday.py \
   --workflow eventstream-rolling-gradient-audit \
   --eventstream-fold-id fold-54-oos-202511 \
   --session ticknet-gradient-audit-fold54-seed0 \
-  --gpu A100 \
-  --seeds 0 \
-  --audit-batches 16 \
-  --no-evaluate-test \
-  --timeout 7200 \
-  --keep-on-failure \
+  --gpu A100 --seeds 0 --audit-batches 16 \
+  --no-evaluate-test --timeout 7200 --keep-on-failure \
   --local-output-dir artifacts/eventstream-gradient-audit/fold54-seed0
 ```
 
-两项工作流只暂存 validation 分片和已登记 SHA-256 的 seed 0 best checkpoint。train、OOS、监控分区和 2026 锁定区不会进入 Colab 运行环境。
+Both workflows stage only validation shards and a seed-0 best checkpoint with registered SHA-256. They exclude training, OOS, monitoring partitions, and locked 2026.
 
-结果同步回本机后生成跨折决策：
+Create the cross-fold decision after results return locally:
 
 ```bash
 ticknet-eventstream-gradient-audit decide \
@@ -115,7 +84,7 @@ ticknet-eventstream-gradient-audit decide \
   --output artifacts/eventstream-gradient-audit/decision.json
 ```
 
-最近折标签覆盖层生成命令如下：
+Build the recent-fold label overlay:
 
 ```bash
 ticknet-eventstream-target-overlay build \
@@ -126,7 +95,7 @@ ticknet-eventstream-target-overlay build \
   --source-revision "$(git rev-parse HEAD)"
 ```
 
-通过核对后上传轻量覆盖层：
+Verify and upload the compact overlay:
 
 ```bash
 rclone --config ~/.config/rclone/rclone.conf copy \
@@ -135,21 +104,17 @@ rclone --config ~/.config/rclone/rclone.conf copy \
   --checksum
 ```
 
-随后运行一个不读取 OOS 的短恢复检查：
+Run a short resume check without OOS access:
 
 ```bash
 python scripts/run_colab_nextday.py \
   --workflow eventstream-recent-label-scale-train \
   --session ticknet-label-scale-recent-seed0 \
-  --gpu A100 \
-  --seeds 0 \
-  --training-epochs 1 \
-  --no-evaluate-test \
-  --timeout 7200 \
-  --keep-on-failure \
+  --gpu A100 --seeds 0 --training-epochs 1 \
+  --no-evaluate-test --timeout 7200 --keep-on-failure \
   --local-output-dir artifacts/eventstream-label-scale/recent-seed0/training
 ```
 
-短恢复检查通过后，将 `--training-epochs` 改为 `20` 并使用 `--evaluate-test`。相邻折改用 `eventstream-rolling-label-scale-train`，同时提供 `--eventstream-fold-id fold-54-oos-202511`。两个工作流使用独立 checkpoint 和结果目录。
+After it passes, set `--training-epochs 20` and use `--evaluate-test`. For the adjacent fold, use `eventstream-rolling-label-scale-train` and add `--eventstream-fold-id fold-54-oos-202511`. Keep checkpoints and results in separate directories.
 
-标签尺度训练在两折都提高了 validation 与 OOS Rank IC，最近折的 OOS 极端组收益差没有改善。预注册门槛没有完全通过，seed 1、2 暂停，下一步进入 `EVT-SUPERVISION-POSITION-001`。
+Label-scale training improved validation and OOS Rank IC on both folds but did not improve the recent-fold OOS extreme-group spread. The preregistered gate was not fully met, so seeds 1 and 2 were paused. The next experiment is `EVT-SUPERVISION-POSITION-001`.

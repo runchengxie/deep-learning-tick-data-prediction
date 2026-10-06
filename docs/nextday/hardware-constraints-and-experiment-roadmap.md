@@ -1,193 +1,163 @@
-# 硬件约束与分阶段实验路线
+# Hardware Constraints and Staged Experiment Roadmap
 
-## 目标
+## Objective
 
-最终研究问题是：当天的 tick、十档盘口、逐笔委托和逐笔成交信息，能否稳定预测下一交易日的横截面相对收益。
+The research question is whether same-day ticks, ten-level order-book snapshots, orders, and trades can reliably predict next-trading-day cross-sectional relative returns.
 
-分钟微观结构特征、预计算 embedding 和原始事件模型都来自 tick。研究顺序先用低成本表示确认信息强度，再检验原始序列能否提供额外价值。
+Minute-level microstructure features, precomputed embeddings, and raw-event models all derive from tick data. Start with low-cost representations to measure signal strength, then test whether raw sequences add value.
 
-## 当前工程优先级
+## Current engineering priorities
 
-截至 2026-08-16，分钟 HGB、TCN、GRU，原始盘口和事件流基础设施都已经落地。原始盘口的四格三 seed 容量矩阵已经完成，结果支持停止继续扩容。当前工程顺序如下：
+As of 2026-08-16, the minute HGB, TCN, and GRU models and the raw-book and event-stream infrastructure were implemented. The raw-book 2×2, three-seed capacity matrix was complete and supports stopping further expansion. The current sequence is:
 
 ```text
-完成事件流固定窗口缓存的真实 seed 0 验收
-  → 运行事件流最近折 capacity100m seed 0
-  → 通过门槛后补 seed 1 和 2
-  → 将冻结 embedding 接入 M4
-  → 有明确增量后运行 probe150m 容量消融
+verify real seed-0 materialization of fixed event-stream windows
+  → run event-stream recent-fold capacity100m seed 0
+  → add seeds 1 and 2 only if the gate passes
+  → connect frozen embeddings to M4
+  → run probe150m capacity ablation only after a clear gain
 ```
 
-原始盘口模型用共享 DeepLOB 编码 100-event 分块，GRU 汇总后同时输出连续超额收益分数和三分类概率。代码支持 raw-200 和 raw-1000，以及约 1M 和 100M 两种容量。当前只保留 `1M/raw-200` 候选。
+The raw-book model encodes 100-event chunks with a shared DeepLOB and aggregates them with a GRU, producing a continuous excess-return score and three-class probabilities. It supports raw-200 and raw-1000 windows and approximately 1M and 100M parameters. Only `1M/raw-200` remains a candidate.
 
-本文后续章节保留早期硬件盘点、阶段设计和吞吐估算，便于核对当时的资源决策。当前状态与工作顺序以[项目现状](../project-status.md)为准。
+The later sections preserve early hardware inventories, stage designs, and throughput estimates for auditing historical resource decisions. Current status and task order are maintained in [project status](../project-status.md).
 
-## 当前资源快照
+## Resource snapshot
 
-以下数据来自 2026-08-04 的本机只读检查和短基准测试。
+The following reflects read-only host checks and short benchmarks on 2026-08-04.
 
-### 计算资源
+### Compute resources
 
-| 资源 | 当前情况 | 影响 |
+| Resource | State | Implication |
 |---|---|---|
-| CPU | Intel i5-4690K，4 核 4 线程 | 适合流式预处理、树模型和小型神经网络 |
-| 内存 | 31 GiB，另有 31 GiB swap | 不能整月载入盘口数据，应按 row group 或 batch 流式处理 |
-| GPU | GeForce GTX 970，当前由 nouveau 驱动 | PyTorch 的 `cuda_available=False`，训练时按无可用 GPU 处理 |
-| 内部盘 | NVMe 可用约 619 GB | 保存筛选后的训练集、缓存、checkpoint 和结果 |
-| 数据盘 | USB 机械硬盘，6 TB，剩余约 890 GB | 保存原始数据，适合顺序扫描，不适合训练期随机读取 |
-| Google Drive | 已升级为 200GB | 保存 pilot、正式 raw-200 工作集、checkpoint 和结果，原始数据留在本地数据盘 |
+| CPU | Intel i5-4690K, 4 cores / 4 threads | Suitable for streaming preprocessing, tree models, and small neural networks |
+| Memory | 31 GiB RAM plus 31 GiB swap | Do not load a full month of book data; stream row groups or batches |
+| GPU | GeForce GTX 970 using the nouveau driver | `cuda_available=False`; treat the host as having no usable training GPU |
+| Internal disk | About 619 GB free on NVMe | Store filtered training data, caches, checkpoints, and results |
+| Data disk | 6 TB USB HDD, about 890 GB free | Keep raw data here; suitable for sequential scans, not random training reads |
+| Google Drive | Upgraded to 200 GB | Store pilot/formal raw-200 working sets, checkpoints, and results; keep raw data local |
 
-GTX 970 不在主路线上。为 4 GB 老显卡维护另一套驱动、CUDA 和 PyTorch 环境，会增加实验复现成本，仍然无法容纳理想 batch。GPU 训练优先使用 Colab 或按需云 GPU。
+The GTX 970 is not part of the primary plan. Maintaining a separate driver, CUDA, and PyTorch stack for an old 4 GB card would raise reproduction costs without fitting the desired batch. Use Colab or an on-demand cloud GPU for GPU training.
 
-### 数据资源
+### Data resources
 
-原始十档盘口位于：
+Raw ten-level snapshots are stored at:
 
 ```text
 /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/snapshot
 ```
 
-已经确认：
+The 60 canonical monthly files for 2021–2025 are present and total about 884 GiB. The snapshot directory also contains about 206 GiB of 2026 monthly files, daily files, and repair archives, for roughly 1.1 TiB total. Schemas match across five sampled years and contain 75 fields, including `AskPrice1~10`, `AskVolume1~10`, `BidPrice1~10`, and `BidVolume1~10`. `time_ms` is milliseconds since 09:30; 14:55 is `19_500_000`. A check of `000001` found 4,702 valid snapshots before 14:55 on one trading day. Its final `Price` matched the daily-bar close.
 
-- 2021 至 2025 的 60 个规范月文件齐全
-- 规范月文件总计约 884 GiB
-- snapshot 目录另有约 206 GiB 的 2026 月文件、日文件和修复留档，目录总量约 1.1 TiB
-- 五个抽样年份的 schema 一致，共 75 个字段
-- 包含 `AskPrice1~10`、`AskVolume1~10`、`BidPrice1~10`、`BidVolume1~10`
-- `time_ms` 是相对 09:30 的毫秒偏移，14:55 对应 `19_500_000`
-- 抽查 `000001`，一个交易日 14:55 前有 4,702 条有效快照
-- 抽查股票的最终 `Price` 与日线 `close` 一致
+The same disk has 60 monthly order files for 2021–2025 (about 1.2 TB) and 60 trade files (about 1.5 TB). `order_preopen` is about 24 GB. `_incoming` is about 320 GB and includes some 2026 daily files not yet in canonical monthly directories. The event-stream track owns individual orders and trades; see [eventstream.md](eventstream.md). Any 2026 incremental data requires its own data contract, coverage audit, and model-input design. Do not mix it directly into existing checkpoints.
 
-同一数据盘还包含 2021 至 2025 的 60 个月 order 和 trades 目录，分别约 1.2 TB 和 1.5 TB。`order_preopen` 约 24 GB。`_incoming` 约 320 GB，包含部分 2026 年日文件，尚未进入规范月目录。逐笔委托和逐笔成交已经由 eventstream 主线承接，说明见 [eventstream.md](eventstream.md)。2026 增量数据需要单独的数据协议、覆盖审计和模型输入设计，不能直接混入现有 checkpoint。
-
-分钟微观结构缓存位于：
+The minute microstructure cache is at:
 
 ```text
 /mnt/data/hdd6t/quant-data-lake/derived/level2_minute_cache/v1
 ```
 
-缓存覆盖 2021 至 2026，总计约 122 GB，包含三个模态：
+It covers 2021–2026 and is about 122 GB. It contains 11 snapshot, 11 order, and 11 trade features per minute; the combined 33-column representation also includes a validity indicator for each modality. This cache already aggregates raw ticks to minute bars and is the most useful starting point on the available hardware.
 
-- snapshot：11 个特征
-- order：11 个特征
-- trade：11 个特征
-- 合并后每分钟 33 个特征，其中包括三个模态各自的有效性标记
+## Measured training throughput
 
-该缓存已经完成原始 tick 的分钟聚合，是当前硬件下最有价值的起点。
+Short local CPU benchmarks:
 
-## 实测训练吞吐量
+| Model | Input | Throughput | One epoch for 400 stocks × 250 days |
+|---|---|---:|---:|
+| Chunked DeepLOB | 10 × 100 book events | About 8.5 stock-days/s | About 3.3 hours |
+| Single-layer GRU | 240 × 33 minute features | About 61 stock-days/s | About 27 minutes |
 
-本机 CPU 短基准结果：
+These estimates exclude USB reads, Parquet decompression, validation, and checkpoint I/O. Chunked DeepLOB takes about 9.8 hours per epoch over three years; ten continuous epochs would take several days. It is not suitable as the first-stage primary model.
 
-| 模型 | 输入 | 吞吐量 | 400 股票 × 250 日的单 epoch 时间 |
-|---|---|---|---:|
-| 分块 DeepLOB | 10 × 100 个盘口事件 | 约 8.5 股票日/秒 | 约 3.3 小时 |
-| 单层 GRU | 240 × 33 分钟特征 | 约 61 股票日/秒 | 约 27 分钟 |
-
-这里没有计入 USB 硬盘读取、Parquet 解压、验证和 checkpoint 时间。三年分块 DeepLOB 约需 9.8 小时一个 epoch，连续训练十个 epoch 会达到数天，因此不能作为第一阶段主线。
-
-## 总体计算策略
+## Overall compute strategy
 
 ```text
-USB 机械硬盘
-  原始 snapshot/order/trade 和现有 minute cache
-          ↓ 每个源文件顺序扫描一次
-NVMe
-  动态股票池的紧凑分钟序列、日级特征或原始盘口分片
-          ↓
-本机 CPU
-  数据审计、Logistic、树模型、小样本训练
-          ↓
-Colab 或云 GPU
-  小型 TCN/GRU、原始盘口增量实验、一次性 embedding 提取
-          ↓
-Drive
-  仅保存当前工作集、embedding、checkpoint 和结果
+USB HDD: raw snapshot/order/trade and existing minute cache
+  → sequentially scan each source file once
+NVMe: compact minute sequences, daily features, or raw-book shards for the dynamic universe
+  →
+Local CPU: data audit, Logistic Regression, tree models, small-sample training
+  →
+Colab or cloud GPU: small TCN/GRU, raw-book incremental tests, one-time embedding extraction
+  →
+Drive: retain only current working sets, embeddings, checkpoints, and results
 ```
 
-禁止在训练循环里反复扫描 884 GiB 规范月 snapshot，也不要从 USB 机械盘随机读取大量股票日小文件。预处理按年或按月顺序扫描，最终训练数据写入少量大分片。
+Do not repeatedly scan the 884 GiB canonical snapshot files during training, or randomly read large numbers of stock-day files from the USB HDD. Preprocess sequentially by year or month and write a small number of large training shards.
 
-## 数据规模选择
+## Dataset-size choices
 
-以下估算使用 400 只股票和约 1,250 个交易日。
+Estimates use 400 stocks and about 1,250 trading days.
 
-| 表示 | 五年约占空间 | 适用阶段 |
+| Representation | Approximate five-year storage | Use |
 |---|---:|---|
-| 日级聚合特征 | 数百 MB | Logistic、LightGBM 和数据审计 |
-| 最近 60 分钟 × 33 特征 | 约 4 GB | 推荐主模型 |
-| 全天 240 分钟 × 33 特征 | 约 16 GB | 检查全天信息增量 |
-| 最后 200 个盘口 × 40 特征 | float16 约 8 GB | 原始盘口端到端主线 |
-| 最后 500 个盘口 × 40 特征 | float16 约 20 GB | 原始盘口扩展 |
-| 最后 1,000 个盘口 × 40 特征 | float16 约 40 GB | 通过前置实验后的最终扩展 |
-| 每日 64 维 embedding | 约 128 MB | 多日层级模型和反复调参 |
+| Daily aggregated features | Hundreds of MB | Logistic Regression, LightGBM, and data audit |
+| Last 60 minutes × 33 features | About 4 GB | Recommended primary model |
+| Full 240-minute day × 33 features | About 16 GB | Test the value of the full day |
+| Last 200 book events × 40 features | About 8 GB in float16 | Raw-book end-to-end track |
+| Last 500 book events × 40 features | About 20 GB in float16 | Raw-book expansion |
+| Last 1,000 book events × 40 features | About 40 GB in float16 | Later expansion, only after earlier gates pass |
+| Daily 64-dimensional embedding | About 128 MB | Multi-day hierarchical models and repeated tuning |
 
-## 统一研究口径
+## Shared research protocol
 
-### 样本和股票池
+### Samples and universe
 
-一个样本是一只股票和一个输入交易日。股票池每天动态生成，只使用信号时点前已知信息：
+One sample represents one stock and one input trading day. Build a dynamic universe using only information known before the signal time:
 
-- 上市至少 120 个交易日
-- 当日可交易且数据完整
-- 使用过去 20 日成交额或流动性排名选择前 400 只
-- 股票池统计量至少滞后一日，不能使用下一交易日信息
-- 保留退市、暂停上市和历史上曾经不活跃的股票，避免幸存者偏差
+- Require at least 120 listed trading days.
+- Require the stock to be tradable that day with complete data.
+- Select the top 400 using trailing 20-day turnover or liquidity.
+- Lag universe statistics by at least one day; do not use next-day information.
+- Retain delisted, suspended, and historically inactive stocks to reduce survivorship bias.
 
-第一版信号时点为 14:55。分钟模型使用 13:55 至 14:55 以前的 60 个节点。原始盘口模型使用 `time_ms <= 19_500_000` 的最后若干事件。
+The initial signal time is 14:55. The minute model uses the 60 nodes from 13:55 through the minute before 14:55. The raw-book model uses the final events satisfying `time_ms <= 19_500_000`.
 
-### 标签
+### Targets
 
-连续目标为下一交易日开盘到收盘收益：
+The continuous target is next-day open-to-close return:
 
 ```text
 next_return = next_close / next_open - 1
 target_return = next_return - csi_all_a_next_return
 ```
 
-主评估使用连续 `target_return` 的每日 Rank IC。三分类标签仅供分类模型训练：
+Primary evaluation uses daily Rank IC on continuous `target_return`. Three-class labels are used only to train classification models:
 
-- 每日最低 20% 为下跌类
-- 中间 60% 为中性类
-- 最高 20% 为上涨类
-- 分位点处相同收益保持同一标签，不按股票代码拆分
+- Bottom 20% each day: down class.
+- Middle 60%: neutral class.
+- Top 20%: up class.
+- Keep equal returns in the same class at quantile boundaries; do not split ties by ticker.
 
-### 时间切分
+### Time splits
 
-首轮正式实验：
+The initial formal experiment uses:
 
 ```text
-训练：2021-01 至 2023-12
-验证：2024-01 至 2024-12
-测试：2025-01 至 2025-12
+Train:      2021-01 through 2023-12
+Validation: 2024-01 through 2024-12
+Test:       2025-01 through 2025-12
 ```
 
-工程试跑可以只用 2024 年第一季度，但不能用试跑结果宣称策略有效。训练、验证和测试按完整交易日切分，标签跨越边界的样本执行 purge。标准化、股票池阈值和任何特征筛选只在训练期拟合。
+Engineering smoke runs may use only 2024 Q1, but they cannot support a strategy-performance claim. Split by complete trading days and purge samples whose labels cross a boundary. Fit normalization, universe thresholds, and feature selection using training dates only.
 
-## 分阶段路线
+## Staged research plan
 
-### 内部对照 A：分钟缓存数据审计
+### Internal control A: audit minute-cache data
 
-目标是确认现有缓存可以形成无泄漏的训练样本。
+Confirm that the existing cache can produce leakage-free samples:
 
-实现内容：
+- Read yearly snapshot, order, and trade Parquet directly.
+- Join modalities by `date,ticker,minute`.
+- Build the historical dynamic Top-400 universe.
+- Extract the last 60 minutes available before the signal time.
+- Generate next-day open-to-close excess returns.
+- Report sample manifests, missingness, class distribution, and date coverage.
 
-- 直接读取 snapshot、order 和 trade 年度 Parquet
-- 按 `date,ticker,minute` 合并三个模态
-- 生成历史动态 400 股票池
-- 提取信号时点前最后 60 分钟
-- 生成次日开盘到收盘超额收益
-- 输出样本清单、缺失率、类别分布和日期覆盖报告
+Acceptance requires inputs at or before the signal time; adjacent input and label trading days; disjoint splits with boundary labels removed; one sample per stock-day; missingness summarized by date, stock, and industry; and documented label coverage, suspension, and price-limit handling.
 
-验收条件：
-
-- 输入时间严格早于或等于信号时点
-- 输入日和标签日是相邻交易日
-- 日期切分无交集，跨边界标签已清除
-- 每个股票日只有一个样本
-- 三个模态的有效率和缺失模式已按日期、股票和行业汇总
-- 标签覆盖率、停牌和涨跌停处理有明确统计
-
-产物建议：
+Suggested outputs:
 
 ```text
 data/nextday-minute/
@@ -201,114 +171,71 @@ results/data-audit/
   label-distribution.json
 ```
 
-### 内部对照 B：低成本基线
+### Internal control B: low-cost baselines
 
-从 60 分钟序列提取日级聚合特征，依次训练：
+Aggregate 60-minute sequences into daily features and train, in order:
 
-1. 多数类和零分数基线
-2. Logistic Regression
-3. HistGradientBoosting 或 LightGBM
+1. Majority-class and zero-score baselines.
+2. Logistic Regression.
+3. HistGradientBoosting or LightGBM.
 
-模型在本机 CPU 训练。先判断微观结构信息是否在严格样本外具有方向一致性。
+Train on local CPU first. Determine whether microstructure information has consistent direction out of sample. Proceed to more complex models only when mean daily validation Rank IC is positive, gains are not concentrated in a few months, score-group returns are broadly monotonic, and small changes to universe, signal time, or label thresholds do not reverse the result. These gates decide whether further compute is warranted; they do not replace locked-test results.
 
-继续投入复杂研究模型的条件：
+### Research extension A: 60-minute TCN
 
-- 验证期每日 Rank IC 均值为正
-- 月度 Rank IC 不能只由少数月份贡献
-- 最高分组与最低分组收益排序大体单调
-- 结果对股票池、信号时点和标签阈值的小范围变化不过度敏感
-
-这些条件只决定是否继续投入计算，不替代最终锁定测试集结果。
-
-### 研究扩展 A：60 分钟 TCN
-
-推荐默认结构：
+Recommended starting architecture:
 
 ```text
-60 × 33 分钟微观结构特征
-  → 训练期标准化
-  → 3～4 个轻量 TCN block
-  → 64 维日内向量
-  → 连续分数或三分类输出
+60 × 33 minute-level microstructure features
+  → normalization fitted on training dates
+  → 3–4 lightweight TCN blocks
+  → 64-dimensional intraday vector
+  → continuous score or three-class prediction
 ```
 
-先比较：
+Compare snapshot-only, snapshot+order, all three modalities, 60 versus 240 minutes, and TCN versus a small GRU. Keep the model below about 500,000 parameters. Use Colab for individual tuning runs and multiple seeds for the final configuration.
 
-- snapshot-only
-- snapshot + order
-- snapshot + order + trade
-- 60 分钟与 240 分钟
-- TCN 与小型 GRU
+Retain this model as a useful control only if TCN consistently beats the aggregated baseline on validation, Rank IC/group returns/stability agree, and adding order or trade features yields reproducible improvement.
 
-参数量保持在约 50 万以内。单次调参使用 Colab，最终配置至少运行多个随机种子。
+### Raw-book end-to-end model
 
-保留该模型作为有效对照的条件：
+The raw-book model tests whether minute aggregation loses information useful for next-day prediction. Data preparation, training, and gates are in the [raw-200 end-to-end pipeline](raw-200-end-to-end-pipeline.md); this section preserves the initial design.
 
-- TCN 稳定优于阶段 1 聚合基线
-- 验证期 Rank IC、分组收益和稳定性方向一致
-- 增加 order 或 trade 后确有可重复的增量
+The formal experiment began with a controlled 2024 pilot: dynamic Top-100 stocks, the final 200 book events, 2024 H1 training, Q3 validation, and Q4 locked test. Configurations are `configs/nextday-raw-pilot.yaml` and `configs/nextday-pilot.yaml`; the million-parameter variant is `configs/nextday-raw-1m-pilot.yaml`. The pilot required data audit, Logistic baseline, and a 100-batch Colab throughput run before allocating an end-to-end budget. Daily metrics require at least 80 stocks. Since 2024 Q4 has already informed development, it is not an unseen test for new model selection.
 
-### 原始盘口端到端模型
+The initial full configuration was 2021–2025, dynamic Top-400, and the last 200 book events, split into two 100-event DeepLOB blocks. Later experiments skipped raw-500 and directly compared raw-200/raw-1000 and 1M/100M on the same fixed Top-100 sample in a four-cell, three-seed matrix. The capacity main effect was negative and the window main effect near zero, triggering the stop gate. Full results are in the [multi-horizon and data expansion roadmap](multi-horizon-data-expansion-roadmap.md).
 
-原始盘口用于检验分钟聚合是否丢失了可用于次日预测的信息。数据加工、训练和门槛见 [raw-200-end-to-end-pipeline.md](raw-200-end-to-end-pipeline.md)，本节保留早期研究设计。
+Stop raw-book capacity and window expansion. Retain existing raw models as controls against minute features.
 
-正式实验前先运行受控 pilot，用 2024 全年、动态前 100 股票、最后 200 个盘口事件，2024H1 训练、2024Q3 验证、2024Q4 锁定测试。数据和训练配置分别位于 `configs/nextday-raw-pilot.yaml` 和 `configs/nextday-pilot.yaml`，百万参数容量实验使用 `configs/nextday-raw-1m-pilot.yaml`。pilot 先完成数据审计、Logistic 基线和 100 个 batch 的 Colab 吞吐测试，再确定端到端训练预算。日度指标要求至少 80 只股票。已查看过结果的 2024Q4 只作开发证据，新的模型选择不能重新把它当作未见测试集。
+### Research extension B: encode once, train across days
 
-第一轮配置为：
+After selecting a single-day encoder, freeze a version and generate daily embeddings once:
 
 ```text
-2021 至 2025
-动态 400 股票
-最后 200 个盘口事件
-2 个 100-event DeepLOB block
+daily minute or order-book sequence
+  → fixed intraday encoder
+  → 64-dimensional embedding
+  → recent 5-, 10-, or 20-day TCN/GRU
+  → next-day cross-sectional score
 ```
 
-后续实际跳过 raw-500，直接使用固定 Top-100 样本完成 raw-200 与 raw-1000、1M 与 100M 的四格三 seed 比较。容量主效应为负，窗口主效应接近零，已经触发停止条件。完整数字见[多周期标签与数据扩容路线](multi-horizon-data-expansion-roadmap.md)。
+For five years and 400 stocks, 64-dimensional float32 embeddings require about 128 MB. A multi-day model can then be iterated locally without repeatedly encoding raw ticks.
 
-当前停止扩大原始盘口容量和窗口，保留现有模型与分钟对照。
+## Evaluation and stop rules
 
-### 研究扩展 B：一次编码，多日训练
+Every stage should report daily Rank IC mean, median, standard deviation, and positive share; monthly Rank IC and market-regime breakdowns; Macro F1, balanced accuracy, MCC, and Brier score; quantile portfolio returns, turnover, and approximate costs; stability by stock, industry, size, and liquidity; and variation across seeds and walk-forward folds.
 
-当单日编码器确定后，冻结或固定版本，一次性生成每日 embedding：
+Stop model expansion if training metrics improve without validation Rank IC gains; a month or seed change reverses the result; raw-book models do not consistently beat the minute TCN; returns concentrate in untradable price-limit, post-suspension, or very-low-liquidity stocks; or reasonable costs erase grouped returns.
 
-```text
-股票日分钟或盘口序列
-  → 固定日内编码器
-  → 64 维 embedding
-  → 最近 5、10、20 日 TCN/GRU
-  → 次日横截面分数
-```
+## Current engineering sequence
 
-五年 400 股票的 64 维 float32 embedding 约 128 MB。多日模型可以在本机快速迭代，避免每次实验重复编码原始 tick。
+The planned minute-cache adapter, dynamic universe, minute baseline, TCN, GRU, raw working sets, and event-stream packing are implemented. Next:
 
-## 评估和停止规则
+1. Start M4 and compare HGB with LambdaMART on the same data fingerprint.
+2. Complete real seed-0 materialization, upload, and short-resume verification for event-stream fixed windows.
+3. Run recent-fold `capacity100m` seed 0; add seeds 1 and 2 only if gates pass.
+4. Freeze a passing checkpoint as an embedding and connect it to M4 under the same downstream contract.
+5. Run a `probe150m` capacity ablation only if the 100M signal or frozen-embedding gain passes its gate.
+6. Keep 2026 locked under the research protocol and explicit approval.
 
-所有阶段至少报告：
-
-- 每日 Rank IC 的均值、中位数、标准差和正值比例
-- 月度 Rank IC 和不同市场状态下的分解
-- Macro F1、Balanced Accuracy、MCC 和 Brier 分数
-- 分位数组合收益、换手率和粗略交易成本
-- 股票、行业、规模和流动性分组稳定性
-- 不同随机种子和 walk-forward 窗口的波动
-
-以下情况应停止扩大模型：
-
-- 只提高训练集指标，验证期 Rank IC 没有改善
-- 改变一个月份或随机种子后结论反转
-- 原始盘口模型没有稳定超过分钟 TCN
-- 收益集中在无法交易的涨跌停、停牌恢复或极低流动性股票
-- 扣除合理成本后分组收益消失
-
-## 当前工程顺序
-
-早期计划中的分钟缓存适配、动态股票池、分钟基线、TCN、GRU、raw 工作集和事件流打包均已实现。接下来按以下顺序推进：
-
-1. 启动 M4，在同一数据指纹下比较 HGB 与 LambdaMART
-2. 完成事件流固定窗口缓存的真实 seed 0 物化、上传与短恢复验收
-3. 运行事件流最近折 `capacity100m` seed 0，再按门槛决定是否补 seed 1 和 2
-4. 将通过门槛的 checkpoint 冻结为 embedding，并接入 M4 的相同下游合同
-5. 只有 100M 信号或冻结 embedding 增量通过门槛，才运行 `probe150m` 容量消融
-6. 保持 2026 锁定，由研究协议和人工审批控制访问
-
-每一步都应先增加合成数据测试，再运行真实数据小样本。真实数据输出保存在 Git 忽略的 `data/` 和 `results/`，代码、配置、schema 和审计摘要提交到仓库。
+For each step, add synthetic-data tests before running a small real-data sample. Store real outputs under Git-ignored `data/` and `results/`; commit code, configuration, schemas, and aggregate audits only.

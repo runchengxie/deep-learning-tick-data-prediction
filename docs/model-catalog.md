@@ -1,130 +1,132 @@
-# 模型清单与选择指南
+# Model Catalog and Selection Guide
 
-本页汇总仓库中已经实现和明确规划的模型，说明它们怎样处理数据、适合解决什么问题，以及目前得到的研究结论。指标会随实验推进而变化，完整数字以[项目现状](project-status.md)和[实验日志](research/experiment-log.md)为准。
+This page summarizes implemented models and explicitly planned research. It describes their inputs, methods, intended use, and current evidence. Metrics change as experiments progress. Refer to [Project status](project-status.md) and the [experiment log](research/experiment-log.md) for complete figures.
 
-## 一览
+## At a glance
 
-| 模型 | 输入 | 深度学习 | 当前状态 | 当前判断 |
-|---|---|---|---|---|
-| Logistic Regression | 原始盘口的日内统计量 | 否 | 已实现 | 低成本最低对照，用于确认复杂序列模型是否真的增加信息 |
-| HGB | 委托、成交、快照的分钟聚合特征 | 否 | 已完成正式 M3 实验 | 当前最稳健的分钟基线，预测信号尚未形成可覆盖 10bp 单边成本的主动收益 |
-| 分钟 TCN | 按时间排列的分钟特征 | 是 | 已完成三 seed 受控对比 | 验证集较好，测试集弱于 HGB，存在过拟合 |
-| 分钟 GRU | 按时间排列的分钟特征 | 是 | 训练和评估链路已实现 | 用于检验循环网络能否补充 TCN 对照，尚无单独的正式研究结论 |
-| 分块 DeepLOB | 最后 200 或 1,000 个十档快照 | 是 | 四格三 seed 矩阵已完成 | `1M/raw-200` 最稳定，扩大窗口或参数量没有稳定增益 |
-| L2 事件流 Transformer | 无损归并的委托、成交和快照事件，可拼接分钟特征 | 是 | 100M、冻结表征和联合训练三 seed 已完成 | 联合 Rank IC 稳定为正，成本后主动收益仍需优化 |
-| FI-2010 DeepLOB | FI-2010 十档订单簿窗口 | 是 | 已归档到 `legacy/` | 用于论文复现和兼容检查，不代表 A 股次日预测效果 |
-| LambdaMART | 按交易日分组的横截面特征 | 否 | 最近折 M4 对照已完成 | embedding 单独输入有 OOS 信号，组合增量缺少跨 seed 和跨月稳定性 |
+| Model | Input | Deep learning | Status | Current assessment |
+|---|---|---:|---|---|
+| Logistic Regression | Daily statistics of raw order-book inputs | No | Implemented | Low-cost minimum baseline for testing whether sequence models add information |
+| HGB | Minute aggregates of orders, trades, and snapshots | No | Formal M3 experiment complete | Most stable minute baseline; its prediction signal has not produced stable active returns that cover 10 bp one-way cost |
+| Minute TCN | Minute features ordered by time | Yes | Controlled three-seed comparison complete | Validation result was stronger than HGB, but test results were weaker and indicate overfitting |
+| Minute GRU | Minute features ordered by time | Yes | Training and evaluation implemented | Tests whether a recurrent model adds to the TCN comparison; no separate formal result yet |
+| Chunked DeepLOB | Last 200 or 1,000 ten-level snapshots | Yes | Four-cell, three-seed matrix complete | `1M/raw-200` is most stable; longer windows and more parameters have no stable gain |
+| L2 event-stream Transformer | Losslessly merged orders, trades, and snapshots, optionally combined with minute features | Yes | 100M, frozen-representation, and joint-training three-seed work complete | Joint Rank IC is consistently positive; net active returns after costs still need improvement |
+| FI-2010 DeepLOB | Ten-level FI-2010 order-book windows | Yes | Maintained separately in `ticknet.fi2010` | Used for paper reproduction; does not show next-day A-share prediction performance |
+| LambdaMART | Cross-sectional features grouped by trading day | No | Recent-fold M4 comparison complete | Embeddings alone show OOS signal, but combined gains lack cross-seed and cross-month stability |
 
 ## Logistic Regression
 
-运行原理：先把一个股票日的盘口序列压缩成均值、标准差、末值和首尾变化，再对每个特征做标准化。模型为每个特征学习一个权重，把加权结果转换成下跌、中性和上涨的概率。
+**How it works:** Compress each stock-day order-book sequence into per-feature mean, standard deviation, last value, and first-to-last change. Standardize the features and learn a weight for each one. Convert the weighted output to down, neutral, and up probabilities.
 
-适合之处：训练快、占用资源少、结果容易解释，能够给复杂模型提供清晰的最低对照。
+**Why use it:** It trains quickly, uses few resources, and is easy to interpret. It provides a clear minimum baseline for more complex models.
 
-主要限制：只能表达较简单的线性关系。原始事件的先后顺序在统计聚合时已经丢失，也难以自动学习特征之间复杂的组合关系。
+**Limitations:** It represents only simple linear relationships. Aggregation discards event order and does not automatically learn complex feature interactions.
 
-代码入口为 `scripts/run_nextday_baseline.py`。
+Entry point: `scripts/run_nextday_baseline.py`.
 
 ## HGB
 
-HGB 是直方图梯度提升树，对应 `HistGradientBoostingClassifier`。它属于传统机器学习模型。
+HGB is the histogram gradient-boosting tree model `HistGradientBoostingClassifier`, a conventional machine-learning model.
 
-运行原理：模型依次训练多棵较浅的决策树。每棵新树重点修正前面树组仍然判断不好的样本，最终把所有树的结果相加。训练前会把连续特征分到有限数量的区间，以降低计算量。当前链路输入最近一段时间的分钟特征聚合值，并保留缺失值路径。
+**How it works:** Train a sequence of shallow decision trees. Each new tree focuses on samples that earlier trees still classify poorly, and the tree outputs are summed. Continuous features are binned to reduce computation. The current pipeline uses recent minute-feature aggregates and retains missing-value paths.
 
-适合之处：适合表格特征和非线性关系，CPU 训练成本较低，能够处理缺失值，对当前数据规模较稳健。M3 v2 的 2025 下半年 Rank IC 为 0.06994，六个月月度 IC 均为正。
+**Why use it:** It handles tabular features and nonlinear relationships, trains inexpensively on CPU, supports missing values, and has been stable at the current data scale. M3 v2 reported a 2025 H2 Rank IC of 0.06994, with positive monthly IC in all six months.
 
-主要限制：模型看到的是人工聚合后的日级特征，无法直接读取逐笔事件顺序。M3 的 64 组成本矩阵也表明，较好的排序相关性还没有转化为可覆盖单边 10bp 成本的稳定主动收益。
+**Limitations:** The model sees manually aggregated daily features and cannot read tick-level order directly. The 64-cell M3 cost matrix also shows that ranking correlation has not yet produced stable active returns that cover 10 bp one-way costs.
 
-代码入口为 `scripts/run_minute_baseline.py` 和 `ticknet.nextday.minute_baseline`。
+Entry points: `scripts/run_minute_baseline.py` and `ticknet.nextday.minute_baseline`.
 
-## 分钟 TCN
+## Minute TCN
 
-TCN 是时间卷积网络，属于深度学习模型。
+TCN is a temporal convolutional network and a deep-learning model.
 
-运行原理：模型沿时间轴做一维卷积。因果卷积保证某个时刻只使用当时及更早的数据，膨胀卷积让后面的层用较少层数看到更长的时间范围。残差连接把每层的新信息叠加到原表示上。最后一个时间步的表示进入分类头和连续分数头。
+**How it works:** Apply one-dimensional convolutions along time. Causal convolutions ensure that each step uses only data available at that time. Dilated convolutions let deeper layers see a longer history with fewer layers. Residual connections add each layer's new information to its input. The final time-step representation feeds classification and continuous-score heads.
 
-适合之处：多个时间位置可以并行计算，训练通常比循环网络快。不同膨胀尺度可以同时捕捉短时变化和较长的日内模式。
+**Why use it:** It computes multiple time positions in parallel and is often faster to train than a recurrent model. Different dilation rates can capture short changes and longer intraday patterns.
 
-主要限制：感受范围由层数、卷积核和膨胀方式预先决定。当前三 seed 实验中，验证集优势没有延续到测试集，正式测试结果弱于 HGB。
+**Limitations:** Layer count, kernel size, and dilation predefine its receptive field. In the current three-seed experiment, the validation advantage did not carry through to test, where formal results were weaker than HGB.
 
-代码位于 `ticknet.nextday.minute_tcn`，训练入口为 `ticknet-minute-tcn-train`。
+Code: `ticknet.nextday.minute_tcn`. Training entry point: `ticknet-minute-tcn-train`.
 
-## 分钟 GRU
+## Minute GRU
 
-GRU 是门控循环单元，属于深度学习模型。
+GRU is a gated recurrent unit and a deep-learning model.
 
-运行原理：模型按时间顺序逐分钟读取特征，并维护一份隐藏状态。更新门决定保留多少历史信息，重置门决定当前输入应怎样与历史结合。最后一层最后时刻的隐藏状态进入分类头和连续分数头。
+**How it works:** Read features in minute order while maintaining a hidden state. The update gate controls how much history to retain, and the reset gate controls how the current input combines with history. The final hidden state feeds classification and continuous-score heads.
 
-适合之处：结构直观，天然适合有先后顺序的序列，可以作为 TCN 的低成本对照。
+**Why use it:** Its structure is straightforward and naturally represents ordered sequences. It is a lower-cost recurrent comparison for the TCN.
 
-主要限制：时间步通常需要依次计算，并行度低于 TCN 和 Transformer。长序列的信息需要持续压缩到有限的隐藏状态中。仓库已经具备完整训练、恢复和锁定测试链路，目前还没有一项单独的正式实验支持其优于 HGB 或 TCN。
+**Limitations:** Time steps are usually computed sequentially, so parallelism is lower than in TCNs and Transformers. Long histories must be compressed into a fixed-size hidden state. The repository has training, recovery, and locked-test workflows, but no separate formal experiment shows that it outperforms HGB or TCN.
 
-代码位于 `ticknet.nextday.minute_gru`，训练入口为 `ticknet-minute-gru-train`。
+Code: `ticknet.nextday.minute_gru`. Training entry point: `ticknet-minute-gru-train`.
 
-## 分块 DeepLOB
+## Chunked DeepLOB
 
-分块 DeepLOB 是项目的原始盘口次日预测模型，属于深度学习模型。
+Chunked DeepLOB is the project's raw-order-book next-day model.
 
-运行原理：模型把最后 200 或 1,000 个十档盘口快照切成每段 100 个事件。每段先经过卷积层提取价位和局部时间模式，再由多分支 Inception 模块观察不同时间尺度，最后用 LSTM 压缩成一个分块向量。日级 GRU 按顺序汇总所有分块，分类头输出三类方向，分数头输出用于横截面排序的连续值。
+**How it works:** Split the last 200 or 1,000 ten-level order-book snapshots into chunks of 100 events. Convolution layers extract price-level and local temporal patterns from each chunk. A multi-branch Inception module observes several time scales, then an LSTM compresses each chunk into one vector. A daily GRU summarizes the vectors in order. A classification head predicts three directions, while a score head produces a continuous value for cross-sectional ranking.
 
-适合之处：直接读取十档盘口序列，能保留分钟聚合会丢失的局部形态。分块设计控制了单次序列长度，并让同一个 DeepLOB 编码器重复使用。
+**Why use it:** It reads the ten-level sequence directly and retains local structures that minute aggregation discards. Chunking limits individual sequence length and reuses the same DeepLOB encoder.
 
-主要限制：数据准备和 GPU 训练成本显著高于分钟模型。Top-100 四格三 seed 矩阵显示，`1M/raw-200` 最稳定，100M 参数和 raw-1000 都没有形成稳定增益，因此当前停止继续扩大这条路线。
+**Limitations:** Data preparation and GPU training cost substantially more than for minute models. The controlled Top-100 four-cell, three-seed matrix found `1M/raw-200` most stable. Neither 100M parameters nor raw-1000 produced stable gains, so further expansion is paused.
 
-代码位于 `ticknet.nextday.model`，数据和实验说明见[原始盘口端到端流程](nextday/raw-200-end-to-end-pipeline.md)。
+Code: `ticknet.nextday.model`. See the [raw-order-book end-to-end pipeline](nextday/raw-200-end-to-end-pipeline.md).
 
-## L2 事件流 Transformer
+## L2 Event-Stream Transformer
 
-事件流模型是带旋转位置编码的因果 Transformer，属于深度学习模型。仓库已经提供 smoke、25M、50M、100M 和 150M 尺寸预设，其中 `capacity100m` 有 100,604,180 个参数。
+The event-stream model is a causal Transformer with rotary position embeddings. Presets include smoke, 25M, 50M, 100M, and 150M parameters. The `capacity100m` preset has 100,604,180 parameters.
 
-运行原理：委托、成交和快照先按真实发生顺序归并。每个事件由数值特征、事件流类型和委托类型共同编码。自注意力让每个位置查看此前所有可见事件，因果遮罩阻止模型读取未来，旋转位置编码提供事件相对位置。模型同时学习下一事件类型、下一委托类型、下一事件数值和日级收益信号，共享主干可以把细粒度市场行为压缩成可复用的隐藏表示。
+**How it works:** Merge order, trade, and snapshot events in their true event order. Encode each event using numerical features, stream type, and order type. Self-attention lets each position inspect earlier visible events; the causal mask blocks future information, while rotary embeddings encode relative event position. The model jointly learns the next event type, next order type, next event values, and daily return signal. The shared trunk compresses fine-grained market behavior into a reusable representation.
 
-适合之处：能够直接利用长事件序列中的远近依赖，注意力可以在不同事件类型之间建立联系。多任务训练还可以利用大量事件级监督，再把隐藏表示作为冻结 embedding 接入下游排序模型。
+**Why use it:** It can use long-range dependencies and connect different event types. Multi-task training uses abundant event-level supervision, and hidden states can be exported as frozen embeddings for downstream ranking models.
 
-主要限制：训练需要远端 GPU，存储与输入吞吐成本都很高。100M 最近折三 seed 的 H5 validation Rank IC 均值为 0.07259，OOS 均值为 0.04300，三组方向均为正。冻结表征接入 HGB 后，三 seed 预测均值的 OOS Rank IC 从分钟基线的 0.04010 提高到 0.05701，验证月也从 0.01808 提高到 0.02833。联合训练三 seed 的 validation Rank IC 为 `0.05917 ± 0.01400`，OOS Rank IC 为 `0.06398 ± 0.00785`。OOS `Precision@100` 为 `0.23921 ± 0.01611`，Top-100 日均成本后主动收益为 `-9.67 ± 3.71bp`。当前证据只覆盖一个验证月和一个 OOS 月。
+**Limitations:** Training requires a remote GPU, and storage and input throughput are expensive. The recent-fold 100M H5 runs had mean Rank IC of 0.07259 on validation and 0.04300 OOS across three seeds, all with positive direction. After adding frozen representations to HGB, mean OOS Rank IC rose from the minute baseline's 0.04010 to 0.05701, while validation rose from 0.01808 to 0.02833. Joint-training three-seed validation Rank IC was `0.05917 ± 0.01400`, and OOS Rank IC was `0.06398 ± 0.00785`. OOS `Precision@100` was `0.23921 ± 0.01611`, while mean daily Top-100 active return after costs was `-9.67 ± 3.71bp`. Current evidence covers only one validation month and one OOS month.
 
-冻结表征取每只股票尾盘窗口最后一个有效事件的 960 维隐藏状态。三个 checkpoint 使用同一份尾盘窗口缓存，各自保留独立坐标空间。下游分别训练 HGB 和 LambdaMART，再汇总指标或平均预测分数。这个流程可以避免把不同 seed 中含义未对齐的向量维度直接混合。
+Frozen representations use the 960-dimensional hidden state of each stock's last valid event in the closing window. Three checkpoints use the same closing-window cache but retain separate coordinate spaces. HGB and LambdaMART are trained separately for each checkpoint; metrics are summarized or prediction scores averaged afterward. This avoids directly mixing embedding dimensions whose meaning may differ across seeds.
 
-代码位于 `ticknet.eventstream.model`，完整状态见[事件流说明](nextday/eventstream.md)。
+Code: `ticknet.eventstream.model`. See the [event-stream guide](nextday/eventstream.md).
 
-事件流主干还提供一组默认关闭的 M3-inspired 表征开关，用于受控比较盘口 prefix、固定 session anchor 和 Hybrid VQ。它们属于表征实验，不代表已经完成真实滚动窗口训练，也不改变当前模型清单中的正式性能结论。设计与合同见[M3-inspired 事件流表征实验](research/m3-eventstream-representation.md)。
+The trunk also has default-off, M3-inspired representation options for order-book prefixes, fixed session anchors, and Hybrid VQ. They are representation experiments, not completed real rolling-window training, and do not change the formal performance conclusions here. See the [M3-inspired event-stream representation study](research/m3-eventstream-representation.md) for its design and contract.
 
-联合端到端实验复用同一个 100M 主干和尾盘事件缓存。每个样本同时读取收盘前 512 个事件与 120 维分钟聚合特征。模型取最后一个有效事件的隐藏状态，拼接分钟特征塔输出，再由三分类头生成上涨概率减下跌概率的排序分数。训练先固定主干，让新增特征塔和分类头适应标签，随后用较小学习率联合更新全部参数。入口为 `ticknet-eventstream-joint-cache` 和 `ticknet-eventstream-joint-train`。
+Joint end-to-end experiments reuse the same 100M trunk and closing-window cache. Each sample combines the last 512 events before close with 120-dimensional minute aggregates. The model takes the last valid event's hidden state, concatenates the minute-feature tower output, and uses a three-class head to produce the up-probability minus down-probability ranking score. Training first freezes the trunk so the added feature tower and classifier can adapt, then jointly updates all parameters at a lower learning rate. Entry points: `ticknet-eventstream-joint-cache` and `ticknet-eventstream-joint-train`.
 
-正式 seed 0、1、2 的最佳 epoch 分别为 2、1、1，后续训练很快回落并触发早停。联合模型的 OOS `NDCG@100` 为 `0.54507 ± 0.00450`，与冻结 HGB 三 seed 预测均值接近。日均单边换手为 `49.74% ± 5.79%`，三个 seed 的成本后主动收益均为负。后续实验需要同时观察 Rank IC、Precision 和交易成本，不能只按 Rank IC 决定容量扩张。
+For formal seeds 0, 1, and 2, the best epochs were 2, 1, and 1. Later epochs declined quickly and triggered early stopping. Joint-model OOS `NDCG@100` was `0.54507 ± 0.00450`, close to the frozen-HGB three-seed mean. Mean daily one-way turnover was `49.74% ± 5.79%`, and all three seeds had negative active returns after costs. Further work must track Rank IC, precision, and trading costs together; Rank IC alone must not determine capacity expansion.
 
 ## FI-2010 DeepLOB
 
-这个模型是论文 DeepLOB 的兼容实现，属于深度学习模型。
+This is a compatibility implementation of the DeepLOB paper.
 
-运行原理：三个卷积块先提取十档价格、数量和局部时间模式，多分支 Inception 模块组合不同时间尺度，64 单元 LSTM 汇总时间信息，线性层输出三类方向。
+**How it works:** Three convolution blocks extract patterns from ten-level prices, volumes, and local time. Multi-branch Inception combines several time scales, a 64-unit LSTM summarizes the sequence, and a linear layer outputs three directional classes.
 
-它适合核对论文结构、FI-2010 数据转换和训练流程。数据市场、标签和任务口径与当前 A 股次日预测不同，相关结果只用于复现。实现和训练脚本位于 `legacy/`，主门禁只保留模型前向、梯度和参数量冒烟。
+It is useful for checking the paper's architecture, FI-2010 conversion, and training process. Its market, labels, and task differ from current A-share next-day prediction, so its results apply only to reproduction. The implementation and training scripts are under `src/ticknet/fi2010/`. The quality gate includes synthetic smoke checks for forward pass, gradients, parameter count, and dataset windows.
 
 ## LambdaMART
 
-LambdaMART 是基于梯度提升树的排序模型，属于传统机器学习模型。仓库通过 LightGBM 的 `LGBMRanker` 实现 M4 对照。
+LambdaMART is a gradient-boosted ranking model. This repository uses LightGBM's `LGBMRanker` for the M4 comparison.
 
-运行原理：训练样本按交易日分组，模型比较同一天股票的相对顺序。训练时会优先修正对 NDCG 等排序指标影响更大的错序样本，再由多棵树累加形成最终分数。
+**How it works:** Group samples by trading day and compare stock orderings within each day. Training focuses on inversions that affect ranking metrics such as NDCG. The final score sums the outputs of multiple trees.
 
-适合之处：训练目标与每日 Top-K 选股更接近，也保留了树模型处理表格数据、非线性关系和 CPU 训练的优势。
+**Why use it:** Its objective is closer to daily Top-K selection while retaining the strengths of tree models on tabular data, nonlinear relationships, and CPU training.
 
-主要限制：需要严格正确的日期分组和无泄漏特征。它可以改善排序目标的匹配程度，无法补充输入特征中原本不存在的信息。当前实现把每个交易日作为一个 group，将当日未来收益转换成五档非负 relevance，并与 HGB 使用相同股票日和评估口径。最近折中，embedding 单独输入的三 seed 预测均值在 OOS 得到 0.03414 Rank IC 和 15.53bp Top-100 日均成本后主动收益，validation 对应主动收益为 -15.34bp。组合输入在 validation 和 OOS 的方向也不一致，因此暂不把 LambdaMART 升为主候选。入口为 `ticknet-embedding-compare`。
+**Limitations:** Date grouping must be exact, and features must not leak future information. A better-aligned ranking objective cannot add information that is absent from the input. The current implementation groups each trading day, maps future returns to five non-negative relevance levels, and shares stock-days and evaluation rules with HGB. In the recent fold, the three-seed mean for embedding-only predictions had OOS Rank IC 0.03414 and daily Top-100 active return after costs of 15.53 bp. Validation active return was -15.34 bp. The combined-input results also disagreed in direction between validation and OOS, so LambdaMART has not been promoted to the main candidate.
 
-## 是否继续加入 Transformer
+Entry point: `ticknet-embedding-compare`.
 
-项目已经拥有一条完整的 Transformer 模型代码链路，最近折已经完成以下验证：
+## Should the project add more Transformers?
 
-1. 三组 `capacity100m` 最近折已经通过信号门槛。
-2. seed 共用的尾盘窗口缓存和三个 checkpoint 的 960 维 embedding 已生成并完成逐文件核对。
-3. HGB 和 LambdaMART 的分钟特征、embedding、二者组合对照已经完成。HGB 组合输入出现跨 seed 一致的 Rank IC 增量，成本后主动收益仍为负。
-4. 联合端到端三 seed 已完成，OOS Rank IC 为 `0.06398 ± 0.00785`。头部命中和成本后主动收益没有同步改善。
-5. 相邻滚动折 seed 0 的 H5 validation 与 OOS Rank IC 均为正。信号半衰期、交易转换和已具备数据的风险暴露已完成第一轮检查。
-6. 每日截面 z 标签在最近折和相邻折都提高了 validation 与 OOS Rank IC，最近折的 OOS 极端组收益差没有改善。
-7. 最近折的 `last` 和 `tail_weighted` validation Rank IC 为 0.07802 和 0.11289，均低于 `all` 的 0.11747，保留全位置监督。
-8. 下一步先检查日级任务权重，再决定是否实现成本感知排序目标。
-9. `probe150m` 等待训练机制形成跨窗口增量。
+The project already has a complete Transformer implementation and has completed the following recent-fold work:
 
-当前没有必要引入 Hugging Face `transformers` 依赖。现有模型已经使用因果注意力、旋转位置编码和 PyTorch 高效注意力接口，已确认的主要瓶颈在数据读取、远端存储和训练自动化。以后需要使用公开预训练模型、统一模型发布格式或成熟的 Trainer 生态时，再评估这项依赖。
+1. Three `capacity100m` runs passed the recent-fold signal gate.
+2. The shared closing-window cache and three checkpoints' 960-dimensional embeddings were generated and verified file by file.
+3. HGB and LambdaMART comparisons covered minute features, embeddings, and their combination. HGB with combined inputs produced a consistent Rank IC gain across seeds, but active returns after costs remained negative.
+4. Three joint end-to-end seeds completed with OOS Rank IC `0.06398 ± 0.00785`. Top-group precision and active returns after costs did not improve at the same time.
+5. Seed 0 completed on an adjacent rolling fold with positive H5 validation and OOS Rank IC. The first checks of signal decay, trading conversion, and available-data risk exposures are complete.
+6. Daily cross-sectional z-score labels improved validation and OOS Rank IC on both the recent and adjacent folds. The recent fold's OOS extreme-group return spread did not improve.
+7. Recent-fold validation Rank IC for `last` and `tail_weighted` supervision was 0.07802 and 0.11289, below 0.11747 for `all`. Keep all-position supervision.
+8. Next, test daily task weights before deciding whether to implement a cost-aware ranking objective.
+9. Defer `probe150m` until training changes show gains across windows.
 
-分钟链路暂不新增独立 Transformer。联合端到端实验已经复用现有事件流 Transformer，将分钟特征与日级隐藏表示送入同一个预测头。三 seed 的 OOS Rank IC 均为正，成本后主动收益均为负。现有 TCN 的验证优势没有稳定泛化，M3、frozen E2 和联合训练也没有形成跨月稳定的成本后主动收益。监督位置实验保留现有全位置方案，当前重点转为日级任务权重和训练目标，暂不增加模型容量。
+There is no current need to add Hugging Face `transformers`. The existing model already uses causal attention, rotary position embeddings, and PyTorch efficient-attention APIs. The identified bottlenecks are data reading, remote storage, and training automation. Reconsider the dependency if the project needs public pretrained models, a standard model-publishing format, or a mature Trainer ecosystem.
+
+Do not add a separate Transformer to the minute pipeline yet. Joint end-to-end experiments already reuse the event-stream Transformer and feed minute features and daily hidden representations to one prediction head. All three seeds had positive OOS Rank IC but negative active returns after costs. The TCN validation gain did not generalize consistently, and M3, frozen E2, and joint training have not produced stable after-cost active returns across months. Keep the existing all-position supervision. Current focus is daily task weighting and training objectives, not model capacity.

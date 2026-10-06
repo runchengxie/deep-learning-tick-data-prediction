@@ -1,56 +1,54 @@
-# 多周期标签与数据扩容路线图
+# Multi-Horizon Labels and Data Expansion Roadmap
 
-## 当前决策
+## Current decision
 
-截至 2026-08-10，五年 Top-400 raw-200 工作集已经生成，共 470,815 个股票日样本，目录约 7.2 GiB。1,033,383 参数模型的 seed 0、1、2 已完成 2024 验证期训练，最佳日均 Rank IC 分别为 0.02145、0.02054 和 0.01893，平均 0.02031，seed 间样本标准差 0.00127。2025 测试期继续锁定。
+As of 2026-08-10, the five-year Top-400 raw-200 working set was complete: 470,815 stock-day samples occupying about 7.2 GiB. Seeds 0–2 of the 1,033,383-parameter model completed training on the 2024 validation period. Best daily Rank IC values were 0.02145, 0.02054, and 0.01893, respectively; the mean was 0.02031 and the sample standard deviation across seeds was 0.00127. The 2025 test period remained locked.
 
-Google Drive 已升级为 200GB，当前容量足以保存 raw-200、多周期标签、raw-1000 和实验产物。Stage B 已完成。三个一日模型在 2024 validation 上的 H=5 平均 IC 为 0.07750，ensemble IC 为 0.08264，Newey-West t 值为 3.11，正 IC 月份占 83.3%，五组非重叠抽样最低 IC 为 0.07324，门槛通过。独立 H=5 seed 0 没有显示相对原一日模型的稳定增量，因此主目标继续使用 H=1，H=3 和 5 作为监控指标。
+Google Drive had been upgraded to 200 GB, enough for raw-200, multi-horizon labels, raw-1000, and experiment artifacts. Stage B passed: on 2024 validation, the three one-day models had mean H=5 IC of 0.07750, ensemble IC of 0.08264, Newey–West t-statistic 3.11, positive IC in 83.3% of months, and a minimum IC of 0.07324 across five non-overlapping groups. A standalone H=5 seed 0 did not show a stable gain over the one-day model. H=1 therefore remains the primary target, with H=3 and H=5 used for monitoring.
 
-2026-08-11 benchmark 已完成。T4 为 21.13 samples/s，A100 为 80.23 samples/s，A100 加速 3.80 倍，峰值 reserved 显存分别为 2.40 和 2.35 GiB。容量门槛通过，正式 100M 训练选择 A100。五年 raw-1000 Top-100 pilot 已完成并上传，共 118,078 个样本，其中 2021 至 2023 train 为 70,805 个。A100 batch sweep 选择 physical batch 32。
+The 2026-08-11 benchmark measured 21.13 samples/s on T4 and 80.23 samples/s on A100, a 3.80× speedup. Peak reserved memory was 2.40 and 2.35 GiB, respectively. The capacity gate passed, and A100 was selected for formal 100M training. The five-year raw-1000 Top-100 pilot was generated and uploaded with 118,078 samples, including 70,805 training samples from 2021–2023. The A100 batch sweep selected physical batch 32.
 
-截至 2026-08-16，固定 Top-100 样本集合与训练合同的 2×2 三 seed 归因矩阵已完成。四格 2024 validation 最佳日均 Rank IC 如下：
+As of 2026-08-16, a controlled 2×2 attribution matrix using a fixed Top-100 sample set and training contract was complete, with three seeds per cell. The 2024 validation daily Rank IC results were:
 
-| 模型容量 | raw-200 | raw-1000 |
+| Model capacity | raw-200 | raw-1000 |
 |---|---:|---:|
 | 1M | 0.03748 ± 0.00096 | 0.03530 ± 0.00241 |
 | 100M | 0.02740 ± 0.00412 | 0.03152 ± 0.00287 |
 
-容量从 1M 增至 100M 时，raw-200 和 raw-1000 下的均值分别下降 0.01008 和 0.00377。窗口从 raw-200 增至 raw-1000 时，1M 下下降 0.00219，100M 下上升 0.00413。跨另一因素取平均后，容量主效应为 -0.00693，窗口主效应为 +0.00097，交互项为 +0.00631。交互项来自长窗口对 100M 容量惩罚的部分抵消，`100M/raw-1000` 仍比最优的 `1M/raw-200` 低 0.00596。当前合同下不再继续扩大模型或事件窗口，下一门槛是冻结 `1M/raw-200` 的 seed 聚合方式、checkpoint 和一次性测试通过条件。2025 test 继续锁定。
+Increasing capacity from 1M to 100M reduced the mean by 0.01008 for raw-200 and 0.00377 for raw-1000. Increasing the window from raw-200 to raw-1000 reduced the 1M mean by 0.00219 and increased the 100M mean by 0.00413. Averaged across the other factor, the capacity main effect was -0.00693, the window main effect +0.00097, and the interaction +0.00631. The interaction reflects a partial offset of the 100M capacity penalty by the longer window; `100M/raw-1000` still trailed the best `1M/raw-200` cell by 0.00596. Under the current contract, do not expand model size or event window further. The next gate is to freeze aggregation across `1M/raw-200` seeds, checkpoints, and one-time test acceptance criteria. The 2025 test remains locked.
 
-## 不可变研究合同
-
-多周期收益固定为：
+## Immutable target contract
 
 ```text
-信号：T 日 14:55 前最后 N 个 snapshot
-进入：T+1 交易日开盘
-退出：T+H 交易日收盘，H ∈ {1, 3, 5}
-目标：个股收益减去中证全指同进入、退出时点收益
-分类：按 T 日可用样本横截面的 20% / 80% 分位点
+Signal: final N snapshots before 14:55 on day T
+Entry: open on trading day T+1
+Exit: close on trading day T+H, H ∈ {1, 3, 5}
+Target: stock return minus CSI All Share return over the same entry and exit times
+Classification: 20th/80th cross-sectional percentiles of samples available on T
 ```
 
-标签侧车保存 `entry_date` 和 `return_end_date`。样本只有在 `trading_date`、`entry_date` 和 `return_end_date` 全部位于同一 train、val 或 test 区间时才能进入该切分。H=1 直接复用现有 manifest 的标签和收益，作为向后兼容控制组。H=3 和 5 从同一日线与基准价格生成。
+The label sidecar stores `entry_date` and `return_end_date`. A sample is eligible only when `trading_date`, `entry_date`, and `return_end_date` all fall within the same train, validation, or test interval. H=1 reuses the existing manifest target and return as a backward-compatible control. H=3 and H=5 are generated from the same daily bars and benchmark prices.
 
-每份侧车绑定原特征 `dataset_fingerprint`。修改收益合同、分位点、股票样本集合或源数据时必须生成新目录，不能覆盖旧标签。特征 NPY 分片保持不变，因此这一阶段不会复制 7.2 GiB 工作集。
+Each sidecar is bound to the source feature `dataset_fingerprint`. A change to the return contract, quantiles, stock sample, or source data requires a new output directory; never overwrite old labels. The feature NPY shards remain unchanged, avoiding another copy of the 7.2 GiB working set.
 
-## 执行阶段与门槛
+## Stages and gates
 
-| 阶段 | 动作 | 当前状态 | 结果 |
+| Stage | Action | Status | Result |
 |---|---|---|---|
-| A. 标签侧车 | 生成 H=1/3/5 Parquet 和版本化 JSON 合同 | 已完成 | H=1 与旧 manifest 一致，边界 purge 通过 |
-| B. 固定模型评估 | 用三个已有 checkpoint 评估 2024 验证区的 IC@1D/3D/5D | 已完成 | H=5 监控门槛通过 |
-| C. 独立 H=5 模型 | 保持 raw-200 和 1M 结构，只改变目标 | 已完成 seed 0 | 未形成稳定增益，保留 H=1 主目标 |
-| D. raw-500 | 先做 Top-100，再做 Top-400 | 已跳过 | 直接用 raw-1000 做边界试验 |
-| E. raw-1000 | 生成 Top-100 并完成容量矩阵 | 已完成 | 长窗口没有稳定增益，停止扩到 Top-400 |
-| F. 全天 tick 试制 | 测量体积、吞吐和随机读取 | 已转入事件流主线 | 数据打包和输入基准已完成，正式训练待执行 |
+| A. Label sidecar | Generate H=1/3/5 Parquet labels and a versioned JSON contract | Complete | H=1 matches the old manifest; boundary purge passes |
+| B. Fixed-model evaluation | Evaluate existing three checkpoints on 2024 validation IC@1D/3D/5D | Complete | H=5 monitoring gate passed |
+| C. Standalone H=5 model | Keep raw-200 and 1M architecture; change only the target | Seed 0 complete | No stable gain; retain H=1 as primary target |
+| D. raw-500 | Try Top-100, then Top-400 | Skipped | Use raw-1000 directly as a boundary experiment |
+| E. raw-1000 | Generate Top-100 and complete capacity matrix | Complete | Longer window had no stable gain; do not expand to Top-400 |
+| F. Full-day tick pilot | Measure size, throughput, and random reads | Moved to event-stream track | Packing and input benchmark complete; formal training pending |
 
-模型容量试验使用 2×2 归因矩阵。股票样本集合、日期、目标、优化器和评估口径固定到同一合同，以 `1M/raw-200` 为控制组，`100M/raw-200` 只改变容量，`1M/raw-1000` 只改变窗口，`100M/raw-1000` 同时使用大容量与长窗口。四格三 seed 已全部完成。其余三格与既有 `100M/raw-1000` 使用同一 raw-1000 Top-100 工作集，raw-200 视图只读取每个样本最后两个 100-event chunk，避免生成第二份工作集。所有结果的数据指纹、70,805 个训练样本、23,472 个验证样本和 241 个有效验证日一致。矩阵结果将 `1M/raw-200` 选为下一门槛的唯一候选，不再使用不同股票样本集合的历史 `1M/raw-200` 结果做容量归因。
+Capacity attribution used a 2×2 matrix with the same stock sample, dates, targets, optimizer, and evaluation contract. `1M/raw-200` was the control; `100M/raw-200` changed capacity only; `1M/raw-1000` changed window only; `100M/raw-1000` changed both. All four cells completed three seeds. The other three cells reused the raw-1000 Top-100 working set used by `100M/raw-1000`; the raw-200 view selected the final two 100-event chunks per sample, avoiding a second working-set copy. All results shared the same fingerprint, 70,805 training samples, 23,472 validation samples, and 241 valid validation days. The matrix selects `1M/raw-200` as the sole candidate for the next gate. Earlier `1M/raw-200` results using a different stock sample are not used for capacity attribution.
 
-阶段 B 只访问 2024 验证集。horizon、收益处理、模型结构和 seed 列表冻结后，才允许一次性评估 2025 测试集。5 日标签高度重叠，报告同时给出逐日结果、每 5 个交易日非重叠抽样、月度结果和 Newey-West 或分块 bootstrap 不确定性。
+Stage B accesses 2024 validation only. Evaluate the 2025 test once, after horizon, return handling, architecture, and seed list are frozen. Since five-day labels overlap, report daily results, one-in-five non-overlapping samples, monthly results, and uncertainty from Newey–West or block bootstrap methods.
 
-## 近期执行命令
+## Recent execution commands
 
-代码合并并同步到远程主机后，在远程项目目录运行：
+On the remote host, after syncing the code, generate H=1/3/5 labels:
 
 ```bash
 .venv/bin/ticknet-nextday-prepare-horizon-labels \
@@ -62,7 +60,7 @@ Google Drive 已升级为 200GB，当前容量足以保存 raw-200、多周期�
   --min-cross-section 100
 ```
 
-产物预计远小于 1 GiB。审计通过后上传 Drive，但不重新上传 NPY 特征：
+Expected output is well below 1 GiB. After audit, upload labels without re-uploading the NPY features:
 
 ```bash
 rclone copy data/nextday-raw-200-targets-v1 \
@@ -70,16 +68,14 @@ rclone copy data/nextday-raw-200-targets-v1 \
   --checksum --transfers 4 --checkers 8 --progress
 ```
 
-训练配置选择侧车时增加：
+Select a sidecar in the training configuration with:
 
 ```yaml
 target_sidecar_path: ./data/nextday-raw-200-targets-v1/horizon-labels.json
 target_horizon: 5
 ```
 
-阶段 B 不会用 H=3/5 重新训练。它加载现有一日 checkpoint 的分数，只替换验证目标来画 IC 衰减曲线。阶段 C 才使用上面的训练配置。
-
-阶段 B 已通过 CLI 完成，旧交互流程已转换为 `legacy/notebooks/nextday_multi_horizon_validation.py`。Stage C 的 seed 0 入口为：
+Stage B does not retrain for H=3 or H=5. It evaluates existing one-day checkpoint scores against alternate validation targets to plot IC decay. Stage C uses the training configuration above. Its seed-0 entry point is:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -91,67 +87,67 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
 ```
 
-使用 `configs/nextday-raw-200-capacity-1m-h5.yaml`，只改变 target horizon 和独立产物目录。seed 0 只有在 2024 validation 的 H=5 IC、月度稳定性和成本后 Top-K 相对一日模型有增量时，才补 seed 1 和 2。2025 test 保持锁定。
+Use `configs/nextday-raw-200-capacity-1m-h5.yaml`, changing only the target horizon and isolated artifact directory. Run seeds 1 and 2 only if seed 0 shows gains in 2024 validation H=5 IC, monthly stability, and cost-adjusted Top-K returns. Keep 2025 locked.
 
-## 200GB 到 400GB 的容量门槛
+## Drive capacity gate: 200 GB to 400 GB
 
-Drive 峰值按以下口径估算：
+Estimate peak usage as:
 
 ```text
-现有正式数据 + 新工作集 + 上传/校验临时副本 + checkpoint/结果 + 25% 安全余量
+existing formal data + new working set + upload/verification copies + checkpoints/results + 25% safety margin
 ```
 
-在 200GB 套餐下，稳定占用控制在 120GB 以内，计划峰值控制在 150GB 以内。满足任一条件时，在生成或上传完整数据之前升级到 400GB：
+For the 200 GB plan, keep stable usage below 120 GB and planned peak below 150 GB. Upgrade to 400 GB before generating or uploading the full dataset if any of these hold:
 
-- 计划峰值超过 150GB
-- 一个月全天 Tick 试制超过 20GB，推算五个月超过 100GB
-- 需要同时保留两份 60GB 以上的正式工作集
-- Drive 其他个人数据使项目可用空间低于 50GB
+- Planned peak exceeds 150 GB.
+- A one-month full-day tick pilot exceeds 20 GB, implying over 100 GB for five months.
+- Two formal working sets over 60 GB each must be retained concurrently.
+- Other Drive data leaves less than 50 GB available to the project.
 
-raw-1000 预计 35 至 40 GiB，加上当前 raw-200、标签和 checkpoint，200GB 仍有充分余量。400GB 的实际决策点位于一个月全天 Tick 试制之后、五个月全量生成之前。
+Raw-1000 was expected to require 35–40 GiB. With raw-200, labels, and checkpoints, the 200 GB plan had adequate headroom. The 400 GB decision point is after measuring one month of full-day ticks and before generating five months.
 
-## Colab Pro+ 门槛
+## Colab Pro+ gate
 
-资源判断使用单个 seed 的连续运行时间，不使用所有 seed 的合计时间：
+Base the resource decision on continuous runtime per seed, not the sum across seeds:
 
-| 单 seed 100 batch 外推 | 资源决策 |
+| Projected time per seed at batch 100 | Resource decision |
 |---:|---|
-| 少于 8 小时 | 当前 Colab 方案，逐 seed 运行并保存 checkpoint |
-| 8 至 12 小时 | 优先 A100 或按量 compute units，Pro+ 可选 |
-| 12 至 20 小时 | Pro+ 有价值，但仍要求断点续训和独立产物 |
-| 超过 20 小时 | 不依赖单个 Colab 会话，改用专用云 GPU 或本地 5090 |
+| Under 8 hours | Keep current Colab plan; run seeds separately and save checkpoints |
+| 8–12 hours | Prefer A100 or pay-as-you-go compute units; Pro+ is optional |
+| 12–20 hours | Pro+ may help; require resume support and isolated outputs |
+| Over 20 hours | Do not depend on one Colab session; use a dedicated cloud GPU or local RTX 5090 |
 
-Top-400 1M raw-200 实测约 51 至 68 分钟每 seed，不需要 Pro+。固定 Top-100 矩阵的 1M raw-200 三 seed 实测为 13.75 至 15.54 分钟。raw-1000 先跑 100 batch 基准，只有外推单 seed 超过 8 小时才重新评估订阅。Pro+ 不作为获得 A100 的保证条件。
+Top-400 1M raw-200 took about 51–68 minutes per seed, so Pro+ was unnecessary. The fixed Top-100 matrix took 13.75–15.54 minutes for three seeds of 1M raw-200. Benchmark raw-1000 at batch 100 first; reconsider the subscription only if one seed projects to over eight hours. Pro+ does not guarantee access to A100.
 
-## raw-1000 Top-100 与 100M benchmark
+## raw-1000 Top-100 and 100M benchmark
 
-先生成不覆盖任何旧数据的单月 preflight：
+Create an isolated single-month preflight:
 
 ```bash
 .venv/bin/ticknet-nextday-prepare-snapshot \
   --config configs/nextday-raw-1000-preflight.yaml
 ```
 
-源 snapshot 约每 3 秒一条。raw-200 的 14:30 起点在 14:55 前通常只有 500 条，因此 raw-1000 固定从 13:30 开始扫描，再严格保留信号时点前最后 1000 个有效事件。扫描起点只是数据提取窗口，更早的多余事件不会进入样本。
+Source snapshots arrive about every three seconds. The raw-200 window beginning at 14:30 usually contains only 500 events, so raw-1000 scanning begins at 13:30 and retains only the last 1,000 valid events before 14:55. The earlier scan start is only an extraction boundary; extra events do not enter the sample.
 
-审计 `manifest.json`、`data-audit.json`、分片大小和校验和后，把它同步到：
+Audit `manifest.json`, `data-audit.json`, shard sizes, and checksums before uploading to:
 
 ```text
 gdrive:deep-learning-tick-data-prediction/ticknet-data/nextday-raw-1000-preflight-202101-top100
 ```
 
-然后用 `scripts/run_colab_nextday.py --workflow capacity-benchmark` 分别申请 T4 和 A100。两次运行固定 5 个 warmup batch 和 100 个 measured batch，默认 ephemeral，完成后自动关闭 runtime。比较 `capacity-benchmark.json` 的真实 GPU 名称、samples/s、peak reserved GiB 和按 75,000 个训练样本外推的单 seed 小时数。若单 seed 小于 8 小时且显存留有至少 20% 余量，再生成五年 `configs/nextday-raw-1000-top100.yaml`，否则先缩小有效 batch 或模型宽度。
+Run `scripts/run_colab_nextday.py --workflow capacity-benchmark` separately on T4 and A100. Each run uses five warmup batches and 100 measured batches and shuts down its ephemeral runtime afterward. Compare actual GPU name, samples/s, peak reserved GiB, and projected hours per seed for 75,000 samples. If the estimate is under eight hours with at least 20% memory headroom, generate the five-year `configs/nextday-raw-1000-top100.yaml`; otherwise reduce effective batch size or model width first.
 
-正式训练使用 `configs/nextday-raw-1000-top100-capacity-100m.yaml`，三个 seed 均按 2024 validation 日均 Rank IC 选模并由 patience 8 早停。最佳 epoch 分别为 9、20 和 12，实际运行 17、28 和 20 个 epoch。完整指标、数据指纹、源码版本和结论边界记录在 [experiment-log.md](../research/experiment-log.md)。
+Formal training used `configs/nextday-raw-1000-top100-capacity-100m.yaml`, selecting checkpoints by 2024 validation daily Rank IC and early stopping with patience 8. Best epochs were 9, 20, and 12; runs lasted 17, 28, and 20 epochs. Full metrics, fingerprints, source revisions, and interpretation are in [experiment-log.md](../research/experiment-log.md).
 
-矩阵的其余三格已通过 `scripts/run_colab_nextday.py --workflow capacity-matrix-train` 完成。`--matrix-cell` 分别选择 `1m-raw200`、`1m-raw1000` 和 `100m-raw200`。三个配置固定 batch 32、学习率 0.0001、patience 8、seed 0 至 2 和 2024 validation 选模。九个新结果使用源码版本 `e2465c0`，既有 `100M/raw-1000` 三 seed 使用兼容的冻结合同。完整逐 seed 指标、效应分解和结论边界记录在 [experiment-log.md](../research/experiment-log.md)。2025 test 全程保持锁定。
+The remaining three matrix cells were trained through `scripts/run_colab_nextday.py --workflow capacity-matrix-train`, using `--matrix-cell` values `1m-raw200`, `1m-raw1000`, and `100m-raw200`. All three configurations used batch 32, learning rate 0.0001, patience 8, seeds 0–2, and 2024 validation checkpoint selection. The nine new runs used source revision `e2465c0`; the existing `100M/raw-1000` seeds used a compatible frozen contract. Per-seed metrics, effect decomposition, and interpretation are in [experiment-log.md](../research/experiment-log.md). The 2025 test remained locked throughout.
 
-## 交付清单
+## Deliverables
 
-- `horizon-labels.json`：合同、源特征指纹、horizon、行数和 Parquet SHA-256
-- `labels.parquet`：股票、信号日、进入日、退出日、H、收益和标签
-- 三 seed 的 IC@1D/3D/5D 总表、月表和非重叠抽样结果
-- raw-500/raw-1000 每级的数据审计、100 batch 基准和继续或停止决定
-- 一个月全天 Tick 的实际体积与五个月峰值估算
+- `horizon-labels.json`: contract, source feature fingerprint, horizons, row counts, and Parquet SHA-256.
+- `labels.parquet`: stock, signal date, entry date, exit date, horizon, return, and class label.
+- Three-seed IC@1D/3D/5D summary, monthly results, and non-overlapping-sample results.
+- Per-stage raw-500/raw-1000 audits, 100-batch benchmarks, and continue/stop decisions.
+- Measured size of a one-month full-day tick pilot and the projected five-month peak.
 
-所有真实行情、标签 Parquet、checkpoint 和 notebook HTML 保留在实验产物目录或 Drive，不提交到 Git。仓库只提交代码、聚合报告、配置和不含真实逐股票记录的审计摘要。
+Keep real market data, label Parquet, checkpoints, and notebook HTML in artifact storage or Drive. Git contains only code, configuration, aggregate reports, and audit summaries without per-stock records.

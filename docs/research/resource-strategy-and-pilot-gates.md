@@ -1,57 +1,57 @@
-# 研究资源策略与试验门槛
+# Research Resource Strategy and Pilot Gates
 
-本文记录有限算力下的资源安排原则。早期方案按 Colab Pro 和 Google Drive 100GB 制定，Drive 已在 2026-08-10 升级为 200GB。分钟、原始盘口和事件流都已经完成基础设施或受控试验，当前状态见[项目现状](../project-status.md)。
+This page records resource-allocation principles for constrained compute. The early plan assumed Colab Pro and a 100 GB Google Drive plan; Drive was upgraded to 200 GB on 2026-08-10. The minute, raw-book, and event-stream tracks have completed infrastructure or controlled experiments. Current state is in [project status](../project-status.md).
 
-## 核心原则
+## Principles
 
-资源应优先投入能够直接改变研究决策的实验：
+Prioritize experiments that can change a research decision:
 
-- 先用低成本基线判断特征是否携带稳定信息
-- 固定数据、标签和训练合同后，每次只改变一个主要因素
-- 在少量 seed 上设置继续门槛，未通过时停止扩大规模
-- checkpoint 和中间产物支持恢复，避免会话中断造成重复计算
-- 锁定测试只在模型、种子和通过条件固定后运行一次
+- Use low-cost baselines first to test whether features contain stable information.
+- Fix data, labels, and training contracts; change one major factor at a time.
+- Set continuation gates on a small number of seeds and stop when they fail.
+- Make checkpoints and intermediate artifacts resumable to avoid repeating work after session loss.
+- Run a locked test once, after the model, seed list, and acceptance criteria are fixed.
 
-## 资源与用途
+## Resources and intended use
 
-| 资源 | 2026-08 状态 | 主要用途 |
+| Resource | State in 2026-08 | Main use |
 |---|---|---|
-| Colab GPU | 按会话使用 T4 或 A100 | 神经网络训练、吞吐基准和输入分析 |
-| Google Drive | 200GB | 当前训练工作集、checkpoint 和结果 |
-| 远程 NVMe | 保存紧凑数据和临时产物 | 数据物化、校验和 Colab 暂存 |
-| 6TB 数据盘 | 数 TB 原始行情与分钟缓存 | 顺序扫描和长期保存，不承担训练期随机读取 |
-| 本地主机 CPU | 4 核、31 GiB 内存 | 数据审计、树模型和小样本检查 |
+| Colab GPU | T4 or A100 by session | Neural-network training, throughput benchmarks, and input profiling |
+| Google Drive | 200 GB | Current training datasets, checkpoints, and results |
+| Remote NVMe | Compact data and temporary artifacts | Materialization, verification, and Colab staging |
+| 6 TB data disk | Several TB of raw market data and minute caches | Sequential scans and long-term storage, not random training reads |
+| Local CPU | 4 cores, 31 GiB RAM | Data audits, tree models, and small-sample checks |
 
-Drive 只保存当前需要的预处理数据。原始行情长期保留在数据盘。大型事件流 pack 已超过 200GB，需要 400GB Drive、GCS 或按月流式暂存。
+Keep only currently needed processed data on Drive. Retain raw market data on the data disk. Large event-stream packs exceed 200 GB and require 400 GB Drive, GCS, or monthly streaming staging.
 
-## 已验证的容量
+## Verified capacity
 
-以下估算按约 400 只股票和五年交易日计算：
+Estimates use about 400 stocks and five years of trading days.
 
-| 表示 | 约占空间 | 当前结论 |
+| Representation | Approximate size | Current conclusion |
 |---|---:|---|
-| 最近 60 分钟 × 33 特征 | 约 4 GB | 适合分钟序列模型 |
-| 全天 240 分钟 × 33 特征 | 约 16 GB | 用于检查全天信息增量 |
-| raw-200 Top-400 | 约 7.2 GiB | 已生成并完成实验 |
-| raw-1000 Top-100 | 小于 Top-400 估算 | 已生成并完成四格矩阵 |
-| 每日 64 维 embedding | 约 128 MB | 可用于多日模型复用 |
-| 2025 年五个月事件流 pack | 313.11 GiB | 已生成，超出 200GB Drive |
+| Last 60 minutes × 33 features | About 4 GB | Suitable for minute-sequence models |
+| Full 240-minute day × 33 features | About 16 GB | Test the value of full-day information |
+| raw-200 Top-400 | About 7.2 GiB | Generated and evaluated |
+| raw-1000 Top-100 | Below the Top-400 estimate | Generated and included in the four-cell matrix |
+| Daily 64-dimensional embedding | About 128 MB | Reusable for multi-day models |
+| Five months of 2025 event-stream packs | 313.11 GiB | Generated; exceeds the 200 GB Drive capacity |
 
-## 门槛执行方式
+## Applying resource gates
 
 ```text
-本地顺序扫描与物化
-  → 数据完整性和泄漏审计
-  → 低成本基线或短吞吐试验
-  → 固定合同下的 seed 0
-  → 达到门槛后补 seed 1 和 2
-  → 冻结候选后再申请锁定测试
+local sequential scan and materialization
+  → integrity and leakage audit
+  → low-cost baseline or short throughput test
+  → seed 0 under a fixed contract
+  → add seeds 1 and 2 only if gates pass
+  → request locked-test access only after freezing the candidate
 ```
 
-原始盘口的容量和窗口矩阵已经触发停止条件。`1M/raw-200` 的验证结果最好且 seed 波动最小，扩大到 100M 参数或 raw-1000 没有稳定增益。事件流的输入基准已经完成，下一项高成本任务是最近折正式 seed 0。AgentX M3 应先完成分钟特征物化，再运行正式 Top-K 成本诊断。
+The raw-book capacity/window matrix met its stop condition. `1M/raw-200` had the best validation result and lowest seed variation; 100M parameters and raw-1000 did not produce stable gains. Event-stream input profiling is complete; the next high-cost task is formal seed 0 on the recent fold. AgentX M3 should finish minute-feature materialization before formal Top-K cost diagnostics.
 
-## 记录要求
+## Run records
 
-每次运行应保存源码版本、数据指纹、配置、seed、墙钟、资源峰值、指标和停止决定。训练产物留在 Git 忽略目录或远端存储，仓库只提交聚合结论和可复现命令。
+Save source revision, data fingerprint, configuration, seed, wall-clock duration, peak resources, metrics, and the continue/stop decision for every run. Keep training artifacts in Git-ignored directories or remote storage. Commit aggregate conclusions and reproducible commands only.
 
-带日期的实验结果见[实验日志](experiment-log.md)。完整停止规则见[硬件约束与分阶段实验路线](../nextday/hardware-constraints-and-experiment-roadmap.md)。
+Date-specific results are in the [experiment log](experiment-log.md). Full stop rules are in the [hardware and staged experiment roadmap](../nextday/hardware-constraints-and-experiment-roadmap.md).

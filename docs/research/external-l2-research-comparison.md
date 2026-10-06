@@ -1,138 +1,131 @@
-# 外部 L2 研究项目对比
+# External L2 Research Project Comparison
 
-本文收录 2026-08-19 收到的一份外部项目对比，并结合 TickNet 当前代码、实验产物和研究协议重新核对。原稿提供了有价值的研究视角，也包含若干需要实验验证的机制判断。本文保留能推动项目的部分，并明确每条结论的证据性质。
+This page revisits an external project comparison received on 2026-08-19 against TickNet's current code, artifacts, and research protocol. The source offers useful research perspectives but also includes causal explanations that require experiments. Each statement is labeled by evidence type.
 
-## 证据说明
+## Evidence categories
 
-| 类型 | 含义 | 使用方式 |
+| Category | Meaning | Use |
 |---|---|---|
-| 仓库事实 | 可以由 TickNet 代码、配置、测试或本机实验产物核对 | 可以直接写入当前状态 |
-| 外部项目自述 | 来自对比稿对 `l2_foundation`、StyleNet 和 ABCM 的描述 | 用于理解另一条研究路线，尚未在本机独立复现 |
-| 机制假设 | 对指标差异成因的解释 | 进入消融实验，验证前不写成原因 |
-| 研究决策 | 结合现有证据安排的执行顺序和停止门槛 | 写入路线图并按实验 ID 留痕 |
+| Repository fact | Verifiable from TickNet code, configuration, tests, or local artifacts | May be stated as current status |
+| External project claim | Description of `l2_foundation`, StyleNet, or ABCM in the comparison | Context for another research path; not independently reproduced locally |
+| Mechanism hypothesis | Explanation for metric differences | Test through ablation; do not state as cause before evidence |
+| Research decision | Proposed execution order and stop gates based on current evidence | Track in the roadmap under experiment IDs |
 
-这份对比关注研究方法和实验设计，不评价仓库作者或项目归属。外部项目的代码与完整产物目前不在本仓库中，因此相关描述以原稿为准。
+This comparison concerns research methods and experiment design, not repository authorship or project ownership. The external code and full artifacts are not in this repository, so those descriptions remain attributed to the source document.
 
-## 两条研究路线
+## Two research paths
 
-| 维度 | TickNet 当前路线 | 外部项目自述路线 |
+| Dimension | Current TickNet path | External project's account |
 |---|---|---|
-| 输入表示 | 将委托、成交和快照按时间归并为因果事件流 | 将日内因子序列交给多任务时序模型 |
-| 主模型 | 约 100M 参数的因果 Transformer，并保留 HGB、LambdaMART 等下游模型 | StyleNet 多任务模型和 ABCM 组合模型 |
-| 监督目标 | 下一事件任务加 H5 连续超额收益，H3 用于监控 | 多周期、多风格或风险调整后的收益目标 |
-| 选模指标 | validation 每日横截面 Rank IC | 原稿强调 IC、IR、换手和组合指标 |
-| 组合评估 | Top-K、换手、固定与动态成本、相对等权基准的主动收益 | 原稿强调信号平滑、错峰持有和风险控制 |
-| 实验治理 | 数据指纹、SHA-256、日期权限、Registry、审计和锁定区 | 原稿主要介绍模型与组合方法，治理细节未在本机核对 |
+| Input representation | Orders, trades, and snapshots merged by time into a causal event stream | Intraday factor sequences supplied to a multitask temporal model |
+| Main model | Causal Transformer of about 100M parameters, with HGB and LambdaMART downstream models | StyleNet multitask model and ABCM portfolio model |
+| Supervision | Next-event tasks plus continuous H5 excess return; H3 is monitored | Multi-horizon, multi-style, or risk-adjusted return targets |
+| Model selection | Daily cross-sectional validation Rank IC | Source emphasizes IC, IR, turnover, and portfolio metrics |
+| Portfolio evaluation | Top-K, turnover, fixed/dynamic costs, active return versus equal-weight universe | Source emphasizes signal smoothing, staggered holdings, and risk control |
+| Experiment governance | Fingerprints, SHA-256, date permissions, Registry, audit, and locked period | Source mainly describes modeling/portfolio methods; governance was not verified locally |
 
-两条路线可以互相补充。TickNet 在原始事件表示、实验身份和访问边界方面较完整。外部稿件对标签尺度、风险归因、信号半衰期和持仓执行提出了值得验证的方向。
+The approaches can complement each other. TickNet has a more complete raw-event representation, experiment identity, and access boundary. The external document suggests useful tests for label scale, risk attribution, signal half-life, and position execution.
 
-## TickNet 已有证据
+## Existing TickNet evidence
 
-最近折使用 2025 年 8 月至 10 月训练、11 月 validation、12 月 OOS。100M 事件流模型三 seed 的 H5 validation Rank IC 为 `0.07259 ± 0.02615`，OOS 为 `0.04300 ± 0.01385`，六个结果方向全部为正。
+The recent fold trained August–October 2025, validated in November, and used December as OOS. Three seeds of the 100M event-stream model produced H5 validation Rank IC `0.07259 ± 0.02615` and OOS `0.04300 ± 0.01385`; all six values were positive.
 
-冻结 embedding 与分钟特征的 HGB 组合在 12 月 OOS 把 Rank IC 从 0.04010 提高到 0.05701。联合端到端三 seed 的 OOS Rank IC 为 `0.06398 ± 0.00785`。两组结果的 Top-100 成本后主动收益仍为负，排序相关性还没有稳定转成可交易的头部收益。
+On December OOS, combining frozen embeddings and minute features in HGB increased Rank IC from 0.04010 to 0.05701. Three-seed joint end-to-end training achieved OOS Rank IC `0.06398 ± 0.00785`. Top-100 cost-adjusted active return remained negative for both approaches; cross-sectional correlation has not yet converted reliably into tradable top-group returns.
 
-第一个额外窗口 `fold-54-oos-202511` 已完成 seed 0。它使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。
+The first additional window, `fold-54-oos-202511`, completed seed 0 using July–September 2025 training, October validation, and November OOS:
 
-| 目标 | validation Rank IC | OOS Rank IC | validation 极端组收益差 | OOS 极端组收益差 |
+| Target | Validation Rank IC | OOS Rank IC | Validation extreme-group spread | OOS extreme-group spread |
 |---|---:|---:|---:|---:|
 | H5 | 0.08735 | 0.03305 | 0.01780 | -0.00512 |
-| H3 监控 | 0.04840 | 0.04231 | 0.00575 | -0.00259 |
+| H3 monitor | 0.04840 | 0.04231 | 0.00575 | -0.00259 |
 
-H5 和 H3 的 validation、OOS Rank IC 均为正，说明信号方向在相邻窗口继续出现。11 月 OOS 的极端组收益差为负，说明全截面相关性与头部组合收益之间仍有明显距离。这个结果支持先研究持有方式、信号衰减和头部排序，再决定是否扩大模型容量。
+H3 and H5 Rank IC were positive on both validation and OOS, so the signal direction recurred in the adjacent window. The November extreme-group spread was negative, showing a gap between whole-cross-section correlation and top-group portfolio return. This supports studying holding periods, signal decay, and top-group ranking before increasing model capacity.
 
-## 对原稿判断的核对
+## Review of claims in the source
 
-### 当前日级标签
+### Daily target
 
-事件流 H5 合同使用个股收益减去中证全指同期收益的连续小数。模型把同一个日级标签监督到每个有效事件位置。源码注释曾写成风险中性残差收益 z 值，与正式配置不符，本次已修正注释。
+The event-stream H5 target is continuous stock return minus concurrent CSI All Share return. The same daily label supervises every valid event position. A source-code comment incorrectly described it as a risk-neutral residual-return z-score and has been corrected.
 
-将日级标签改成每日截面去极值后再标准化，是值得运行的 A/B 实验。它会改变损失对不同交易日和不同股票的权重。当前没有证据表明标签尺度已经造成训练失败，因此这项判断保持为待验证假设。
+Winsorizing and standardizing the target cross-sectionally each day is a reasonable A/B test because it changes loss weighting across days and stocks. There is no evidence that target scale caused training failure, so this remains a hypothesis.
 
-### 多任务损失强度
+### Multi-task loss strength
 
-当前损失包含下一事件流类型、订单类型、连续事件属性和日级收益。各项损失的标量大小不能直接代表它们对共享主干的影响。更可靠的检查是记录各任务对共享参数的梯度范数和梯度夹角，再判断日级任务是否过弱或与事件任务冲突。
+The current loss covers next stream type, order type, continuous event attributes, and daily return. Scalar loss magnitudes do not directly show their impact on a shared backbone. Record task gradient norms and angles on shared parameters to assess whether the daily task is weak or conflicts with event tasks.
 
-### 排序目标
+### Ranking objective
 
-标准化连续标签配合 MSE 或 SmoothL1 可以改善数值尺度，但不会自动等同于 Spearman Rank IC。若需要更贴近日度排序，需要显式使用日内 rank 目标、pairwise loss 或 listwise loss，并保持完整横截面分组。
+Standardizing a continuous target with MSE or SmoothL1 changes numerical scale but does not make it equivalent to Spearman Rank IC. A closer daily-ranking objective requires within-day ranks, pairwise loss, or listwise loss while preserving full cross-sectional grouping.
 
-### 风险暴露
+### Risk exposures
 
-模型目前没有完成行业、规模、流动性和波动率归因。Top-400 动态股票池与等权基准也不能直接解释成某一种规模风格。应先对预测和收益做分组暴露诊断，再决定是否对标签或输出做残差化。提前中性化可能同时移除可交易信息。
+Industry, size, liquidity, and volatility attribution is incomplete. A dynamic Top-400 universe and equal-weight benchmark do not by themselves identify a size-style exposure. First measure prediction and return exposures; then decide whether to residualize labels or outputs. Premature neutralization may also remove tradable information.
 
-### 随机种子与时间窗口
+### Seeds and time windows
 
-三 seed 方向一致可以降低初始化偶然性。它不能替代跨时间窗口验证。`fold-54-oos-202511` seed 0 已经提供第一份相邻窗口证据，后续仍要结合更早窗口、月度分布和组合结果判断稳定性。
+Consistent signs across three seeds reduce initialization noise but do not replace validation across time windows. Seed 0 on `fold-54-oos-202511` is the first adjacent-window evidence; stability still needs earlier windows, monthly distributions, and portfolio results.
 
-### 预训练日期边界
+### Pretraining date boundaries
 
-标签无关预训练仍会读取当时的市场结构。若先用 2021 至 2025 全量事件预训练，再回测其中较早年份，会产生时间信息混入。可接受的方案包括按折扩大预训练截止日期，或者把 2021 至 2025 明确视为固定基础语料，只在 2026 及以后做真正样本外评估。2026 当前仍为锁定区，未经审批不得读取。
+Label-independent pretraining still observes market structure. Pretraining on all 2021–2025 events and then backtesting an earlier period leaks future structure into that period. Acceptable options include expanding the pretraining cutoff by fold, or explicitly treating 2021–2025 as a fixed base corpus and reserving 2026 onward for true OOS evaluation. 2026 is locked and requires approval before access.
 
-## 待验证机制
+## Hypotheses to test
 
-| 编号 | 假设 | 当前线索 | 最小验证 |
+| ID | Hypothesis | Current clue | Minimum test |
 |---|---|---|---|
-| H1 | 日级任务对共享主干的梯度过弱或冲突 | 多任务损失只记录标量，缺少梯度证据 | 记录任务梯度范数和两两余弦相似度 |
-| H2 | 原始收益尺度让大波动样本占据过多权重 | 日级目标使用原始连续小数 | 同一数据、seed 和预算比较 raw 与每日去极值 z 标签 |
-| H3 | H5 信号的有效持有期与每日全量换仓不匹配 | Rank IC 为正，成本后主动收益和极端组收益差偏弱 | 计算 `IC(1)` 至 `IC(10)` 和按建仓日分组的组合收益 |
-| H4 | 信号主要来自行业、规模、流动性或波动率暴露 | 风险输入仍为 `unavailable` | 对预测和组合收益做暴露回归与分组归因 |
-| H5 | 每个有效位置重复监督日级标签会稀释尾盘决策信息 | 评估使用股票日分数，训练覆盖全部有效位置 | 比较全部位置、最后位置和尾部加权监督 |
-| H6 | 每日全量换仓放大噪声和成本 | 多个候选的单边换手约为 50% 至 61% | 比较 H5 五组错峰持有、排名平滑和换仓门槛 |
+| H1 | Daily-task gradient on shared backbone is weak or conflicting | Only scalar multitask losses recorded so far | Record task gradient norms and pairwise cosine similarities |
+| H2 | Raw return scale overweights high-volatility samples | Daily target is raw continuous return | Compare raw and daily winsorized z labels with identical data, seed, and budget |
+| H3 | H5 signal holding period mismatches daily full rebalancing | Positive Rank IC but weak cost-adjusted active return and extreme-group spread | Calculate `IC(1)`–`IC(10)` and entry-date-grouped portfolio returns |
+| H4 | Signal mostly reflects industry, size, liquidity, or volatility exposure | Risk inputs still `unavailable` | Run exposure regression and grouped return attribution |
+| H5 | Repeating daily-label supervision at every valid position dilutes close-time information | Evaluation uses stock-day scores; training covers all valid positions | Compare all-position, last-position, and tail-weighted supervision |
+| H6 | Daily full rebalancing amplifies noise and costs | Candidate one-way turnover is about 50–61% | Compare five staggered H5 cohorts, rank smoothing, and rebalance thresholds |
 
-## 实施顺序
+## Test order
 
-### P0：先复用现有预测
+### P0: Reuse existing predictions first
 
-这组实验不需要重新训练 100M 模型，优先回答信号如何转成组合。
+These tests need no new 100M training and first ask how the signal converts into a portfolio:
 
-1. `EVT-HALFLIFE-001` 计算最近折与 `fold-54-oos-202511` 的 `IC(1)` 至 `IC(10)`、极端组收益差和按建仓日分组的持仓收益。
-2. `TRD-STAGGERED-H5-001` 比较每日全量换仓与五组错峰持有，确保每个交易日只有一组到期换仓。
-3. `TRD-RANK-EMA-001` 在相同成本矩阵下比较原始排名、排名 EMA、绝对开仓门槛、换仓收益差门槛和现金仓位。
-4. `RISK-ATTR-001` 补齐行业、规模、流动性和波动率输入，分别报告预测暴露、收益归因和中性化后的敏感性结果。
+1. `EVT-HALFLIFE-001`: calculate `IC(1)`–`IC(10)`, extreme-group spread, and entry-date-grouped returns for the recent and `fold-54-oos-202511` folds.
+2. `TRD-STAGGERED-H5-001`: compare daily full rebalancing with five staggered cohorts, so only one cohort expires each day.
+3. `TRD-RANK-EMA-001`: under the same cost matrix, compare raw rank, rank EMA, absolute entry thresholds, expected-return rebalancing thresholds, and cash.
+4. `RISK-ATTR-001`: add industry, size, liquidity, and volatility inputs; report prediction exposures, return attribution, and post-neutralization sensitivity separately.
 
-P0 需要同时报告 Rank IC、`NDCG@100`、`Precision@100`、Top-K 收益、换手、成本后主动收益、月度胜率和极端日期贡献。所有策略使用相同股票池、日期、收益标签和成本假设。
+P0 reports Rank IC, `NDCG@100`, `Precision@100`, Top-K returns, turnover, cost-adjusted active return, monthly win rate, and extreme-date contribution. All strategies share universe, dates, return labels, and cost assumptions.
 
-### P1：检查训练机制
+### P1: Test training mechanisms
 
-1. `EVT-GRAD-AUDIT-001` 在固定 batch 上记录四类任务的梯度范数和夹角，不改变模型参数或选模规则。
-2. `EVT-LABEL-SCALE-001` 运行原始收益与每日截面去极值 z 标签的单变量 A/B 实验。
-3. `EVT-SUPERVISION-POSITION-001` 比较全部有效位置、最后有效位置和尾部加权三种日级监督方式。
-4. 只有单 seed 在 validation 和相邻 OOS 同时改善，才补 seed 1、2 和更多滚动窗口。
+1. `EVT-GRAD-AUDIT-001`: record gradient norms and angles for four tasks on fixed batches without changing model parameters or selection rules.
+2. `EVT-LABEL-SCALE-001`: run a single-variable comparison of raw returns and daily cross-sectional winsorized z labels.
+3. `EVT-SUPERVISION-POSITION-001`: compare supervision at every valid position, only the last position, and tail-weighted positions.
+4. Add seeds 1 and 2 and more rolling windows only if seed 0 improves both validation and adjacent OOS.
 
-### P2：再增加训练复杂度
+### P2: Add training complexity only afterward
 
-P0 和 P1 找到可重复增量后，再评估按日 batch 的 pairwise 或 listwise 排序目标、SWA、分阶段预训练和多锚点 embedding。每次实验只改变一个主要机制，并保留当前 100M 基线的数据指纹、日期和预算口径。
+If P0/P1 show a repeatable gain, evaluate day-batched pairwise/listwise ranking, SWA, staged pretraining, and multi-anchor embeddings. Change one major mechanism per experiment and preserve the 100M baseline's fingerprint, dates, and budget.
 
-`probe150m` 继续暂缓。容量扩张需要先看到至少一种训练或组合改动在多个时间窗口改善成本后主动收益，且增量没有集中在少数日期或单一风险暴露。
+Keep `probe150m` deferred. Capacity expansion requires at least one training or portfolio change to improve cost-adjusted active return across multiple windows, without concentrating gains in a few dates or one risk exposure.
 
-## 决策门槛
+## Decision gates
 
-候选方案进入下一阶段前，至少满足以下条件：
+Before a candidate advances, require validation and adjacent OOS to agree in direction; positive active return at 10 bp one-way costs; positive results in most months rather than one best month determining the conclusion; bounded contribution from a small set of extreme dates, with results also reported after removing them; no unexplained large degradation in Rank IC, NDCG, or precision when turnover falls; and risk attribution that separates microstructure signal from common style exposure.
 
-- validation 与相邻 OOS 的方向一致
-- 单边 10bp 成本下的主动收益达到正值
-- 多数评估月份为正，单个最佳月份不能决定总体结论
-- 最大少数日期的贡献受到约束，并报告去除这些日期后的结果
-- 换手下降时，Rank IC、NDCG 和 Precision 没有出现无法解释的大幅退化
-- 风险归因可以区分独立微观结构信号和常见风格暴露
+If P0 converts current signals into stable net returns, prioritize execution rules. If P0 keeps failing but P1 finds a clear gradient or label issue, change the training objective. If neither produces a cross-window gain, retain the 100M evidence and stop 150M.
 
-若 P0 已经能把现有信号转成稳定净收益，优先完善执行规则。若 P0 持续失败而 P1 发现明确的梯度或标签问题，再修改训练目标。两条路线都没有形成跨窗口增量时，保留 100M 研究结果并停止 150M。
+## Related pages
 
-## 相关文档
+- [Project status](../project-status.md)
+- [Model catalog](../model-catalog.md)
+- [H5 event-stream rolling roadmap](../nextday/h5-rolling-eventstream-roadmap.md)
+- [AgentX research roadmap](topk-agentx-research-roadmap.md)
+- [Experiment log](experiment-log.md)
 
-- [项目现状](../project-status.md)
-- [模型清单](../model-catalog.md)
-- [H5 事件流滚动路线](../nextday/h5-rolling-eventstream-roadmap.md)
-- [AgentX 研究路线](topk-agentx-research-roadmap.md)
-- [实验日志](experiment-log.md)
+## Appendix: original source
 
-## 附录：收到的中文原稿
-
-以下内容完整保留 2026-08-19 收到的 `ticknet_项目对比分析.md`。原稿的 SHA-256 为 `c9b84597e6e94c2d7d44eaa51079f497cbc31a761fc31aa48c5972f1e4103c27`。其中的称呼、数字、判断和本机路径只用于追溯当时的外部分析，不随 TickNet 后续进展更新。当前项目事实和研究结论以前文、项目现状与实验日志为准。
+The source document `ticknet_项目对比分析.md`, received on 2026-08-19, is preserved verbatim below. Its SHA-256 is `c9b84597e6e94c2d7d44eaa51079f497cbc31a761fc31aa48c5972f1e4103c27`. Names, numbers, interpretations, and local paths are retained only to trace the external analysis and are not updated with later TickNet work. Current facts and decisions are in the preceding sections, project status, and experiment log.
 
 <details>
-<summary>展开中文原稿</summary>
+<summary>Show original Chinese source</summary>
 
 ````text
 <!-- archival-source:start -->

@@ -9,8 +9,8 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from legacy import fi2010_train as train_module
-from legacy.fi2010_train import Config, load_config, run_setup1
+from ticknet.fi2010 import train as train_module
+from ticknet.fi2010.train import Config, load_config, run_setup1
 from ticknet.train import f1_metrics, resolve_device
 
 

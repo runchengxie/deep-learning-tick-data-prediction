@@ -1,55 +1,53 @@
-# L2 逐笔事件流主线
+# L2 Event-Stream Modeling
 
-这条链路把逐笔委托、成交和快照无损打包，再用因果 Transformer 完成下一事件任务和日级信号输出。代码位于 `ticknet.eventstream`。截至 2026-08-22，100M 最近折三 seed、冻结 embedding 下游对照、联合端到端三 seed、多任务梯度审计、标签尺度和监督位置实验均已完成。
+This track losslessly packs order, trade, and snapshot events, then uses a causal Transformer for next-event tasks and daily signal output. Code lives in `ticknet.eventstream`. As of 2026-08-22, the three-seed 100M recent-fold run, frozen-embedding downstream comparison, three-seed joint end-to-end run, multi-task gradient audit, label-scale experiments, and supervision-position experiments were complete.
 
-## 数据契约
+## Data contract
 
-`ticknet-eventstream-pack` 把每个交易日的三条流整理成整数镜像，并在打包时解析关联 ID。后续读取无需回查原始文件。每天产生四类文件：
+`ticknet-eventstream-pack` converts each day's three streams into integer mirrors and resolves linked IDs during packing, so later reads do not need the raw files. Each day produces:
 
-- `orders_{day}.bin` 按股票、时间和 OrderID 排序
-- `trades_{day}.bin` 按股票、时间和 DealID 排序
-- `snaps_{day}.bin` 按股票和时间排序
-- `index_{day}.npz` 记录每只股票的流偏移、长度和昨收
+- `orders_{day}.bin`, sorted by stock, time, and OrderID.
+- `trades_{day}.bin`, sorted by stock, time, and DealID.
+- `snaps_{day}.bin`, sorted by stock and time.
+- `index_{day}.npz`, containing per-stock stream offsets, lengths, and prior close.
 
-撤单会回查原始订单，得到撤单年龄和原始量。成交会按买卖方 ID 回查挂单到达时间，得到双方挂单年龄。无法解析的关联记为 `AGE_UNKNOWN_MS = -1`。打包产物保留原始字段的整数值，归一化在数据加载器中完成，调整特征口径时无需重新打包。
+Cancel events are joined to original orders to calculate order age and original quantity. Trades are joined to the arrival time of both resting orders using buyer and seller IDs. Unresolved links use `AGE_UNKNOWN_MS = -1`. Packed values remain integers; normalization happens in the data loader, so feature transformations do not require repacking.
 
-### 开盘身份账本审计
+### Opening identity-ledger audit
 
-`ticknet.simulator.opening_ledger` 提供独立于事件流打包的盘前账本审计。它读取 `order_preopen`，再结合首张连续竞价快照对应事件窗口内的 `order`、`trades` 和撤单，按订单 ID 计算剩余量并比较前十档。命令入口为 `scripts/audit_opening_ledger.py`，必须显式传入 `--sample YYYYMMDD:TICKER`，避免无意扫描整块 raw L2 数据。
+`ticknet.simulator.opening_ledger` audits the pre-open order ledger independently of event-stream packing. It reads `order_preopen`, then combines orders, trades, and cancels within the event window corresponding to the first continuous-auction snapshot. Remaining quantity is calculated by order ID and compared with the top ten book levels. Run `scripts/audit_opening_ledger.py` with an explicit `--sample YYYYMMDD:TICKER` to avoid scanning a full raw L2 block accidentally.
 
-深市当前已由跨股票、跨日期样本核对出 `snapshot time_ms + 140ms` 的事件时钟映射。沪市没有统一固定偏移，默认不平移。盘前文件缺失或不含指定股票时，结果标记为 `not_comparable`，不计入精确率。2026-08-27 的 13 个样本中，最佳 lag 下 9 个十档逐档匹配，11 个可比较样本的精确率为 81.8%。沪市最佳 lag 出现 `0、70、90、120、150ms`，不能写成市场固定常量。这项审计尚未改变生产打包格式，也没有把未经证明的沪市规则写入撮合器。
+Cross-stock and cross-date Shenzhen samples support an event-clock mapping of `snapshot time_ms + 140ms`. Shanghai has no single fixed offset and is not shifted by default. If a pre-open file is missing or does not contain the requested stock, the sample is marked `not_comparable` and excluded from precision. Among 13 samples on 2026-08-27, 9 matched all ten levels at the best lag; precision was 81.8% over 11 comparable samples. Shanghai's best lags were `0`, `70`, `90`, `120`, and `150ms`; none should be promoted to a market-wide constant. This audit has not changed production packing or added unverified Shanghai rules to the matching engine.
 
-## 数据集与特征
+## Dataset and features
 
-`ticknet.eventstream.dataset` 按时间合并三条流。每个样本是某只股票在一个交易日内的连续事件窗口。80 维特征包括事件间隔、相对滚动中间价的基点变化、数量、买卖方向、撤单与挂单年龄、L1 价差与失衡、十档价量、成交额、时间相位和竞价标记。
+`ticknet.eventstream.dataset` merges the three streams by time. A sample is a contiguous event window for one stock on one trading day. Its 80 features include event intervals, basis-point changes from rolling midpoint, quantities, side, cancel/order age, L1 spread and imbalance, ten-level prices and sizes, traded value, time-of-day phase, and auction flags.
 
-目标分为三组：
+Targets cover three tasks:
 
-- 下一事件流类型，包括 pad、snapshot、order 和 trade
-- 下一订单类型，取值来自原始 OrderType 词表
-- 日级信号，由外部标签表按股票和日期提供，允许为空
+- Next stream type: pad, snapshot, order, or trade.
+- Next order type from the source `OrderType` vocabulary.
+- Daily signal looked up by stock and date from an external label table; the label may be missing.
 
-## 模型与训练
+## Model and training
 
-`ticknet.eventstream.model` 提供带旋转位置编码的因果 Transformer，预设尺寸包括 smoke、probe25m、probe50m、capacity100m 和 probe150m。`capacity100m` 使用 960 维隐藏层、9 个 Transformer block、15 个 attention head 和 3,840 维 FFN，共 100,604,180 个参数。attention 使用 PyTorch scaled-dot-product attention。
+`ticknet.eventstream.model` implements a causal Transformer with rotary position embeddings. Presets include `smoke`, `probe25m`, `probe50m`, `capacity100m`, and `probe150m`. `capacity100m` has a 960-dimensional hidden state, 9 Transformer blocks, 15 attention heads, a 3,840-dimensional FFN, and 100,604,180 parameters. Attention uses PyTorch scaled-dot-product attention.
 
-训练入口为 `ticknet-eventstream-train`。每个 epoch 在训练窗口上完成多任务下一事件预测，验证阶段按日计算日级输出的 Rank IC。训练按 `selection_metric` 早停，保存 best 和 last checkpoint，并写出历史 JSON。恢复训练时会校验实验签名和数据集指纹。
+Train with `ticknet-eventstream-train`. Each epoch trains next-event tasks on training windows; validation computes daily Rank IC for the daily output. Early stopping follows `selection_metric`. The trainer saves best and last checkpoints plus a JSON history. Resume validates the experiment signature and dataset fingerprint.
 
-### M3-inspired 可选事件流表征
+### Optional M3-inspired representations
 
-事件流训练支持三个默认关闭的受控实验开关：`use_lob_prefix` 在窗口开头加入严格使用边界前快照构造的盘口状态位置，`use_session_anchors` 在此基础上提供固定且因果的日内价格坐标，`use_vq` 则把核心事件行为量化后作为连续事件 embedding 的残差。rolling-mid 坐标仍然保留，旧配置的 80 维张量、模型参数量和 checkpoint 默认行为不变。
+Three controlled experiment switches default to off. `use_lob_prefix` adds a book-state token at the window start using only snapshots before the boundary. `use_session_anchors` adds fixed, causal intraday price coordinates. `use_vq` quantizes core event behaviors and adds them as a residual to continuous event embeddings. Rolling-midpoint coordinates remain. Existing configurations retain the 80-dimensional input, parameter count, and checkpoint behavior by default.
 
-Prefix/session anchor 会写入 materialized dataset 与 close-cache 合同。VQ 参数会写入 checkpoint 实验身份。训练、冻结 embedding、预测导出、物化预测和梯度审计会按合同重建模型。联合微调仍使用旧的尾盘窗口合同，因此会显式拒绝带有上述新表征的 checkpoint。完整设计、因果边界、实验顺序和当前证据限制见 [M3-inspired 事件流表征实验](../research/m3-eventstream-representation.md)。
+Prefix/session-anchor options are recorded in materialized dataset and close-cache contracts. VQ options are included in checkpoint identity. Training, frozen-embedding export, prediction export/materialization, and gradient audit reconstruct the model from those contracts. Joint fine-tuning still uses the older close-window contract and explicitly rejects checkpoints with these new representations. Design, causal boundaries, experiment order, and evidence limits are in the [M3-inspired representation study](../research/m3-eventstream-representation.md).
 
-`ticknet-eventstream-prepare-horizon-labels` 把 nextday 多周期长表转换成 H3 和 H5 宽表。转换时要求 `trading_date`、`entry_date` 和 `return_end_date` 同属 train、validation 或 OOS，跨边界标签会被清除。`ticknet-eventstream-benchmark` 在真实 pack 上执行前向、反向和 AdamW 更新，输出吞吐、显存和单 seed 耗时。基准不会读取 validation 和 OOS。
+`ticknet-eventstream-prepare-horizon-labels` converts next-day multi-horizon labels into H3/H5 wide tables. `trading_date`, `entry_date`, and `return_end_date` must all belong to train, validation, or OOS; labels crossing a boundary are removed. `ticknet-eventstream-benchmark` runs forward and backward passes plus AdamW updates on a real pack and reports throughput, memory, and per-seed runtime. It does not read validation or OOS.
 
-## 预测导出
+## Prediction export and signal contract
 
-`ticknet-eventstream-export-predictions` 把日级分数与正式 open-to-following-open 收益、可交易状态和动态股票池合并，生成符合 `ticknet.research.prediction_contract` 的预测 Parquet。结果可以交给 `import_predictions` 登记，也可以由 `topk_cost_sweep` 直接消费。候选行使用模型分数，状态行的分数固定为 0.0，只用于跟踪已有持仓的可交易状态。
+`ticknet-eventstream-export-predictions` joins daily scores with formal open-to-following-open returns, tradability states, and the dynamic universe. It emits prediction Parquet conforming to `ticknet.research.prediction_contract`, for registration through `import_predictions` or direct use by `topk_cost_sweep`. Candidate rows use model scores. State rows use score `0.0` and track whether an existing holding is tradable.
 
-### 导出到统一 alpha 信号契约
-
-正式 prediction artifact 也可以转换为 `alpha-research` 的 canonical signal 表：
+Export a formal prediction artifact to the canonical `alpha-research` signal table:
 
 ```bash
 ticknet-research-export-alpha-signals \
@@ -59,26 +57,26 @@ ticknet-research-export-alpha-signals \
   --feature-set-id l2-clean-v1
 ```
 
-适配器使用 `trading_date` 作为 `signal_date`，不使用未来的 `label_date`。原始 prediction parquet 仍可直接交给 `portfolio-backtester` 的预测输入接口。统一 signal parquet 用于 alpha-research 的 IC、滚动验证和后续证据流程。
+The adapter uses `trading_date` as `signal_date`, never the future `label_date`. The original prediction Parquet remains compatible with `portfolio-backtester`'s prediction input. The canonical signal Parquet supports alpha-research IC, rolling validation, and downstream evidence workflows.
 
-## 最近折配置
+## Recent-fold configuration
 
-基础示例位于 `configs/eventstream.yaml`。2021 基础设施折使用 `configs/eventstream-h5-fold0-capacity100m.yaml`。最近折使用 `configs/eventstream-h5-recent-capacity100m.yaml`，日期如下：
+The baseline is `configs/eventstream.yaml`; the 2021 infrastructure fold uses `configs/eventstream-h5-fold0-capacity100m.yaml`. The recent fold uses `configs/eventstream-h5-recent-capacity100m.yaml`:
 
 ```text
-train       2025-08 至 2025-10
+train       2025-08 through 2025-10
 validation  2025-11
 OOS         2025-12
-locked      2026 起
+locked      from 2026
 ```
 
-2025 年 8 月至 12 月共 103 个交易日，已经全部打包，产物约为 313.11 GiB。目录中没有遗留的 partial 文件。2026 保持锁定，配置和标签均不读取该区间。
+All 103 trading days from August through December 2025 have been packed into about 313.11 GiB, with no partial files. Configuration and labels do not read the locked 2026 period.
 
-第一个相邻滚动折为 `fold-54-oos-202511`，使用 2025 年 7 月至 9 月训练、10 月 validation、11 月 OOS。本地配置为 `configs/eventstream-h5-fold-54-oos-202511-capacity100m.yaml`，远端固定窗口配置为 `configs/eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml`。滚动折的远端数据、checkpoint 和结果都按折标识隔离。
+The adjacent fold `fold-54-oos-202511` uses July–September 2025 for training, October for validation, and November for OOS. Its local configuration is `configs/eventstream-h5-fold-54-oos-202511-capacity100m.yaml`; the remote materialized configuration is `configs/eventstream-h5-fold-54-oos-202511-capacity100m-materialized-colab.yaml`. Remote data, checkpoints, and results are isolated by fold ID.
 
-## 输入基准
+## Input benchmark and optimization
 
-A100 容量基准完成后，使用同一个 2025 年 8 月 pack 扫描物理 batch 8、16、32 和 64。有效 batch 固定为 64：
+After the A100 capacity benchmark, sweep physical batch sizes 8, 16, 32, and 64 on the same August 2025 pack, holding effective batch size at 64:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -93,9 +91,7 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
 ```
 
-每档会独立记录吞吐和显存，单档 OOM 不影响后续档位。基准只访问训练 pack。
-
-输入分析可以分别测量 Dataset、预加载 GPU batch 和端到端吞吐：
+Each size records throughput and memory independently; an OOM at one size does not block later sizes. The benchmark reads training packs only. Profile Dataset, preloaded GPU batches, and end-to-end throughput separately:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -110,35 +106,35 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
 ```
 
-2026-08-12 的 A100 实测确认旧 Dataset 是主要输入瓶颈。预加载 GPU batch 的吞吐为 238.79 samples/s，旧 Dataset 使用 16 个 worker 时端到端吞吐为 18.19 samples/s。旧实现每取 512 个事件，都会重新合并并处理该股票全天的事件。
+On 2026-08-12, A100 measurements identified the old Dataset implementation as the main input bottleneck. Preloaded GPU batches achieved 238.79 samples/s; the old Dataset reached only 18.19 samples/s end-to-end with 16 workers because it re-merged and processed each stock's full-day stream for every 512-event window.
 
-优化后的实现先用时间二分定位目标事件，再稳定合并窗口附近的 513 个事件。真实数据的 9 个窗口与旧实现逐元素一致，单样本构造速度提高 15.6 至 18.9 倍。8 个 worker 的端到端吞吐达到 149.40 samples/s，16 个 worker 受到 A100 运行环境 12 个 CPU core 的限制，吞吐降至 140.73 samples/s。因此最近折配置固定 `num_workers: 8`。
+The optimized implementation binary-searches the target event and merges only the nearby 513 events. Nine real windows matched the old implementation element by element; per-sample construction was 15.6–18.9× faster. End-to-end throughput reached 149.40 samples/s with 8 workers. Sixteen workers fell to 140.73 samples/s because the A100 runtime was limited to 12 CPU cores. Recent-fold configuration therefore fixes `num_workers: 8`.
 
-按 120,000 个训练样本和 20 个 epoch 外推，每个 epoch 约 13.39 分钟，每个 seed 上限约 4.46 小时，三个 seed 串行上限约 13.39 小时。这个估算不含 validation 和 checkpoint I/O，正式耗时以训练日志和早停结果为准。
+For 120,000 training samples and 20 epochs, the projection is 13.39 minutes per epoch, up to 4.46 hours per seed and 13.39 hours for three sequential seeds. It excludes validation and checkpoint I/O; use actual training logs and early stopping for formal runtime.
 
-## 正式训练结果与扩容门槛
+## Formal training results and capacity gates
 
-截至 2026-08-19，本机没有可用 CUDA GPU。通过 `rclone about gdrive:` 核对，Google Drive 总额为 200 GiB，已用 145.292 GiB，剩余 53.305 GiB。完整五个月 pack 约为 313.11 GiB，无法放入现有 Drive 或 Colab 临时盘。
+As of 2026-08-19, no local CUDA GPU was available. `rclone about gdrive:` reported 200 GiB total, 145.292 GiB used, and 53.305 GiB free. The complete five-month pack is about 313.11 GiB and does not fit on Drive or a Colab temporary disk.
 
-正式训练改用固定窗口物化方案。训练窗口在本地按 seed 一次性确定，保存模型实际读取的 80 维特征、下一事件目标、日级标签和有效位置。物化清单绑定五个月源清单、源码 revision、日期、seed、采样参数和每个张量文件的 SHA-256。训练前逐文件复核，内容漂移、错误 seed、错误日期或错误源码 revision 都会停止运行。
+Formal training therefore uses fixed-window materialization. For each seed, local processing samples training windows once and stores the 80-dimensional model inputs, next-event targets, daily labels, and valid positions. The manifest binds the five-month source inventory, source revision, dates, seed, sampling parameters, and SHA-256 for every tensor file. Training verifies every file first and stops on content drift or mismatched seed, dates, or revision.
 
-`eventstream-recent-train` 负责最近折，`eventstream-rolling-train` 负责额外滚动折。滚动任务必须提供形如 `fold-54-oos-202511` 的 `--eventstream-fold-id`，远端路径和运行摘要都会绑定该标识。两种工作流都只下载一个 seed 的物化训练集，恢复已有 checkpoint，核对允许访问的文件，再启动 100M 训练。训练成功或失败都会回传 best、last、history、result、预检报告和运行摘要。短恢复验证只下载 train、validation 和 H3 validation 分片，训练一个 epoch，OOS 文件不会进入运行环境。随后使用相同源码 revision 恢复到正式 epoch 上限，此时才下载并评估 OOS。
+`eventstream-recent-train` handles the latest fold; `eventstream-rolling-train` handles additional folds. Rolling runs require `--eventstream-fold-id` such as `fold-54-oos-202511`; remote paths and run summaries include that ID. Each workflow downloads one seed's materialized training set, resumes its checkpoint, verifies allowed files, and starts 100M training. Both successful and failed runs return best/last checkpoints, history, results, preflight report, and run summary.
 
-当前代码和合成数据覆盖物化前后逐张量一致、篡改拒绝和 1 至 2 epoch 恢复。真实 seed 0、1、2 均已完成源清单核对、固定窗口物化、远端训练、checkpoint 回传和 OOS 评估。
+The short-resume check downloads only train, validation, and H3-validation shards, runs one epoch, and does not expose OOS files to the runtime. Formal continuation uses the same source revision, runs to the epoch limit, and downloads OOS only for final evaluation. Code and synthetic tests cover tensor equality before/after materialization, tamper rejection, and resume over one or two epochs. Real seeds 0–2 completed source verification, materialization, remote training, checkpoint return, and OOS evaluation.
 
-| seed | 最佳 epoch | H5 validation Rank IC | H5 OOS Rank IC | 训练时间 |
+| Seed | Best epoch | H5 validation Rank IC | H5 OOS Rank IC | Training time |
 |---:|---:|---:|---:|---:|
-| 0 | 4 | 0.04345 | 0.05879 | 82.9 分钟 |
-| 1 | 6 | 0.09403 | 0.03730 | 116.3 分钟 |
-| 2 | 5 | 0.08029 | 0.03291 | 102.7 分钟 |
+| 0 | 4 | 0.04345 | 0.05879 | 82.9 min |
+| 1 | 6 | 0.09403 | 0.03730 | 116.3 min |
+| 2 | 5 | 0.08029 | 0.03291 | 102.7 min |
 
-validation 均值为 0.07259，OOS 均值为 0.04300。三组结果的方向全部为正，100M 信号门槛已经通过。H3 监控的 validation 与 OOS 也全部为正。2026 数据没有进入训练或评估。
+Mean validation Rank IC was 0.07259; mean OOS Rank IC was 0.04300. All three were positive, passing the 100M signal gate. H3 monitoring was also positive on validation and OOS for all seeds. No 2026 data entered training or evaluation.
 
-### 存储清单与预检
+### Storage manifest and preflight
 
-`ticknet-eventstream-storage-readiness` 提供源数据审计基础。清单生成器读取五个月按日股票池，把每个交易日固定到 train、validation 或 OOS，逐项记录 412 个 pack 文件及标签产物的字节数、MD5 和 SHA-256。股票池触及 2026、日期没有落入唯一分区、pack 缺失或源数据指纹不一致时会停止生成。
+`ticknet-eventstream-storage-readiness` audits source data. Its manifest builder reads the daily universes for the five months, assigns each day to train, validation, or OOS, and records byte size, MD5, and SHA-256 for all 412 pack files and label artifacts. It stops if a universe includes 2026, a date does not belong to exactly one split, a pack is missing, or source fingerprints differ.
 
-在保存本地真实产物的主工作区执行：
+Run in the main workspace containing the complete local artifacts:
 
 ```bash
 ticknet-eventstream-storage-readiness build \
@@ -155,9 +151,9 @@ ticknet-eventstream-storage-readiness build \
   --output artifacts/eventstream-h5-recent-fold/storage-manifest.json
 ```
 
-生成过程会顺序读取完整 pack 计算内容哈希，只需在数据定版后执行一次。输出清单只含文件路径、大小、哈希、日期合同和聚合统计，不含股票列表或行情内容。
+Manifest generation reads each complete pack sequentially to calculate content hashes and should run once after data is frozen. It records paths, sizes, hashes, date contracts, and aggregate statistics; it does not contain stock lists or market data.
 
-存储清单还保留了完整 pack 直传远端时的核对命令，供 benchmark pack 和将来的存储迁移使用。远端必须通过 rclone 提供 MD5 或 SHA-256 中的至少一种：
+The manifest also records commands for verifying a direct remote copy of a full pack, for benchmark packs and future storage migrations. The remote must expose at least MD5 or SHA-256:
 
 ```bash
 rclone lsjson remote:ticknet-data/eventstream-h5-recent \
@@ -169,7 +165,7 @@ ticknet-eventstream-storage-readiness verify-direct-remote \
   --listing artifacts/eventstream-h5-recent-fold/remote-listing.json
 ```
 
-完整 pack 复制方案还要在运行环境中检查数据、临时文件和 checkpoint 空间。默认给数据体积留出 5% 余量，并额外保留 20 GiB：
+Before copying a full pack, check space for the dataset, temporary files, and checkpoints. The default reserves 5% over data size plus 20 GiB:
 
 ```bash
 ticknet-eventstream-storage-readiness check-full-copy-capacity \
@@ -177,7 +173,7 @@ ticknet-eventstream-storage-readiness check-full-copy-capacity \
   --path /content
 ```
 
-数据落盘后再做一次逐文件内容核对：
+After staging, verify each file's contents:
 
 ```bash
 ticknet-eventstream-storage-readiness verify-staged \
@@ -185,33 +181,27 @@ ticknet-eventstream-storage-readiness verify-staged \
   --root /content/ticknet-eventstream/top400-h5-recent
 ```
 
-上述完整 pack 命令用于审计和 benchmark，正式 100M 训练使用下文的固定窗口缓存。物化器按月原子落盘并支持恢复，正式训练工作流会串联缓存清单核对、checkpoint 恢复、训练和产物回传。
+Full-pack commands are for audit and benchmarking. Formal 100M training uses the fixed-window cache. Its materializer writes atomically by month and supports resume; the formal workflow chains cache-manifest verification, checkpoint resume, training, and artifact return.
 
-最近折以 H5 选择 checkpoint，H3 只作监控。三 seed 已经满足以下门槛：
+The recent fold selects checkpoints on H5 and uses H3 only for monitoring. All three seeds passed these gates: H5 daily Rank IC is positive on validation and OOS; the fingerprint, training history, best/last checkpoints, and validation/OOS outputs are complete; 2026 was not read; and OOS did not change this round's configuration.
 
-- validation 与 OOS 的 H5 每日 Rank IC 均为正
-- 数据指纹、训练历史、best 与 last checkpoint、validation 和 OOS 评估产物完整
-- 训练与评估没有读取 2026，OOS 结果不用于修改本轮配置
+The frozen-representation comparison uses next-day open-to-following-open downstream labels. Event-stream H5 labels train the encoder; the downstream task remains the project's daily Top-K trading question. HGB and LambdaMART compare minute features, frozen embeddings, and their combination.
 
-冻结表征对照使用次日 open-to-following-open 下游标签。事件流 H5 标签负责训练编码器，下游继续回答项目当前的日频 Top-K 交易问题。HGB 与 LambdaMART 分别比较分钟特征、冻结 embedding、二者组合。
+`probe150m` is currently only an implemented model preset. Frozen embeddings and joint training both produced Rank IC signals, but the three-seed joint run did not pass the top-hit-rate and cost-adjusted active-return gates. First-round checks of signal half-life, trading rules, available risk exposures, multi-task gradients, label scale, and supervision position are complete. Daily cross-sectional z-scored labels improved validation and OOS Rank IC on two folds; last-position-only and linear tail weighting did not beat the all-position baseline. Next, test daily-task weighting, then decide whether to implement a cost-aware ranking objective. The initial 150M experiment waits for a stable training-mechanism gain across two folds. The raw-book capacity/window matrix is stopped; this track does not restart raw-200 or raw-1000 expansion.
 
-`probe150m` 当前只是代码中的模型预设。冻结 embedding 和联合训练都出现了 Rank IC 信号，联合三 seed 的头部命中率和成本后主动收益仍未通过门槛。信号半衰期、交易规则、已具备数据的风险暴露、多任务梯度、标签尺度和监督位置已经完成第一轮检查。每日截面 z 标签提高了两折 validation 与 OOS Rank IC，最后位置和线性尾部加权都没有超过全位置基线。下一步检查日级任务权重，再决定是否实现成本感知排序目标。第一轮 150M 实验等待训练机制在两折形成稳定增量。原始盘口的容量与窗口矩阵已经停止，本路线不重新启动 raw-200 或 raw-1000 扩容。
+### Multi-task gradient audit
 
-### 多任务梯度审计
+`ticknet-eventstream-gradient-audit` calculates gradients on a fixed validation batch for next-stream type, next-order type, continuous-value regression, and H5 daily return, with respect to the shared Transformer. It compares seed-0 initialization with the best checkpoint and records loss, gradient norms and ratios, pairwise cosine similarities, and input fingerprints.
 
-`ticknet-eventstream-gradient-audit` 在固定 validation batch 上分别计算下一事件流类型、下一订单类型、连续值回归和 H5 日级收益对共享 Transformer 主干的梯度。审计比较 seed 0 初始化和 best checkpoint，记录损失、梯度范数、范数比例、两两余弦相似度和输入指纹。
+Colab workflows `eventstream-recent-gradient-audit` and `eventstream-rolling-gradient-audit` download only validation shards and checkpoints with registered SHA-256. They exclude training, OOS, monitoring partitions, and the locked 2026 period. Full contracts, gates, and commands are in the [event-stream gradient audit](../research/eventstream-gradient-audit.md). Two-fold seed-0 label-scale results, the supervision-position contract, and formal conclusions are in the [label-scale study](../research/eventstream-label-scale.md).
 
-Colab 提供 `eventstream-recent-gradient-audit` 和 `eventstream-rolling-gradient-audit` 两个工作流。两者只下载 validation 分片和已登记 SHA-256 的 checkpoint，排除 train、OOS、监控分区和 2026 锁定区。完整合同、门槛和命令见[事件流多任务梯度审计](../research/eventstream-gradient-audit.md)。
+### Joint end-to-end experiment
 
-标签尺度的两折 seed 0 结果、监督位置合同和正式结论见[事件流标签尺度实验](../research/eventstream-label-scale.md)。
+`ticknet-eventstream-joint-cache` creates a compact cache from the frozen E2 stock-day intersection. It stores 120-dimensional minute features, three-class labels, ranking returns, portfolio evaluation targets, and references to the shared close-window cache. Event arrays remain in the existing 6.17 GiB cache; they are not duplicated. The manifest binds the minute materialization fingerprint, close-cache fingerprint, dates, and evaluation configuration, and records SHA-256 for each Parquet file.
 
-### 联合端到端实验
+`ticknet-eventstream-joint-train` loads the requested seed's `capacity100m` best checkpoint. The scheduler fixes filenames and SHA-256 for seeds 0–2 and passes the seed explicitly. The model takes the final valid-event hidden state from the close window, encodes 120 aggregated minute features with a minute tower, concatenates both representations, and predicts three classes. Ranking score is up probability minus down probability. The first round trains only new layers; later stages update the Transformer with `backbone_lr` and the minute tower/classification head with `head_lr`.
 
-`ticknet-eventstream-joint-cache` 从 frozen E2 的股票日交集中生成轻量缓存。缓存保存 120 维分钟特征、三分类标签、排序收益、组合评估目标，以及共享尾盘缓存的相对分片和行号。事件数组继续留在原有 6.17 GiB 尾盘缓存中，不产生第二份副本。manifest 绑定分钟物化指纹、尾盘缓存指纹、日期和评估配置，每个 Parquet 都记录 SHA-256。
-
-`ticknet-eventstream-joint-train` 加载请求 seed 对应的 `capacity100m` best checkpoint。调度器固定 seed 0、1、2 各自的文件名和 SHA-256，并把 seed 显式传给训练入口。模型从尾盘窗口取最后一个有效事件的隐藏状态，经分钟特征塔编码 120 维聚合特征，再拼接两路表示并输出三类概率。排序分数为上涨概率减下跌概率。默认第一轮只训练新增层，后续以 `backbone_lr` 联合更新 Transformer，以 `head_lr` 更新分钟塔和分类头。
-
-本地生成正式轻量缓存：
+Build the formal compact cache locally:
 
 ```bash
 ticknet-eventstream-joint-cache build \
@@ -223,7 +213,7 @@ ticknet-eventstream-joint-cache build \
   --source-revision "$(git rev-parse HEAD)"
 ```
 
-远端训练使用一个 seed，并显式允许读取已经批准的 2025 年 12 月 OOS：
+Run one seed remotely, explicitly allowing access to the previously approved December 2025 OOS period:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -236,31 +226,29 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/joint-finetune/seed0
 ```
 
-远端工作流下载共享尾盘缓存、轻量联合缓存和请求 seed 对应的 checkpoint。已有输出会在运行前恢复，用于继续未完成的 epoch。结果包含 validation 与 OOS 的逐日 Rank IC、NDCG、Precision、Top-K 成本后收益、换手率、预测 Parquet、checkpoint 和运行摘要。2026 数据继续隔离。
+The remote workflow downloads the shared close cache, joint cache, and requested seed checkpoint, then resumes existing outputs before training unfinished epochs. Results include daily validation/OOS Rank IC, NDCG, precision, cost-adjusted Top-K return, turnover, prediction Parquet, checkpoint, and run summary. 2026 remains isolated.
 
-### 联合端到端正式结果
+The formal cache contains 22,409 training, 6,963 validation, and 8,125 OOS samples, totaling 17,948,094 bytes. It shares the exact stock-day intersection, labels, and evaluation configuration with frozen E2. Fingerprint: `e4f54a62e4be3f36ac0693db59ebcdb120cd753d2dc36415b8686adaa13c1bb6`. Five local files match their Drive copies. Predictions for all three seeds match on stock, date, label, and row counts: 6,963 validation and 8,125 OOS rows.
 
-正式轻量缓存使用 22,409 个训练样本、6,963 个 validation 样本和 8,125 个 OOS 样本，共 17,948,094 字节。它与 frozen E2 使用完全相同的股票日交集、标签和评估配置。数据指纹为 `e4f54a62e4be3f36ac0693db59ebcdb120cd753d2dc36415b8686adaa13c1bb6`，本地 5 个文件与 Drive 副本核对一致。三个 seed 的预测文件也已核对股票、日期、标签和行数，validation 为 6,963 行，OOS 为 8,125 行。
+Seed 0 trained for at most five epochs with early-stopping patience 2. With the Transformer frozen, epoch 1 validation Rank IC was 0.04430. Unfreezing the backbone raised it to 0.05784 at epoch 2. Epochs 3 and 4 scored 0.01457 and 0.03628, followed by early stopping. Final evaluation used the epoch-2 best checkpoint.
 
-seed 0 最多训练 5 个 epoch，早停耐心值为 2。第 1 个 epoch 固定 Transformer，validation Rank IC 为 0.04430。第 2 个 epoch 解冻主干后提高到 0.05784。第 3、4 个 epoch 分别为 0.01457 和 0.03628，随后提前停止。最终评估加载第 2 个 epoch 的 best checkpoint。
-
-| 方案 | validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 日均成本后主动收益 | OOS 日均单边换手 |
+| Method | Validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 mean daily cost-adjusted active return | OOS mean daily one-way turnover |
 |---|---:|---:|---:|---:|---:|---:|
-| HGB E0 分钟特征 | 0.01808 | 0.04010 | 0.53424 | 0.26810 | -11.51bp | 62.89% |
-| HGB frozen E2 seed 0 | 0.02462 | 0.04333 | 0.53277 | 0.27048 | -7.39bp | 64.99% |
-| HGB frozen E2 三 seed 预测均值 | 0.02833 | 0.05701 | 0.54450 | 0.26667 | -4.80bp | 60.91% |
-| 联合端到端 seed 0 | 0.05784 | 0.06296 | 0.54452 | 0.24762 | -9.26bp | 49.91% |
-| 联合端到端 seed 1 | 0.07694 | 0.05492 | 0.53985 | 0.21667 | -14.40bp | 56.74% |
-| 联合端到端 seed 2 | 0.04272 | 0.07407 | 0.55083 | 0.25333 | -5.34bp | 42.56% |
-| 联合端到端三 seed 均值 | 0.05917 | 0.06398 | 0.54507 | 0.23921 | -9.67bp | 49.74% |
+| HGB E0 minute features | 0.01808 | 0.04010 | 0.53424 | 0.26810 | -11.51 bp | 62.89% |
+| HGB frozen E2, seed 0 | 0.02462 | 0.04333 | 0.53277 | 0.27048 | -7.39 bp | 64.99% |
+| HGB frozen E2, three-seed mean predictions | 0.02833 | 0.05701 | 0.54450 | 0.26667 | -4.80 bp | 60.91% |
+| Joint end-to-end, seed 0 | 0.05784 | 0.06296 | 0.54452 | 0.24762 | -9.26 bp | 49.91% |
+| Joint end-to-end, seed 1 | 0.07694 | 0.05492 | 0.53985 | 0.21667 | -14.40 bp | 56.74% |
+| Joint end-to-end, seed 2 | 0.04272 | 0.07407 | 0.55083 | 0.25333 | -5.34 bp | 42.56% |
+| Joint end-to-end, three-seed mean | 0.05917 | 0.06398 | 0.54507 | 0.23921 | -9.67 bp | 49.74% |
 
-联合三 seed 的 validation Rank IC 为 `0.05917 ± 0.01400`，OOS Rank IC 为 `0.06398 ± 0.00785`，三个 OOS 结果均为正。OOS `NDCG@100` 为 `0.54507 ± 0.00450`，日均单边换手为 `49.74% ± 5.79%`。`Precision@100` 为 `0.23921 ± 0.01611`，日均成本后主动收益为 `-9.67 ± 3.71bp`，三个 seed 均为负。
+Across joint seeds, validation Rank IC was `0.05917 ± 0.01400`, and OOS Rank IC was `0.06398 ± 0.00785`; all three OOS values were positive. OOS `NDCG@100` was `0.54507 ± 0.00450`, and mean one-way daily turnover was `49.74% ± 5.79%`. `Precision@100` was `0.23921 ± 0.01611`. Mean daily cost-adjusted active return was `-9.67 ± 3.71 bp`, negative for all three seeds.
 
-后续半衰期、额外窗口、H5 错峰持有、排名平滑和已知风险暴露已经完成。EMA 和换仓收益差门槛降低了换手，两个连续 OOS 的成本后主动收益方向没有重复。当前决定为 `HOLD`，训练机制消融排在下一步，150M 继续等待。完整结果见[事件流信号半衰期与交易转换诊断](../research/eventstream-signal-trading-diagnostics.md)。
+Follow-up work on signal half-life, additional windows, staggered H5 holdings, rank smoothing, and known risk exposures is complete. EMA and return-difference turnover gates reduced turnover, but cost-adjusted active-return signs did not repeat across two consecutive OOS windows. The current decision is `HOLD`; training-mechanism ablations are next, and 150M remains deferred. See [event-stream signal and trading diagnostics](../research/eventstream-signal-trading-diagnostics.md).
 
-### 固定窗口物化与正式训练
+### Fixed-window materialization and formal training
 
-源清单生成完成后，在保存完整 pack 的本地主机物化 seed 0：
+After building the source manifest, materialize seed 0 locally where the full pack is stored:
 
 ```bash
 ticknet-eventstream-materialize build \
@@ -268,16 +256,12 @@ ticknet-eventstream-materialize build \
   --storage-manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
   --output artifacts/eventstream-h5-recent-fold/materialized/seed0 \
   --source-revision "$(git rev-parse HEAD)"
-```
 
-物化支持按月恢复。已有分片会先复核 SHA-256，再跳过。完成后执行完整核对：
-
-```bash
 ticknet-eventstream-materialize verify \
   --root artifacts/eventstream-h5-recent-fold/materialized/seed0
 ```
 
-把通过核对的目录上传到固定 seed 路径：
+Materialization resumes month by month after verifying SHA-256 for existing shards. Upload a verified directory to its seed-specific location:
 
 ```bash
 rclone --config ~/.config/rclone/rclone.conf copy \
@@ -286,7 +270,7 @@ rclone --config ~/.config/rclone/rclone.conf copy \
   --checksum
 ```
 
-第一次远端运行只完成一个正式 epoch，不读取 OOS，用于验证 checkpoint 回传和恢复：
+The first remote run trains one formal epoch without OOS access, to verify checkpoint return and resume:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -301,7 +285,7 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
 ```
 
-滚动折只有物化数组时，可以在本地恢复股票身份，在远端只运行 checkpoint 推理。两个 manifest 会共同绑定物化数据指纹、源数据指纹和 2026 锁定边界：
+For rolling folds where only materialized arrays are available, recover stock identity locally and run checkpoint inference remotely. The two manifests bind materialized and source fingerprints and the 2026 lock boundary:
 
 ```bash
 ticknet-eventstream-materialized-predictions keys \
@@ -321,11 +305,11 @@ ticknet-eventstream-materialized-predictions score \
   --source-revision "$(git rev-parse HEAD)"
 ```
 
-`ticknet-eventstream-signal-diagnostics` 连接股票身份、分数、H1 至 H10 标签侧车和日线数据，输出半衰期、27 组交易规则、H5 五组 cohort、动态成本与风险暴露。命令参数和最终产物见上面的研究诊断文档。
+`ticknet-eventstream-signal-diagnostics` joins stock identity, scores, H1–H10 label sidecars, and daily bars. It reports signal half-life, 27 trading rules, five H5 cohorts, dynamic costs, and risk exposures. See the research diagnostics page for command options and artifacts.
 
-### 冻结 embedding 与下游对照
+### Frozen embeddings and downstream comparison
 
-三组 checkpoint 共用一份尾盘窗口缓存。缓存按股票日保存收盘前最后 512 个事件，只包含模型输入和股票日键。它不保存随机训练窗口，也不随 seed 改变：
+Three checkpoints share a single close-window cache. It stores the final 512 events before the close for each stock-day, with model inputs and stock-day keys only. It contains no random training windows and does not vary by seed:
 
 ```bash
 ticknet-eventstream-close-cache build \
@@ -340,7 +324,7 @@ ticknet-eventstream-close-cache verify \
   --root artifacts/eventstream-h5-recent-fold/daily-close-cache
 ```
 
-共享缓存已完成本地生成、全量核对和远端上传，包含 39,903 个股票日、5 个分片，共 6,619,831,094 字节，约 6.17 GiB。数据指纹为 `59577182c8124c312de0591059c67e55d472511ca77753403ce77afbf8f109f4`。远端对每个 seed 分别载入对应训练缓存 manifest 和 checkpoint，导出 960 维向量。完整导出会读取已经批准评估的 2025 年 12 月 OOS，因此调度器会保留显式 OOS 授权。每次只处理一个 seed：
+The shared cache was generated, fully checked, and uploaded. It contains 39,903 stock-days in five shards totaling 6,619,831,094 bytes (about 6.17 GiB), with fingerprint `59577182c8124c312de0591059c67e55d472511ca77753403ce77afbf8f109f4`. Remotely, each seed loads its corresponding training-cache manifest and checkpoint to export 960-dimensional vectors. Full export reads the previously approved December 2025 OOS period, so the scheduler retains explicit OOS authorization. Export one seed at a time:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -352,7 +336,7 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/embeddings/seed0
 ```
 
-调度器只下载共享尾盘缓存、对应 seed 的训练 manifest 和 best checkpoint。任务完成后会回传 embedding、manifest、运行摘要和 Colab 执行记录，并核对 seed、源码 revision、OOS 状态和 2026 隔离状态。直接在已有 CUDA 环境执行时可使用底层入口：
+The scheduler downloads only the shared close cache, the requested seed's training manifest, and its best checkpoint. It returns embeddings, manifest, run summary, and Colab execution record, then checks seed, source revision, OOS status, and 2026 isolation. To run directly in an existing CUDA environment:
 
 ```bash
 ticknet-eventstream-export-embeddings \
@@ -366,15 +350,15 @@ ticknet-eventstream-export-embeddings \
   --source-revision "$(git rev-parse HEAD)"
 ```
 
-三个 seed 已按源码 revision `449b843c83d7494ae7a396d658792eaa664ab2eb` 完成导出。本地 manifest 全量校验与 Drive 逐文件核对均通过，每组 39,903 行，股票日主键和顺序完全一致。
+All three seeds were exported at source revision `449b843c83d7494ae7a396d658792eaa664ab2eb`. Local manifest verification and file-by-file Drive checks passed. Each embedding contains 39,903 rows, with identical stock-day keys and order.
 
-| seed | embedding 数据指纹 | 文件字节数 |
+| Seed | Embedding fingerprint | File bytes |
 |---:|---|---:|
 | 0 | `a4d67c5f06a3147d036a43700bcc88bd2e5b47b74c934a4255192255f0435b36` | 146,103,015 |
 | 1 | `850ed79795d34b8e040bacad174abc3ba4b4942f865b6b9f560439fcef78530a` | 145,899,441 |
 | 2 | `c51bceff90a52982b57fd1c9c4999fed4e27285993a8c00a38379e444f61e43a` | 145,939,261 |
 
-重复执行 seed 1 和 2 后，运行下游对照：
+Run downstream comparisons after seeds 1 and 2 are available:
 
 ```bash
 ticknet-embedding-compare \
@@ -387,28 +371,26 @@ ticknet-embedding-compare \
   --output results/embedding-frozen-recent-2025
 ```
 
-结果包含 HGB 与 LambdaMART 的分钟特征、embedding、组合特征三组对照。主要指标为 Rank IC、`NDCG@50/100`、`Precision@50/100`、Top-K 成本后收益、换手率和月度稳定性。风险暴露诊断需要额外提供含 `trading_date`、`symbol`、`industry`、`size`、`liquidity`、`volatility` 的 Parquet。缺少该文件时结果会明确记录 `unavailable`。
+The comparison includes three input sets for HGB and LambdaMART: minute features, embeddings, and their combination. Metrics include Rank IC, `NDCG@50/100`, `Precision@50/100`, cost-adjusted Top-K returns, turnover, and monthly stability. Risk-exposure analysis requires a Parquet file with `trading_date`, `symbol`, `industry`, `size`, `liquidity`, and `volatility`; otherwise the result records `unavailable`.
 
-### 冻结表征正式结果
+The `FEAT-EMB-FROZEN-001` comparison used 22,409 training, 6,963 validation, and 8,125 OOS samples. Event-stream coverage of recent-fold minute candidates was 96.69%. Validation covered 18 evaluation days and OOS 21. E1 and E2 use three downstream seeds each and average prediction scores.
 
-`FEAT-EMB-FROZEN-001` 使用 22,409 个训练样本、6,963 个 validation 样本和 8,125 个 OOS 样本。事件流对最近折分钟候选的覆盖率为 96.69%。validation 有 18 个评估日，OOS 有 21 个评估日。表中的 E1 和 E2 使用三个 seed 各自训练下游模型，再平均预测分数。
-
-| 下游模型 | 输入 | validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 日均成本后主动收益 | OOS 日均单边换手 |
+| Downstream model | Input | Validation Rank IC | OOS Rank IC | OOS `NDCG@100` | OOS `Precision@100` | OOS Top-100 mean daily cost-adjusted active return | OOS mean daily one-way turnover |
 |---|---|---:|---:|---:|---:|---:|---:|
-| HGB | E0 分钟特征 | 0.01808 | 0.04010 | 0.53424 | 0.26810 | -11.51bp | 62.89% |
-| HGB | E1 embedding | 0.02647 | 0.01966 | 0.52349 | 0.25905 | -13.14bp | 64.30% |
-| HGB | E2 组合 | 0.02833 | 0.05701 | 0.54450 | 0.26667 | -4.80bp | 60.91% |
-| LambdaMART | E0 分钟特征 | -0.04334 | 0.00766 | 0.52153 | 0.30143 | -0.73bp | 48.95% |
-| LambdaMART | E1 embedding | -0.01117 | 0.03414 | 0.53030 | 0.29286 | 15.53bp | 52.57% |
-| LambdaMART | E2 组合 | -0.05081 | 0.01389 | 0.52695 | 0.31143 | 6.91bp | 52.32% |
+| HGB | E0 minute features | 0.01808 | 0.04010 | 0.53424 | 0.26810 | -11.51 bp | 62.89% |
+| HGB | E1 embedding | 0.02647 | 0.01966 | 0.52349 | 0.25905 | -13.14 bp | 64.30% |
+| HGB | E2 combined | 0.02833 | 0.05701 | 0.54450 | 0.26667 | -4.80 bp | 60.91% |
+| LambdaMART | E0 minute features | -0.04334 | 0.00766 | 0.52153 | 0.30143 | -0.73 bp | 48.95% |
+| LambdaMART | E1 embedding | -0.01117 | 0.03414 | 0.53030 | 0.29286 | 15.53 bp | 52.57% |
+| LambdaMART | E2 combined | -0.05081 | 0.01389 | 0.52695 | 0.31143 | 6.91 bp | 52.32% |
 
-HGB E2 的单 seed OOS Rank IC 为 0.04333、0.05644、0.05912，全部高于 E0 的 0.04010。三 seed 预测均值的 OOS 配对增量为 0.01691，21 天中有 16 天优于 E0，逐日 bootstrap 95% 区间为 0.00596 至 0.02851。validation 的配对增量为 0.01025，区间仍跨过零。HGB E2 已形成当前折内较稳定的表征增量，成本后主动收益仍为负。
+HGB E2 single-seed OOS Rank IC values were 0.04333, 0.05644, and 0.05912, each above E0's 0.04010. The three-seed mean prediction gained 0.01691 paired OOS Rank IC; it beat E0 on 16 of 21 days, with a daily-bootstrap 95% interval of 0.00596–0.02851. The validation paired gain was 0.01025, with an interval still crossing zero. HGB E2 shows a relatively stable representation gain within this fold, while cost-adjusted active return remains negative.
 
-LambdaMART E2 在三个 seed 和两个月之间波动较大。E1 在 OOS 的成本后主动收益为正，validation 为 -15.34bp，暂时只保留为待复核线索。风险暴露输入尚未提供，行业、规模、波动率和流动性诊断均记录为 `unavailable`。结果文件为 `results/embedding-frozen-recent-2025/comparison.json`，数据指纹为 `56a7689048e539963a217c92221e8cddf1ce472526115411d5478a4a6d18dc00`。
+LambdaMART E2 varied substantially across three seeds and two months. E1's OOS cost-adjusted active return was positive, while validation was -15.34 bp; treat it as a lead requiring replication. Risk-exposure inputs were unavailable, so industry, size, volatility, and liquidity diagnostics are marked `unavailable`. Results are in `results/embedding-frozen-recent-2025/comparison.json`, fingerprint `56a7689048e539963a217c92221e8cddf1ce472526115411d5478a4a6d18dc00`.
 
-当前决策保留 frozen E2、HGB 和联合训练作为候选。联合三 seed 已经固定相同股票日、标签和评估口径，并以当前 E2 为直接对照。最近折只有一个 validation 月和一个 OOS 月，后续补充风险暴露和额外时间窗口。150M 继续等待这些结果。
+Current candidates are frozen E2, HGB, and joint training. The joint three-seed comparison uses the same stock-days, labels, and metrics and treats current E2 as the direct control. The recent fold has only one validation and one OOS month, so add risk exposures and more time windows before drawing a broad conclusion. Keep 150M deferred.
 
-正式训练使用相同 revision 恢复 checkpoint，并在训练结束后评估 2025 年 12 月 OOS。以下命令保留为复现实验入口：
+The formal training command below resumes the same-revision checkpoint and evaluates December 2025 OOS after training:
 
 ```bash
 python scripts/run_colab_nextday.py \

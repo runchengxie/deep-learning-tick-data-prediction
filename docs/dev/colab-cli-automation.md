@@ -1,141 +1,173 @@
-# Colab CLI 无人值守运行
+# Unattended Colab Runs with the CLI
 
-Linux 开发机负责代码、数据和实验产物的调度，Colab 提供临时 GPU 算力。正式入口是 Python CLI。旧 notebook 已转换为 `legacy/notebooks/` 下的 Python 快照，只用于追溯早期交互流程。
+The Linux development machine schedules code, data, and experiment artifacts. Colab provides temporary GPU compute. The supported entry point is the Python CLI. Former notebooks were converted to Python snapshots under `examples/historical-workflows/` only to preserve early interactive workflows.
 
-## 边界
+## Boundaries
 
-- Linux 保存 Git worktree、raw-200、本地归档、Colab OAuth 和 rclone OAuth。
-- Colab VM 只保存一次 session 所需的数据、wheel、临时凭据和运行输出。
-- Google Drive 保存训练数据、checkpoint 和跨设备实验产物。
-- rclone.conf 包含刷新凭据，只允许保存在仓库外路径。
-- 早期原始盘口容量系列继续锁定 2025 test。当前事件流和 AgentX 系列把 2025 用作开发区，并由协议锁定 2026。自动化入口支持多周期评估、独立 H=5、容量矩阵和事件流基准。
+- Linux holds Git worktrees, raw-200 data, local archives, and Colab and rclone OAuth credentials.
+- A Colab VM holds only the data, wheel, temporary credentials, and run output needed for one session.
+- Google Drive stores training data, checkpoints, and experiment artifacts shared between devices.
+- `rclone.conf` contains refresh credentials and must stay outside the repository.
+- Earlier raw-order-book capacity experiments keep the 2025 test period locked. Current event-stream and AgentX series use 2025 for development and lock 2026 through their research protocol. Automation supports multi-horizon evaluation, standalone H=5, capacity matrices, and event-stream benchmarks.
 
-截至 2026-08-19，原始盘口四格三 seed 矩阵、事件流输入基准、最近折正式训练三 seed 和相邻折 seed 0 已经完成。本文保留对应命令用于复现。当前新增的正式工作流是两折多任务梯度审计。
+As of 2026-08-19, the raw-order-book four-cell, three-seed matrix, event-stream input benchmarks, recent-fold formal three-seed training, and adjacent-fold seed 0 had completed. Commands are retained here for reproduction. The current additional formal workflow is a two-fold multi-task gradient audit.
 
-## Linux 主机安装
+## Install on the Linux host
 
-Colab CLI 0.6.0 的 PyPI 元数据没有锁住 Google 的 kernel client fork。安装后需要用官方 lockfile 对应版本替换 PyPI 的 1.x 包，否则 `colab exec` 会找不到 `KernelClient`：
+PyPI metadata for Colab CLI 0.6.0 does not pin Google's fork of the kernel client. After installing it, replace the PyPI 1.x package with the version from Google's lockfile. Otherwise, `colab exec` cannot find `KernelClient`:
 
-    uv tool install --force google-colab-cli==0.6.0 \
-      --with 'jupyter-kernel-client @ git+https://github.com/googlecolab/jupyter-kernel-client.git@f18e982c3265df5e923aa9def101ab3fd737e139'
+```bash
+uv tool install --force google-colab-cli==0.6.0 \
+  --with 'jupyter-kernel-client @ git+https://github.com/googlecolab/jupyter-kernel-client.git@f18e982c3265df5e923aa9def101ab3fd737e139'
+```
 
-检查 OAuth 和 rclone，这两条命令都应当无需人工输入：
+Check OAuth and rclone. Both commands should run without interactive input:
 
-    colab --auth=oauth2 sessions
-    rclone --config /home/richard/.config/rclone/rclone.conf \
-      lsjson gdrive:deep-learning-tick-data-prediction/ticknet-data/nextday-raw-200/manifest.json
+```bash
+colab --auth=oauth2 sessions
+rclone --config ~/.config/rclone/rclone.conf \
+  lsjson gdrive:deep-learning-tick-data-prediction/ticknet-data/nextday-raw-200/manifest.json
+```
 
-runner 也会在非登录 SSH 环境中查找 `/home/richard/.local/bin`，不依赖交互式 shell 的 `PATH`。Colab 的 Ubuntu apt 源目前提供较老的 rclone，因此 VM 内命令只使用兼容参数。
+The runner also searches `~/.local/bin` in non-login SSH sessions, so it does not depend on an interactive shell's `PATH`. Colab's Ubuntu apt sources provide an older rclone, so commands inside the VM use compatible options.
 
-## Python 入口
+## Python entry point
 
-固定三个 best checkpoint，只计算 2024 validation：
+Use the three best checkpoints and evaluate only 2024 validation:
 
-    ticknet-nextday-evaluate-horizons \
-      --config configs/nextday-raw-200-capacity-1m.yaml \
-      --sidecar /content/nextday-raw-200-targets-v1/horizon-labels.json \
-      --output-dir /content/ticknet-results/multi-horizon-validation-2024 \
-      --seeds 0 1 2 \
-      --horizons 1 3 5 \
-      --source-revision "$(git rev-parse HEAD)"
+```bash
+ticknet-nextday-evaluate-horizons \
+  --config configs/nextday-raw-200-capacity-1m.yaml \
+  --sidecar /content/nextday-raw-200-targets-v1/horizon-labels.json \
+  --output-dir /content/ticknet-results/multi-horizon-validation-2024 \
+  --seeds 0 1 2 \
+  --horizons 1 3 5 \
+  --source-revision "$(git rev-parse HEAD)"
+```
 
-配置中的 `manifest_path` 和 `checkpoint_dir` 与原始 checkpoint 签名保持一致。runner 会通过 rclone 把数据同步到这些路径，不修改 checkpoint 匹配规则。
+The configuration's `manifest_path` and `checkpoint_dir` must match the original checkpoint signature. The runner uses rclone to sync data into those paths and does not change checkpoint matching rules.
 
-## Linux 调度入口
+## Linux scheduling entry point
 
-事件流训练下载按本次 `--seeds` 过滤带 `.seedN.` 的文件名。共享摘要照常下载，其他 seed 的 checkpoint 和结果留在 Drive 原目录。`--dry-run` 会显示相同过滤规则。已有本地副本不会自动删除，清理时需要单独核对内容、引用和恢复训练需求。
+Event-stream training downloads filter filenames containing `.seedN.` according to the current `--seeds` selection. Shared summaries are downloaded as usual. Checkpoints and results for other seeds stay in their original Drive directory. `--dry-run` shows the same filter. Existing local copies are not deleted automatically; review their contents, references, and recovery needs before cleanup.
 
-先做不申请 GPU 的 dry run：
+First run a dry run that does not request a GPU:
 
-    python scripts/run_colab_nextday.py \
-      --dry-run \
-      --session ticknet-multi-horizon \
-      --gpu T4 \
-      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/latest
+```bash
+python scripts/run_colab_nextday.py \
+  --dry-run \
+  --session ticknet-multi-horizon \
+  --gpu T4 \
+  --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/latest
+```
 
-确认命令后正式运行：
+After reviewing the command, run it:
 
-    python scripts/run_colab_nextday.py \
-      --session ticknet-multi-horizon \
-      --gpu T4 \
-      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/$(date +%Y%m%d-%H%M%S)
+```bash
+python scripts/run_colab_nextday.py \
+  --session ticknet-multi-horizon \
+  --gpu T4 \
+  --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/$(date +%Y%m%d-%H%M%S)
+```
 
-Stage C 的独立 H=5 seed 0 训练不需要 notebook：
+Standalone Stage C H=5 seed-0 training does not require a notebook:
 
-    python scripts/run_colab_nextday.py \
-      --workflow h5-train \
-      --seeds 0 \
-      --keep-on-failure \
-      --session ticknet-h5-seed0 \
-      --gpu T4 \
-      --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow h5-train \
+  --seeds 0 \
+  --keep-on-failure \
+  --session ticknet-h5-seed0 \
+  --gpu T4 \
+  --local-output-dir artifacts/raw-200-capacity_1m-h5/seed0
+```
 
-`h5-train` 默认读取 `configs/nextday-raw-200-capacity-1m-h5.yaml`。它会把已有同名 checkpoint 从 Drive 恢复到固定路径，因此命令中断后可用相同 seed 继续。每次训练结束或失败都会尽力把 checkpoint、history、result 和 `colab-run-summary.json` 同步回 Drive。
+`h5-train` defaults to `configs/nextday-raw-200-capacity-1m-h5.yaml`. It restores an existing same-name checkpoint from Drive to its fixed path, so the same seed can resume after interruption. After every training run or failure, the runner attempts to sync the checkpoint, history, result, and `colab-run-summary.json` back to Drive.
 
-五年 raw-1000 Top-100 的 100M 训练使用 A100 与 batch 32。训练只用 2021 至 2023，checkpoint 只由 2024 validation 选择，2025 test 不评估。三个 seed 都已经完成，下面保留 seed 0 的复现命令：
+### Five-year raw-1000 Top-100 training
 
-    python scripts/run_colab_nextday.py \
-      --workflow raw1000-train \
-      --seeds 0 \
-      --keep-on-failure \
-      --session ticknet-100m-raw1000-seed0 \
-      --gpu A100 \
-      --local-output-dir artifacts/raw-1000-top100-capacity_100m/training
+The 100M model uses A100 and batch size 32. It trains only on 2021–2023, selects checkpoints using 2024 validation, and does not evaluate the 2025 test period. All three seeds are complete. The command below reproduces seed 0:
 
-`raw1000-train` 默认读取 `configs/nextday-raw-1000-top100-capacity-100m.yaml`，从 Drive 下载完整的 8.84 GiB 工作集，并在启动前恢复同一训练目录已有的 checkpoint。seed 1 和 2 使用相同命令修改 `--seeds`。三个 seed 的选择都没有读取 2025 test。
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow raw1000-train \
+  --seeds 0 \
+  --keep-on-failure \
+  --session ticknet-100m-raw1000-seed0 \
+  --gpu A100 \
+  --local-output-dir artifacts/raw-1000-top100-capacity_100m/training
+```
 
-容量与窗口 2×2 矩阵共用上面的 Top-100 工作集。raw-200 格通过 `input_last_chunks: 2` 只读取每个样本最后两个 100-event chunk，股票日、标签和底层数据指纹均不变，也不复制分片。四格三 seed 均已完成。下面保留同口径 `1M/raw-200` seed 0 的复现命令：
+`raw1000-train` defaults to `configs/nextday-raw-1000-top100-capacity-100m.yaml`. It downloads the full 8.84 GiB working set from Drive and restores a checkpoint already present in the same training directory before starting. Use the same command with `--seeds` changed for seeds 1 and 2. None of the three checkpoint selections read the 2025 test period.
 
-    python scripts/run_colab_nextday.py \
-      --workflow capacity-matrix-train \
-      --matrix-cell 1m-raw200 \
-      --seeds 0 \
-      --keep-on-failure \
-      --session ticknet-matrix-1m-raw200-seed0 \
-      --gpu A100 \
-      --local-output-dir artifacts/raw-1000-top100-capacity-matrix/1m-raw200
+### Capacity and window matrix
 
-`--matrix-cell` 还接受 `1m-raw1000` 和 `100m-raw200`。三格分别读取 `configs/nextday-capacity-matrix-1m-raw200.yaml`、`configs/nextday-capacity-matrix-1m-raw1000.yaml` 和 `configs/nextday-capacity-matrix-100m-raw200.yaml`。它们固定使用 batch 32、学习率 0.0001、patience 8 和 2024 validation 选模，2025 test 保持锁定。每格使用独立 Drive 目录并支持断点恢复。
+The 2×2 capacity/window matrix shares the Top-100 working set above. For the raw-200 cell, `input_last_chunks: 2` reads only the last two 100-event chunks per sample. Stock-days, labels, and underlying data fingerprints are unchanged, and shards are not copied. All four cells and three seeds are complete. The command below reproduces seed 0 for `1M/raw-200`:
 
-100M benchmark 先用相同 revision、相同 raw-1000 单月 preflight 分别测 T4 和 A100：
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow capacity-matrix-train \
+  --matrix-cell 1m-raw200 \
+  --seeds 0 \
+  --keep-on-failure \
+  --session ticknet-matrix-1m-raw200-seed0 \
+  --gpu A100 \
+  --local-output-dir artifacts/raw-1000-top100-capacity-matrix/1m-raw200
+```
 
-    python scripts/run_colab_nextday.py \
-      --workflow capacity-benchmark \
-      --session ticknet-100m-raw1000-t4 \
-      --gpu T4 \
-      --benchmark-batches 100 \
-      --warmup-batches 5 \
-      --local-output-dir artifacts/raw-1000-top100-capacity_100m/benchmarks/t4
+`--matrix-cell` also accepts `1m-raw1000` and `100m-raw200`. The three cells read `configs/nextday-capacity-matrix-1m-raw200.yaml`, `configs/nextday-capacity-matrix-1m-raw1000.yaml`, and `configs/nextday-capacity-matrix-100m-raw200.yaml`, respectively. They use batch size 32, learning rate 0.0001, patience 8, and 2024 validation for checkpoint selection. The 2025 test remains locked. Each cell uses a separate Drive directory and supports recovery.
 
-把 `--gpu`、session 和输出末级目录改成 `A100` 和 `a100` 即可得到可比结果。默认配置是 `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`，精确参数量为 100,817,575。benchmark 会执行 AMP 前向、反向与 AdamW 更新，不访问 validation 和 test。早期基准按 75,000 个训练样本外推，数据完成后已用实际的 70,805 个样本重算。
+### 100M benchmark
 
-首个 Top-400 全天事件流 H5 fold 使用独立工作流。Drive 只需要预先放入 2021-01 benchmark pack 和 fold 级 H5 标签，A100 会运行精确 100,604,180 参数的事件流模型：
+First compare T4 and A100 on a one-month raw-1000 preflight using the same source revision:
 
-    python scripts/run_colab_nextday.py \
-      --workflow eventstream-capacity-benchmark \
-      --session ticknet-eventstream-h5-100m-a100 \
-      --gpu A100 \
-      --benchmark-batches 100 \
-      --warmup-batches 5 \
-      --keep-on-failure \
-      --local-output-dir artifacts/eventstream-h5-fold0/benchmarks/a100
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow capacity-benchmark \
+  --session ticknet-100m-raw1000-t4 \
+  --gpu T4 \
+  --benchmark-batches 100 \
+  --warmup-batches 5 \
+  --local-output-dir artifacts/raw-1000-top100-capacity_100m/benchmarks/t4
+```
 
-默认配置是 `configs/eventstream-h5-fold0-capacity100m-colab.yaml`。该工作流只构造 2021-01 训练集，不读取 2021-04 validation 或 2021-05 OOS。
+Use `A100` for `--gpu`, the session, and the final output-directory component to obtain a comparable result. The default configuration is `configs/nextday-raw-1000-top100-capacity-100m-benchmark.yaml`; the exact parameter count is 100,817,575. The benchmark runs AMP forward and backward passes and AdamW updates. It does not access validation or test data. An early estimate based on 75,000 training samples was recalculated using the actual 70,805 samples after the data was complete.
 
-2021 结果只作基础设施吞吐基线。正式 recent fold 应上传 2025-08 pack，并补一次相同口径 benchmark：
+### Initial Top-400 full-day event-stream H5 fold
 
-    python scripts/run_colab_nextday.py \
-      --workflow eventstream-recent-capacity-benchmark \
-      --session ticknet-eventstream-h5-recent-100m-a100 \
-      --gpu A100 \
-      --benchmark-batches 100 \
-      --warmup-batches 5 \
-      --keep-on-failure \
-      --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
+The first Top-400 full-day event-stream H5 fold uses a separate workflow. Drive needs the January 2021 benchmark pack and fold-level H5 labels. A100 runs the event-stream model with exactly 100,604,180 parameters:
 
-最近折工作流默认使用 `configs/eventstream-h5-recent-capacity100m-colab.yaml`，只访问 2025 年 8 月训练 pack。2025 年 11 月 validation、2025 年 12 月 OOS 和 2026 locked 均不参与 benchmark。
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-capacity-benchmark \
+  --session ticknet-eventstream-h5-100m-a100 \
+  --gpu A100 \
+  --benchmark-batches 100 \
+  --warmup-batches 5 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-fold0/benchmarks/a100
+```
 
-最近折正式训练使用固定窗口物化目录。每次只运行一个 seed，第一次用一个 epoch 验证恢复，不读取 OOS：
+The default configuration is `configs/eventstream-h5-fold0-capacity100m-colab.yaml`. The workflow builds only the January 2021 training set and does not read April 2021 validation or May 2021 OOS data.
+
+The 2021 result is an infrastructure-throughput baseline only. For the formal recent fold, upload the August 2025 pack and run the same benchmark:
+
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-capacity-benchmark \
+  --session ticknet-eventstream-h5-recent-100m-a100 \
+  --gpu A100 \
+  --benchmark-batches 100 \
+  --warmup-batches 5 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/benchmarks/a100
+```
+
+The recent-fold workflow defaults to `configs/eventstream-h5-recent-capacity100m-colab.yaml` and accesses only the August 2025 training pack. November 2025 validation, December 2025 OOS, and the 2026 locked period are excluded from the benchmark.
+
+### Recent-fold formal training
+
+Formal recent-fold training uses a fixed materialized-window directory. Run one seed at a time. First use one epoch to validate recovery without reading OOS:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -150,9 +182,11 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-recent-fold/training/seed0
 ```
 
-工作流在训练前核对物化清单和允许访问分片的全部 SHA-256，从 Drive 恢复同一 seed 的 checkpoint。短任务会排除 OOS 和 H3 OOS 分片。成功或失败都会回传 checkpoint、history、result、物化预检和 `colab-run-summary.json`。短任务通过后把 `--training-epochs` 改为 `20`，使用新的 session 名并加 `--evaluate-test`。
+Before training, the workflow checks the materialization manifest and every SHA-256 for permitted shards, then restores the same seed's checkpoint from Drive. The short run excludes OOS and H3 OOS shards. Success or failure syncs the checkpoint, history, result, materialization preflight, and `colab-run-summary.json` back. After the short run passes, set `--training-epochs` to `20`, use a new session name, and add `--evaluate-test`.
 
-额外滚动折使用独立路径，并把折标识写入运行摘要。下面的命令启动 `fold-54-oos-202511` 的 seed 0 短恢复验证：
+### Additional rolling fold
+
+Additional rolling folds use separate paths and record the fold identifier in the run summary. This command starts a short recovery check for seed 0 of `fold-54-oos-202511`:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -168,9 +202,11 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-h5-fold54/training/seed0
 ```
 
-默认配置按折标识解析。新折需要先提交对应的固定日期配置，Runner 会拒绝路径分隔符和不符合 `fold-NN-oos-YYYYMM` 格式的标识。
+The default configuration is resolved from the fold identifier. A new fold requires its fixed-date configuration to be committed first. The runner rejects path separators and identifiers that do not match `fold-NN-oos-YYYYMM`.
 
-多任务梯度审计只读取 validation。最近折和相邻折都固定使用 seed 0、16 个 batch 和已登记 SHA-256 的 best checkpoint。最近折命令如下：
+### Multi-task gradient audit
+
+The multi-task gradient audit reads validation only. Both the recent and adjacent fold use seed 0, 16 batches, and a best checkpoint with a registered SHA-256. Recent-fold command:
 
 ```bash
 python scripts/run_colab_nextday.py \
@@ -185,133 +221,149 @@ python scripts/run_colab_nextday.py \
   --local-output-dir artifacts/eventstream-gradient-audit/recent-seed0
 ```
 
-相邻折把 workflow 改为 `eventstream-rolling-gradient-audit`，并增加 `--eventstream-fold-id fold-54-oos-202511`。工作流只暂存 validation 分片和一个 checkpoint，train、OOS、监控分区与 2026 锁定区不会进入 Colab。审计门槛见[事件流多任务梯度审计](../research/eventstream-gradient-audit.md)。
+For the adjacent fold, use workflow `eventstream-rolling-gradient-audit` and add `--eventstream-fold-id fold-54-oos-202511`. The workflow stages only validation shards and one checkpoint. Training, OOS, monitoring partitions, and the 2026 locked period are not copied to Colab. See the [event-stream multi-task gradient audit](../research/eventstream-gradient-audit.md) for decision thresholds.
 
-如果 batch sweep 的吞吐没有随物理 batch 增长，可以使用相同的 2025 年 8 月 pack 分别测量 DataLoader 和 GPU，并扫描 worker 数：
+### Event-stream input profiling
 
-    python scripts/run_colab_nextday.py \
-      --workflow eventstream-recent-input-profile \
-      --session ticknet-eventstream-h5-recent-input-a100 \
-      --gpu A100 \
-      --num-workers 2 4 8 16 \
-      --effective-batch-size 64 \
-      --benchmark-batches 50 \
-      --warmup-batches 5 \
-      --keep-on-failure \
-      --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
+If throughput does not increase with physical batch size, measure DataLoader and GPU performance separately using the same August 2025 pack and scan worker counts:
 
-输出分别记录只运行 DataLoader、预加载 batch 的纯 GPU 和真实端到端吞吐。worker 数按端到端吞吐选择。该工作流不读取 validation、OOS 或 2026 locked 数据。
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-input-profile \
+  --session ticknet-eventstream-h5-recent-input-a100 \
+  --gpu A100 \
+  --num-workers 2 4 8 16 \
+  --effective-batch-size 64 \
+  --benchmark-batches 50 \
+  --warmup-batches 5 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/input-profile/a100
+```
 
-2026-08-12 的优化后实测选择 8 个 worker。DataLoader-only 为 140.48 samples/s，端到端为 149.40 samples/s，GPU-only 为 238.79 samples/s。按 120,000 个样本和 20 个 epoch 外推，每个 seed 约为 4.46 小时。正式 recent 配置使用 `num_workers: 8`。
+Output records DataLoader-only, GPU-only with preloaded batches, and true end-to-end throughput. Select worker count by end-to-end throughput. This workflow does not read validation, OOS, or 2026 locked data.
 
-事件流 recent sweep 复用同一份 2025 年 8 月暂存数据，在一个 A100 session 内测 batch 8、16、32 和 64，并按完整三个月的 120,000 个训练样本外推：
+The optimized run on 2026-08-12 selected eight workers. DataLoader-only throughput was 140.48 samples/s, end-to-end throughput 149.40 samples/s, and GPU-only throughput 238.79 samples/s. Extrapolated to 120,000 samples and 20 epochs, each seed takes about 4.46 hours. The formal recent configuration uses `num_workers: 8`.
 
-    python scripts/run_colab_nextday.py \
-      --workflow eventstream-recent-batch-size-sweep \
-      --session ticknet-eventstream-h5-recent-sweep-a100 \
-      --gpu A100 \
-      --batch-sizes 8 16 32 64 \
-      --effective-batch-size 64 \
-      --benchmark-batches 50 \
-      --warmup-batches 5 \
-      --keep-on-failure \
-      --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
+The recent event-stream sweep reuses the same August 2025 staged data and tests batch sizes 8, 16, 32, and 64 in one A100 session. Estimates use all 120,000 training samples across three months:
 
-正式训练前可在单个 A100 session 内扫描物理 batch 2、4、8、16 和 32。命令固定 effective batch 为 32，每档执行 5 个 warmup batch 和 50 个 measured batch。单档 OOM 会留下记录并继续，最终按成功档位的 samples/s 选择最佳值：
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow eventstream-recent-batch-size-sweep \
+  --session ticknet-eventstream-h5-recent-sweep-a100 \
+  --gpu A100 \
+  --batch-sizes 8 16 32 64 \
+  --effective-batch-size 64 \
+  --benchmark-batches 50 \
+  --warmup-batches 5 \
+  --keep-on-failure \
+  --local-output-dir artifacts/eventstream-h5-recent-fold/batch-size-sweep/a100
+```
 
-    python scripts/run_colab_nextday.py \
-      --workflow batch-size-sweep \
-      --session ticknet-100m-batch-sweep-a100 \
-      --gpu A100 \
-      --batch-sizes 2 4 8 16 32 \
-      --effective-batch-size 32 \
-      --benchmark-batches 50 \
-      --warmup-batches 5 \
-      --keep-on-failure \
-      --local-output-dir artifacts/raw-1000-top100-capacity_100m/batch-size-sweep/a100
+Before formal training, a single A100 session can scan physical batch sizes 2, 4, 8, 16, and 32 with effective batch size 32, five warmup batches, and 50 measured batches per size. If one size runs out of memory, it records the failure and continues. The best successful throughput is selected:
 
-runner 会执行：
+```bash
+python scripts/run_colab_nextday.py \
+  --workflow batch-size-sweep \
+  --session ticknet-100m-batch-sweep-a100 \
+  --gpu A100 \
+  --batch-sizes 2 4 8 16 32 \
+  --effective-batch-size 32 \
+  --benchmark-batches 50 \
+  --warmup-batches 5 \
+  --keep-on-failure \
+  --local-output-dir artifacts/raw-1000-top100-capacity_100m/batch-size-sweep/a100
+```
 
-1. 要求当前 worktree 已提交且干净，并记录精确 commit。
-2. 查询同名 session。默认要求它不存在，只有显式传入 `--reuse-session` 才允许复用。
-3. 用 `git archive` 在临时目录构建该 commit 的 wheel，不污染当前 worktree。需要新 session 时才创建命名的 Colab GPU runtime。
-4. 上传 wheel、固定训练配置、job spec 和临时 rclone.conf。
-5. Colab 从 Drive 下载工作流所需数据。多周期和 H=5 使用 raw-200 与侧车标签。100M benchmark 下载 raw-1000 preflight、2021 年 1 月事件流 pack 或 2025 年 8 月 recent pack。
-6. 执行多周期 validation、独立 H=5 训练、raw-1000 正式训练或对应的100M容量 benchmark。
-7. 将 JSON 和 Parquet 结果同步回 Drive，再同步到 Linux artifact 目录。
-8. 导出 CLI execution notebook 并删除临时 rclone 配置，再按生命周期策略处理 session。
+The runner:
 
-## Session 生命周期
+1. Requires the current worktree to be committed and clean, and records the exact commit.
+2. Queries for a session with the same name. It must not exist unless `--reuse-session` is explicit.
+3. Uses `git archive` to build a wheel for that commit in a temporary directory without modifying the worktree. It creates a named Colab GPU runtime only when a new session is needed.
+4. Uploads the wheel, fixed training configuration, job specification, and temporary `rclone.conf`.
+5. Downloads workflow-specific data from Drive. Multi-horizon and H=5 use raw-200 and sidecar labels. The 100M benchmark downloads raw-1000 preflight data, the January 2021 event-stream pack, or the August 2025 recent pack.
+6. Runs multi-horizon validation, standalone H=5 training, formal raw-1000 training, or the selected 100M benchmark.
+7. Syncs JSON and Parquet results to Drive, then to the Linux artifact directory.
+8. Exports a CLI execution notebook, deletes the temporary rclone configuration, and applies the session lifecycle policy.
 
-- 默认是 ephemeral，新建 session，成功或失败后都关闭。
-- `--keep-on-failure`：成功后关闭，失败时保留 session 供排查。
-- `--keep-session`：成功或失败都保留本次新建的 session。
-- `--reuse-session`：要求同名 session 已存在并复用它，runner 永远不负责关闭该 session。
+## Session lifecycle
 
-`--keep-session` 与 `--keep-on-failure` 互斥。同名 session 已存在但没有传 `--reuse-session` 时，runner 会在上传文件前拒绝执行。传了 `--reuse-session` 但 session 不存在时也会拒绝执行。所有模式都会删除本次上传的临时 rclone 配置。
+- Default: create an ephemeral session and close it after success or failure.
+- `--keep-on-failure`: close the session on success and retain it after failure for debugging.
+- `--keep-session`: retain this newly created session after either success or failure.
+- `--reuse-session`: require an existing same-name session and reuse it. The runner never closes a reused session.
 
-失败时保留 session：
+`--keep-session` and `--keep-on-failure` are mutually exclusive. If a same-name session exists without `--reuse-session`, the runner refuses before uploading files. If `--reuse-session` is supplied but the session does not exist, it also refuses. All modes delete the temporary rclone configuration uploaded by this run.
 
-    python scripts/run_colab_nextday.py \
-      --keep-on-failure \
-      --session ticknet-multi-horizon \
-      --gpu T4 \
-      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/debug
+Retain a session after failure:
 
-重复使用已经保留的 runtime：
+```bash
+python scripts/run_colab_nextday.py \
+  --keep-on-failure \
+  --session ticknet-multi-horizon \
+  --gpu T4 \
+  --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/debug
+```
 
-    python scripts/run_colab_nextday.py \
-      --reuse-session \
-      --session ticknet-multi-horizon \
-      --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/reuse
+Reuse a retained runtime:
 
-保留的 VM 会继续消耗 compute units，确认不再使用后显式运行：
+```bash
+python scripts/run_colab_nextday.py \
+  --reuse-session \
+  --session ticknet-multi-horizon \
+  --local-output-dir artifacts/raw-200-capacity_1m/cli-runs/reuse
+```
 
-    colab --auth=oauth2 stop -s ticknet-multi-horizon
+A retained VM continues consuming compute units. Explicitly stop it when it is no longer needed:
 
-## 为什么不直接上传 raw-200
+```bash
+colab --auth=oauth2 stop -s ticknet-multi-horizon
+```
 
-colab upload 适合 wheel、YAML 和 JSON 等小文件。它通过 Jupyter Contents API 发送文件，二进制内容需要 base64。raw-200 当前约 7.2GB，直接上传会增加内存、请求体和失败重试成本。rclone 在 Colab 内直接从 Drive 下载，支持校验、并行传输和重复执行。
+## Why raw-200 is not uploaded directly
 
-## 凭据安全
+Colab upload is suitable for small files such as wheels, YAML, and JSON. It sends files through the Jupyter Contents API and base64-encodes binary data. Raw-200 is about 7.2 GB, so direct upload increases memory use, request size, and retry cost. Downloading directly from Drive inside Colab with rclone supports checksums, parallel transfer, and repeatable runs.
 
-- 不提交 rclone.conf、Colab token 或 session metadata。
-- runner 拒绝使用位于 Git 仓库内的 rclone 配置。
-- job spec 只记录远端名称和路径，不记录 token 内容。
-- Colab 内的 rclone 配置权限固定为 600，job 结束立即删除。
-- runtime 停止后临时磁盘由 Colab 回收。
+## Credential security
 
-## 运行产物
+- Do not commit `rclone.conf`, Colab tokens, or session metadata.
+- The runner rejects an rclone configuration stored inside the Git repository.
+- Job specifications record remote names and paths, never token values.
+- Colab's rclone configuration has mode 600 and is deleted immediately after the job.
+- Colab reclaims temporary disk after the runtime stops.
 
-Drive：
+## Run artifacts
 
-    deep-learning-tick-data-prediction/
-      ticknet-runs/raw-200-capacity_1m/multi-horizon-validation-2024/
-      ticknet-runs/raw-200-capacity_1m-h5/
+Drive paths:
 
-Linux 的 `--local-output-dir`：
+```text
+deep-learning-tick-data-prediction/
+  ticknet-runs/raw-200-capacity_1m/multi-horizon-validation-2024/
+  ticknet-runs/raw-200-capacity_1m-h5/
+```
 
-    multi_horizon_validation_2024.json
-    daily_rank_ic_2024.parquet
-    validation_scores_2024.parquet
-    execution.ipynb
+The Linux `--local-output-dir` contains:
 
-H=5 训练目录还包含每个 seed 的 last 和 best checkpoint、history、result 和 `colab-run-summary.json`。
+```text
+multi_horizon_validation_2024.json
+daily_rank_ic_2024.parquet
+validation_scores_2024.parquet
+execution.ipynb
+```
 
-100M benchmark 的 GPU 独立目录包含 `capacity-benchmark.json`、`colab-run-summary.json` 和 `execution.ipynb`。JSON 记录实际 GPU、精确参数量、数据指纹、吞吐、峰值显存以及 75,000 个训练样本的单 seed 和三 seed 外推。
+The H=5 training directory also contains each seed's last and best checkpoint, history, result, and `colab-run-summary.json`.
 
-batch-size sweep 目录包含每档的 `batch-NN.json`、汇总
-`batch-size-sweep.json`、`colab-run-summary.json` 和 `execution.ipynb`。汇总文件记录每档梯度
-累积、吞吐、显存、相对最小成功 batch 的加速比和最终选择。
+The 100M benchmark's GPU-specific directory contains `capacity-benchmark.json`, `colab-run-summary.json`, and `execution.ipynb`. JSON records the actual GPU, exact parameter count, data fingerprint, throughput, peak GPU memory, and single- and three-seed estimates for 75,000 training samples.
 
-事件流输入分析目录包含 `gpu-only.json`、每个 worker 的 data-only 与 end-to-end JSON、汇总 `input-profile.json`、`colab-run-summary.json` 和 `execution.ipynb`。
+The batch-size sweep directory contains a `batch-NN.json` for each size, a `batch-size-sweep.json` summary, `colab-run-summary.json`, and `execution.ipynb`. The summary records gradient accumulation, throughput, memory, speedup relative to the smallest successful batch, and the final selection.
 
-执行历史由官方 colab log 生成，因此不需要人工打开或保存 notebook。
+The event-stream input-profile directory contains `gpu-only.json`, per-worker data-only and end-to-end JSON, `input-profile.json`, `colab-run-summary.json`, and `execution.ipynb`.
 
-## 事件流 VQ 续训
+Execution history comes from official Colab logs, so a person does not need to open or save the notebook manually.
 
-现有 eventstream checkpoint 训练时未启用 VQ。`EventstreamConfig` 的 `init_checkpoint` 支持把这类 checkpoint 热启动为启用 VQ 的新实验：主干权重原样加载，VQ 模块（vq_encoder、vector_quantizer、vq_proj）随机初始化，训练配置里同时设置 `use_vq: true`。
+## Resuming event-stream VQ training
 
-热启动与 `resume` 的关系：本实验自己的 last checkpoint 存在时优先 resume，否则才读 `init_checkpoint`。两者都不存在时从零训练。
+Existing event-stream checkpoints were trained without VQ. `EventstreamConfig.init_checkpoint` can warm-start a new experiment with VQ enabled: trunk weights load as-is, VQ modules (`vq_encoder`, `vector_quantizer`, `vq_proj`) are initialized randomly, and the training configuration sets `use_vq: true`.
 
-便宜路线的推荐步骤：先用小模型配置和几天打包数据在本地或免费档 GPU 验证整条管线，确认 vq_loss 收敛后再用 A100 跑 capacity100m 配置。A100 消耗约每小时 15 个 compute unit。
+Warm start and `resume` precedence: if this experiment's own last checkpoint exists, resume it first. Otherwise load `init_checkpoint`. If neither exists, train from scratch.
+
+Recommended low-cost path: first validate the entire pipeline locally or on a free-tier GPU using a small model and a few days of packed data. Confirm `vq_loss` converges, then use A100 with the `capacity100m` configuration. A100 costs about 15 compute units per hour.
