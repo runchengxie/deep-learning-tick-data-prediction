@@ -2,7 +2,7 @@
 
 Quant Deep Learning is an independent research project for end-to-end deep-learning models on structured market data. It began as a DeepLOB reproduction and now focuses on next-day cross-sectional prediction from Chinese A-share market data, including order-book snapshots, minute-level inputs, and L2 event streams.
 
-The project owns model-specific representations, training, inference, evaluation, and study records. It can run without `quant-platform`. Downstream systems can consume versioned prediction and signal artifacts without importing this repository's Python modules.
+The project owns model-specific representations, training, inference, evaluation, and study records. It can run without `quant-platform` or `quant-research`. `quant-market-data-platform` is the upstream provider; `quant-backtest-runtime` is the downstream artifact consumer. Neither side needs to import this repository's Python modules. See the [repository boundaries](docs/architecture/repository-boundaries.md).
 
 ## Research tracks
 
@@ -25,23 +25,25 @@ The main research path uses trading-day splits and evaluates cross-sectional ran
 The public synthetic-data checks do not require private market data, a GPU, or `quant-platform`. Python 3.10 or later is supported.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-python scripts/check.py
+uv sync --locked --extra dev
+uv run python scripts/check.py
 ```
 
-The check script runs Ruff, formatting checks, `ty`, pytest with coverage, and synthetic DeepLOB/FI-2010 smoke checks. The full [development guide](docs/operations/development-guide.md) describes the test and data boundaries.
+The check script runs Ruff, formatting checks, `ty`, pytest with coverage, and synthetic DeepLOB/FI-2010 smoke checks. CI is the required quality gate; no Git hooks need to be installed. The full [development guide](docs/operations/development-guide.md) describes the test and data boundaries.
 
 On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps1`. After changing command entry points in `pyproject.toml`, reinstall the project in editable mode so the environment's script launchers are refreshed.
 
 ## Documentation
+
+- [Research presentation site](https://runchengxie.github.io/quant-deep-learning/) presents current evidence in plain language with sample scope, charts, limitations, and links to technical records.
+- [Browse technical documentation](https://runchengxie.github.io/quant-deep-learning/documentation/) or [search public records](https://runchengxie.github.io/quant-deep-learning/search/).
 
 - [Project status](docs/project-status.md) summarizes dated capabilities, evidence, and open work.
 - [Model catalog](docs/model-catalog.md) compares model inputs, methods, strengths, and limitations.
 - [Cross-sectional prediction](docs/nextday/cross-sectional-prediction.md) defines samples, labels, date splits, training, and evaluation.
 - [Event-stream guide](docs/nextday/eventstream.md) describes event packing, causal training, and prediction export.
 - [Data boundary](docs/architecture/data-boundary.md) describes which system owns each data transformation.
+- [Repository boundaries](docs/architecture/repository-boundaries.md) defines the upstream/downstream integration and artifact boundary.
 - [Documentation index](docs/documentation-index.md) links to topic guides, research records, and operating notes.
 - [Reproduction audit](docs/reproduction-audit.md) records the scope and checks for the separate FI-2010 research track.
 
@@ -61,4 +63,4 @@ src/ticknet/fi2010/      FI-2010 DeepLOB reproduction package
 examples/                Historical Colab workflow snapshots
 ```
 
-The Python import namespace remains `ticknet` for compatibility. Repository ownership and boundaries are recorded in [MIGRATION-STATUS.md](MIGRATION-STATUS.md). Contributor and agent rules are in [AGENTS.md](AGENTS.md).
+The Python import namespace remains `ticknet` for compatibility. Current repository ownership is recorded in [Repository Boundaries](docs/architecture/repository-boundaries.md). The old [MIGRATION-STATUS.md](MIGRATION-STATUS.md) path remains as a compatibility pointer. Contributor and agent rules are in [AGENTS.md](AGENTS.md).

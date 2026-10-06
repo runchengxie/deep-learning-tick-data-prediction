@@ -2,7 +2,7 @@
 
 Independent end-to-end deep-learning research for structured market data.
 
-Quant Deep Learning develops representations, models, training, inference, and research evaluation for order-book snapshots, minute data, and L2 event streams. The research workflows are designed to run without `quant-platform`. Downstream platforms can consume documented prediction and signal artifacts without importing model code.
+Quant Deep Learning develops representations, models, training, inference, and research evaluation for order-book snapshots, minute data, and L2 event streams. The project can run without `quant-platform` or `quant-research`. It consumes published market-data assets upstream and is designed to send versioned prediction and signal artifacts to `quant-backtest-runtime` downstream.
 
 ## Research tracks
 
@@ -29,9 +29,9 @@ prediction and signal artifacts
 independent portfolio, risk, or backtest consumers
 ```
 
-The model project owns model-specific computation and diagnostics. Market-data ingestion remains with the market-data provider. Generic portfolio construction, backtesting, risk, replay, and execution simulation remain in their respective platform repositories. Private experiment governance and locked-test approvals remain in `quant-research`.
+The model project owns model-specific computation and diagnostics. `quant-market-data-platform` owns shared data publication. `quant-backtest-runtime` consumes model artifacts and may use generic algorithms from `quant-platform`. `quant-research` remains an optional private evidence and approval system. See [Repository Boundaries](architecture/repository-boundaries.md).
 
-Artifact schemas and compatibility guarantees are being specified before implementation ownership moves between repositories. Until then, treat existing copies in other repositories as migration-era implementations. See the repository's [migration and ownership status](https://github.com/runchengxie/quant-deep-learning/blob/main/MIGRATION-STATUS.md).
+Artifact schemas and compatibility guarantees are being specified before implementation ownership moves between repositories. Until then, treat existing copies in other repositories as migration-era implementations. See [Repository Boundaries](architecture/repository-boundaries.md) for the current ownership contract and migration history.
 
 ## Get started
 

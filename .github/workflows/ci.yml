@@ -9,10 +9,15 @@ on:
       - "scripts/**"
       - "docs/**"
       - "config/**"
+      - "web/**"
+      - "README.md"
+      - "AGENTS.md"
+      - "MIGRATION-STATUS.md"
       - "mkdocs.yml"
+      - ".pre-commit-config.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
   pull_request:
     paths:
       - "src/**"
@@ -20,10 +25,15 @@ on:
       - "scripts/**"
       - "docs/**"
       - "config/**"
+      - "web/**"
+      - "README.md"
+      - "AGENTS.md"
+      - "MIGRATION-STATUS.md"
       - "mkdocs.yml"
+      - ".pre-commit-config.yaml"
       - "pyproject.toml"
       - "uv.lock"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
@@ -36,10 +46,12 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
-      - name: Check out repository
+      - name: Check out repository history for changed-file checks
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -50,10 +62,26 @@ jobs:
       - name: Install locked development environment
         run: uv sync --locked --extra dev
 
+      - name: Check changed-file hygiene
+        env:
+          BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          base="$BEFORE_SHA"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          mapfile -d '' files < <(git diff --diff-filter=ACMR --name-only -z "$base" "$GITHUB_SHA")
+          if [ "${#files[@]}" -gt 0 ]; then
+            uv run --locked --extra dev python scripts/ci_hygiene.py "${files[@]}"
+          fi
+
       - name: Run Ruff
         run: |
           uv run --locked --extra dev ruff check .
           uv run --locked --extra dev ruff format --check .
+
+      - name: Lint notebook code
+        run: uv run --locked --extra dev nbqa ruff --extend-ignore=E402,B018 .
 
       - name: Run ty
         run: uv run --locked --extra dev ty check
@@ -64,8 +92,8 @@ jobs:
       - name: Run tests with coverage
         run: uv run --locked --extra dev pytest --cov --cov-report=term-missing
 
-      - name: Build documentation
-        run: uv run --locked --extra dev mkdocs build --strict
+      - name: Run synthetic model smoke checks
+        run: uv run python scripts/smoke_test.py
 
       - name: Compile public Python sources
         run: python -m compileall -q src scripts

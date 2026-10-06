@@ -1,0 +1,9 @@
+---
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import { studies } from '../../content/studies.mjs';
+const base = import.meta.env.BASE_URL;
+---
+<SiteLayout title="Research studies">
+  <section class="container study-hero"><span class="eyebrow">Research catalog</span><h1>What have we tested?</h1><p class="muted">Each study card includes the question, evidence stage, data window, main observation, and what is still unknown.</p></section>
+  <section class="container section"><div class="grid-3">{studies.map((study) => <a class="card card-link" href={`${base}studies/${study.id}/`}><span class="status">{study.stage}</span><h3>{study.title}</h3><p>{study.summary}</p><span class="source-note">{study.sample}</span></a>)}</div></section>
+</SiteLayout>

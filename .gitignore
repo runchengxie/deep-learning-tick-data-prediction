@@ -10,6 +10,9 @@ venv/
 env/
 *.egg-info/
 /site/
+/web/node_modules/
+/web/dist/
+/web/.astro/
 
 # 本地实验产物
 /artifacts/

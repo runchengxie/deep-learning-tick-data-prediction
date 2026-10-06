@@ -22,6 +22,7 @@ ENGLISH_DOCUMENTS = {
     "docs/model-catalog.md",
     "docs/reproduction-audit.md",
     "docs/architecture/data-boundary.md",
+    "docs/architecture/repository-boundaries.md",
     "docs/dev/colab-cli-automation.md",
     "docs/dev/development-guide.md",
     "docs/operations/development-guide.md",
@@ -71,6 +72,8 @@ ENGLISH_DOCUMENTS = {
     "docs/superpowers/specs/2026-08-25-m3-eventstream-representation-design.md",
     "docs/superpowers/specs/2026-08-30-l2-exchange-sequence-ordering-design.md",
     "docs/superpowers/specs/2026-10-05-quant-deep-learning-reorganization-design.md",
+    "docs/superpowers/specs/2026-10-06-quant-deep-learning-independent-research-site-design.md",
+    "docs/superpowers/plans/2026-10-06-independent-research-site-astro-and-ci.md",
     "docs/superpowers/specs/2026-08-26-market-simulator-design.md",
 }
 
@@ -143,15 +146,17 @@ def test_external_comparison_archival_source_is_unchanged() -> None:
 
 def test_repository_identity_is_quant_deep_learning() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    migration_status = (ROOT / "MIGRATION-STATUS.md").read_text(encoding="utf-8")
+    boundaries = (ROOT / "docs/architecture/repository-boundaries.md").read_text(encoding="utf-8")
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     project = pyproject.split("[project]", maxsplit=1)[1].split("\n[", maxsplit=1)[0]
     scripts = pyproject.split("[project.scripts]", maxsplit=1)[1].split("\n[", maxsplit=1)[0]
 
     assert "# Quant Deep Learning" in readme
     assert re.search(r'(?m)^name = "quant-deep-learning"$', project)
-    assert "Canonical owner: `quant-deep-learning`" in migration_status
-    assert "historical migration decision" in migration_status.lower()
+    assert "quant-market-data-platform" in boundaries
+    assert "quant-backtest-runtime" in boundaries
+    assert "quant-platform" in boundaries
+    assert "quant-research" in boundaries
     assert re.search(r"(?m)^ticknet-eventstream-train =", scripts)
     assert re.search(r"(?m)^ticknet-research =", scripts)
 
@@ -167,18 +172,18 @@ def test_fi2010_reproduction_is_a_first_party_package() -> None:
     assert 'ticknet-fi2010-convert = "ticknet.fi2010.scripts.convert_fi2010:main"' in scripts
 
 
-def test_mkdocs_site_configuration() -> None:
-    config = ROOT / "mkdocs.yml"
-    landing_page = ROOT / "docs" / "index.md"
+def test_astro_site_replaces_mkdocs_as_the_public_renderer() -> None:
+    config = ROOT / "web" / "astro.config.mjs"
+    workflow = (ROOT / ".github/workflows/pages.yml").read_text(encoding="utf-8")
+    package = (ROOT / "web/package.json").read_text(encoding="utf-8")
 
     assert config.is_file()
-    assert landing_page.is_file()
-    settings = config.read_text(encoding="utf-8")
-    assert "name: material" in settings
-    assert "site_url: https://runchengxie.github.io/quant-deep-learning/" in settings
-    assert "  - Home: index.md" in settings
-    assert "Project status: project-status.md" in settings
-    assert "Architecture:" in settings
+    assert "base: '/quant-deep-learning'" in config.read_text(encoding="utf-8")
+    assert "npm run build:pages" in workflow
+    assert "mkdocs" not in workflow.lower()
+    assert '"astro"' in package
+    assert not (ROOT / "mkdocs.yml").exists()
+    assert not (ROOT / ".pre-commit-config.yaml").exists()
 
 
 def test_unlicensed_broker_report_is_not_published() -> None:

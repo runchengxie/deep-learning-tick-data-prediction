@@ -44,7 +44,7 @@ The GTX 970 is not part of the primary plan. Maintaining a separate driver, CUDA
 Raw ten-level snapshots are stored at:
 
 ```text
-/mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/snapshot
+$QUANT_DATA_ROOT/raw/cn_a_share_level2/snapshot
 ```
 
 The 60 canonical monthly files for 2021–2025 are present and total about 884 GiB. The snapshot directory also contains about 206 GiB of 2026 monthly files, daily files, and repair archives, for roughly 1.1 TiB total. Schemas match across five sampled years and contain 75 fields, including `AskPrice1~10`, `AskVolume1~10`, `BidPrice1~10`, and `BidVolume1~10`. `time_ms` is milliseconds since 09:30; 14:55 is `19_500_000`. A check of `000001` found 4,702 valid snapshots before 14:55 on one trading day. Its final `Price` matched the daily-bar close.
@@ -54,7 +54,7 @@ The same disk has 60 monthly order files for 2021–2025 (about 1.2 TB) and 60 t
 The minute microstructure cache is at:
 
 ```text
-/mnt/data/hdd6t/quant-data-lake/derived/level2_minute_cache/v1
+$QUANT_DATA_ROOT/derived/level2_minute_cache/v1
 ```
 
 It covers 2021–2026 and is about 122 GB. It contains 11 snapshot, 11 order, and 11 trade features per minute; the combined 33-column representation also includes a validity indicator for each modality. This cache already aggregates raw ticks to minute bars and is the most useful starting point on the available hardware.

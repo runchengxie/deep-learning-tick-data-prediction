@@ -16,7 +16,7 @@ Use the project environment:
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
-  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --raw-root $QUANT_DATA_ROOT/raw/cn_a_share_level2 \
   --json-output /tmp/opening-coverage.json \
   --csv-output /tmp/opening-coverage.csv
 ```
@@ -27,8 +27,8 @@ For a full audit, set `--index-path` to cache coverage results. The first scan s
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/audit_opening_coverage.py \
-  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
-  --index-path /mnt/data/hdd6t/quant-data-lake/projects/level2-coverage-index.json \
+  --raw-root $QUANT_DATA_ROOT/raw/cn_a_share_level2 \
+  --index-path $QUANT_DATA_ROOT/projects/level2-coverage-index.json \
   --json-output /tmp/opening-coverage.json \
   --csv-output /tmp/opening-coverage.csv
 ```

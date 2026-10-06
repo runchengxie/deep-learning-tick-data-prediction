@@ -139,7 +139,7 @@ Run in the main workspace containing the complete local artifacts:
 ```bash
 ticknet-eventstream-storage-readiness build \
   --config configs/eventstream-h5-recent-capacity100m.yaml \
-  --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1 \
+  --pack-root $QUANT_DATA_ROOT/derived/l2_eventstream/top400-h5-v1 \
   --universe artifacts/eventstream-h5-recent-fold/202508/universe.json \
   --universe artifacts/eventstream-h5-recent-fold/202509/universe.json \
   --universe artifacts/eventstream-h5-recent-fold/202510/universe.json \
@@ -314,7 +314,7 @@ Three checkpoints share a single close-window cache. It stores the final 512 eve
 ```bash
 ticknet-eventstream-close-cache build \
   --storage-manifest artifacts/eventstream-h5-recent-fold/storage-manifest.json \
-  --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1 \
+  --pack-root $QUANT_DATA_ROOT/derived/l2_eventstream/top400-h5-v1 \
   --output artifacts/eventstream-h5-recent-fold/daily-close-cache \
   --seq-len 512 \
   --min-events 256 \

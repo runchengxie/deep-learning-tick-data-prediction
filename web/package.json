@@ -1,0 +1,22 @@
+{
+  "name": "quant-deep-learning-site",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "check": "astro check",
+    "test": "node --test tests/*.test.mjs",
+    "build": "astro check && astro build && node scripts/write-nojekyll.mjs",
+    "verify": "node scripts/verify-site.mjs dist",
+    "build:pages": "npm run build && npm run verify",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "@astrojs/markdown-remark": "^7.3.1",
+    "@types/node": "^22.20.0",
+    "astro": "7.3.5",
+    "typescript": "5.9.3"
+  }
+}

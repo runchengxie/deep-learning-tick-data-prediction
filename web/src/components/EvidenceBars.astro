@@ -1,0 +1,31 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  metric: string;
+  max: number;
+  values: Array<{ label: string; value: number; display: string }>;
+  source: string;
+}
+const { title, description, metric, max, values, source } = Astro.props;
+---
+<figure class="evidence-chart">
+  <figcaption>
+    <span class="eyebrow">{metric}</span>
+    <h3>{title}</h3>
+    <p>{description}</p>
+  </figcaption>
+  <table>
+    <tbody>
+      {values.map((item) => {
+        const width = Math.max(0, Math.min(100, item.value / max * 100));
+        return <tr>
+          <th scope="row">{item.label}</th>
+          <td class="bar-cell"><span class="bar-track"><span class="bar-fill" style={`width:${width}%`}></span></span></td>
+          <td class="bar-value">{item.display}</td>
+        </tr>;
+      })}
+    </tbody>
+  </table>
+  <p class="chart-source">Source: <a href={source}>{source}</a>. Bars share the scale shown by the largest value.</p>
+</figure>

@@ -1,0 +1,23 @@
+---
+import SiteLayout from './SiteLayout.astro';
+interface Props {
+  title: string;
+  source: string;
+  html: string;
+  headings?: Array<{ depth: number; slug: string; text: string }>;
+  description?: string;
+}
+const { title, source, html, headings = [], description } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+<SiteLayout title={title} description={description ?? `Public technical documentation: ${title}`}>
+  <div class="article-shell">
+    <aside class="article-sidebar">
+      <a href={`${base}documentation/`}>← Documentation index</a>
+      <p>Technical reference</p>
+      <code>{source}</code>
+      {headings.length > 1 && <nav aria-label="On this page"><strong>On this page</strong><ul>{headings.filter((heading) => heading.depth > 1).map((heading) => <li class={`toc-depth-${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ul></nav>}
+    </aside>
+    <article class="article-content" set:html={html}></article>
+  </div>
+</SiteLayout>

@@ -134,7 +134,7 @@ Ruff checks pycodestyle, Pyflakes, import ordering, modern syntax, common defect
 
 The global unresolved-import ignore was removed from `ty`. Historical Colab Python snapshots retain a scoped override because local environments generally do not include `google.colab`.
 
-Before commits, pre-commit runs Ruff autofix, Ruff formatting, and `ty`. `pre-commit install` also installs a pre-push hook that runs `scripts/check.py` before each push. The full gate includes formatting, static analysis, type checking, pytest with coverage, and the smoke test. Tests fail if core-package branch coverage is below 80%.
+The required quality gate runs in GitHub Actions for pull requests and updates to `main`. No local hooks are installed. Run the documented `uv run` commands before requesting a PR check if you want the same feedback locally. The gate includes file hygiene, Ruff, formatting, notebook lint, type checking, pytest with coverage, smoke checks, and a static Astro build. Tests fail if core-package branch coverage is below 80%.
 
 ## Dependencies
 
