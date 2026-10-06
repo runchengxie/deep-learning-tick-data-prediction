@@ -16,7 +16,7 @@ Run:
 
 ```bash
 python scripts/audit_shanghai_contract.py \
-  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --raw-root $QUANT_DATA_ROOT/raw/cn_a_share_level2 \
   --sample 20210104:000001 \
   --sample 20210104:600000 \
   --sample 20210301:000001 \

@@ -1,0 +1,5 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+const base = import.meta.env.BASE_URL;
+---
+<SiteLayout title="Page not found"><section class="container study-hero"><span class="eyebrow">404 · Not found</span><h1>This page is not here.</h1><p class="muted">The link may have moved. Start from the research catalog or documentation index.</p><div class="button-row"><a class="button primary" href={base}>Research home</a><a class="button" href={`${base}documentation/`}>Documentation</a></div></section></SiteLayout>

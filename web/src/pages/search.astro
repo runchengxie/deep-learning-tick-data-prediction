@@ -1,0 +1,32 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+const base = import.meta.env.BASE_URL;
+---
+<SiteLayout title="Search documentation and studies">
+  <section class="container study-hero"><span class="eyebrow">Project search</span><h1>Find a method, model, or result</h1><p class="muted">Search the technical and research documents that are approved for this public site.</p>
+    <form class="search-form" id="site-search"><label class="skip-link" for="query">Search terms</label><input id="query" name="q" type="search" placeholder="Try “event stream”, “cost”, or “DeepLOB”"/><button type="submit">Search</button></form><p id="search-status" class="muted" aria-live="polite">Search runs in your browser against the published documentation index.</p><div id="search-results" class="search-results"></div>
+    <noscript><p>Search requires JavaScript. You can <a href={`${base}documentation/`}>browse the documentation index</a>.</p></noscript>
+  </section>
+  <script define:vars={{ base }}>
+    const form = document.querySelector('#site-search');
+    const input = document.querySelector('#query');
+    const status = document.querySelector('#search-status');
+    const results = document.querySelector('#search-results');
+    let index = [];
+    fetch(`${base}search-index.json`).then((response) => response.json()).then((items) => { index = items; }).catch(() => { status.textContent = 'The search index is unavailable. Browse the documentation index instead.'; });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const terms = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      results.replaceChildren();
+      if (!terms.length) { status.textContent = 'Enter one or more search terms.'; return; }
+      const matches = index.filter((item) => terms.every((term) => `${item.title} ${item.text}`.toLowerCase().includes(term))).slice(0, 20);
+      status.textContent = `${matches.length} matching document${matches.length === 1 ? '' : 's'}.`;
+      for (const item of matches) {
+        const link = document.createElement('a'); link.className = 'search-result'; link.href = item.route;
+        const title = document.createElement('strong'); title.textContent = item.title;
+        const excerpt = document.createElement('p'); excerpt.textContent = item.text.slice(0, 220);
+        link.append(title, excerpt); results.append(link);
+      }
+    });
+  </script>
+</SiteLayout>

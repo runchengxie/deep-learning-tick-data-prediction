@@ -15,7 +15,7 @@ The versioned configuration is `configs/research-protocol-topk-v1.yaml`. The def
 
 ## Audit of 2026 data availability
 
-The audit read filenames, Parquet schemas, metadata, and date boundaries only. It did not read 2026 returns or run models. Data root: `/mnt/data/hdd6t/quant-data-lake`.
+The audit read filenames, Parquet schemas, metadata, and date boundaries only. It did not read 2026 returns or run models. Data root: `$QUANT_DATA_ROOT`.
 
 | Source | Available 2026 range | Finding |
 |---|---|---|

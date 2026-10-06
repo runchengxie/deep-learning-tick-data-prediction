@@ -44,7 +44,7 @@ Eligible Shenzhen stock-days from 2021–2025 may be used for primary event-stre
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/build_historical_data_manifest.py \
-  --raw-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2 \
+  --raw-root $QUANT_DATA_ROOT/raw/cn_a_share_level2 \
   --json-output /tmp/historical-manifest.json \
   --csv-output /tmp/historical-manifest.csv
 ```

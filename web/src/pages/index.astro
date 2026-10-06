@@ -1,0 +1,56 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import EvidenceBars from '../components/EvidenceBars.astro';
+import { studies, evidenceCutoff } from '../content/studies.mjs';
+import { publicDocuments } from '../content/public-documents.mjs';
+const base = import.meta.env.BASE_URL;
+---
+<SiteLayout title="Independent quantitative deep-learning research">
+  <div class="container">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Models from market structure · evidence before claims</span>
+        <h1>Can neural networks find useful signals in market data?</h1>
+        <p>This project studies models that learn directly from order-book snapshots, minute sequences, and market events. The short version so far: some models rank stocks better than chance, but that does not yet mean they make money after costs.</p>
+        <div class="button-row"><a class="button primary" href={`${base}studies/`}>Explore the studies</a><a class="button" href={`${base}documentation/`}>Read methods and code docs</a></div>
+      </div>
+      <aside class="hero-note"><strong>How to read this site</strong>Each result names its sample, evidence stage, and open question. A positive Rank IC means rankings line up with later returns; it is not a portfolio return. The site summarizes records through {evidenceCutoff}.</aside>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><div><span class="eyebrow">Research in one minute</span><h2>What the evidence says today</h2></div><p>The main pattern is separation: ranking metrics can look useful while simulated portfolios still lose after costs.</p></div>
+      <div class="grid-3">
+        {studies.map((study) => <a class="card card-link" href={`${base}studies/${study.id}/`}><span class={`status ${study.id === 'minute-baselines' ? 'caution' : ''}`}>{study.stage}</span><h3>{study.title}</h3><p>{study.summary}</p><span class="source-note">{study.sample}</span></a>)}
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><div><span class="eyebrow">A complete research loop</span><h2>From market records to a testable result</h2></div><p>The model project can train and evaluate without installing the quant platform. Other systems consume its published artifacts when needed.</p></div>
+      <div class="pipeline" aria-label="Research pipeline"><div><b>01 · Input</b><span>Published market data</span></div><div><b>02 · Representation</b><span>Order book, minutes, or event stream</span></div><div><b>03 · Learn</b><span>Train and validate models</span></div><div><b>04 · Measure</b><span>Out-of-sample and cost checks</span></div><div><b>05 · Share</b><span>Prediction artifacts for consumers</span></div></div>
+      <p class="muted">Market data is upstream. Backtest runtime is downstream. Model research stays independent of both the general-purpose quant platform and private research governance.</p>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><div><span class="eyebrow">Selected numbers</span><h2>Good rankings are only the first test</h2></div><p>These charts show different studies and samples. They should not be read as a head-to-head model contest.</p></div>
+      <div class="chart-grid">
+        {studies.map((study) => <EvidenceBars title={study.chartTitle} description={study.chartDescription} metric={study.metric} max={study.max} values={study.values} source={`${base}${study.source.replace(/^docs\//, '').replace(/\.md$/, '/')}`} />)}
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><span>Joint event-stream model · OOS Rank IC</span><strong>+0.06398</strong><span>Positive ranking association across three seeds in one December 2025 month.</span></div>
+        <div class="metric"><span>Same evaluation · daily net active return</span><strong style="color:var(--accent-dark)">−9.67 bp</strong><span>Negative after costs. Ranking quality did not become profitable portfolio behavior.</span></div>
+        <div class="metric"><span>Current research record cutoff</span><strong>{evidenceCutoff}</strong><span>Historical snapshot date, not a claim that every track has been updated today.</span></div>
+      </div>
+      <p class="warning">Rank IC and net returns answer different questions. The event-stream values above cover limited time windows, and one positive fold cannot establish a durable edge.</p>
+    </section>
+
+    <section class="section">
+      <div class="section-heading"><div><span class="eyebrow">Choose a path</span><h2>Start with your question</h2></div></div>
+      <div class="grid-3">
+        <a class="card card-link" href={`${base}studies/`}><span class="eyebrow">For a quick overview</span><h3>Browse research studies</h3><p>See the question, conclusion, sample, evidence stage, and next open check.</p></a>
+        <a class="card card-link" href={`${base}project-status/`}><span class="eyebrow">For quantitative readers</span><h3>Inspect detailed results</h3><p>Open full tables, dates, labels, training settings, costs, and limitations.</p></a>
+        <a class="card card-link" href={`${base}architecture/repository-boundaries/`}><span class="eyebrow">For contributors</span><h3>Understand project boundaries</h3><p>See which repository owns data, models, artifacts, and backtest execution.</p></a>
+      </div>
+      <p class="source-note" style="margin-top:1rem">{publicDocuments.length} reviewed technical and research documents are available from the documentation index.</p>
+    </section>
+  </div>
+</SiteLayout>

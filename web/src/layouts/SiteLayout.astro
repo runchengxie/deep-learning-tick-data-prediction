@@ -1,0 +1,33 @@
+---
+import '../styles/global.css';
+const { title = 'Quant Deep Learning', description = 'Independent end-to-end quantitative deep-learning research for structured market data.' } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f3f0e9" />
+    <title>{title} · Quant Deep Learning</title>
+    <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="wordmark" href={base}><span class="wordmark-mark">QD</span><span>Quant Deep Learning<small>Independent research lab</small></span></a>
+      <nav aria-label="Main navigation">
+        <a href={`${base}studies/`}>Studies</a>
+        <a href={`${base}documentation/`}>Documentation</a>
+        <a href={`${base}search/`}>Search</a>
+        <a class="github-link" href="https://github.com/runchengxie/quant-deep-learning">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+    <main id="main"><slot /></main>
+    <footer class="site-footer">
+      <span>Research first. Evidence before claims.</span>
+      <span>Static public site · <a href="https://github.com/runchengxie/quant-deep-learning">source on GitHub</a></span>
+    </footer>
+  </body>
+</html>

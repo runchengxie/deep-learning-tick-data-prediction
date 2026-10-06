@@ -7,11 +7,17 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 BANNED_DATA_RUNTIME_IMPORTS = (
     "market_data_platform",
+    "quant_platform",
+    "quant_research",
+    "backtest_runtime",
     "tushare",
     "rqdatac",
 )
 BANNED_DATA_RUNTIME_DEPENDENCIES = {
     "market-data-platform",
+    "quant-platform",
+    "quant-research",
+    "quant-backtest-runtime",
     "tushare",
     "rqdatac",
 }
@@ -39,13 +45,14 @@ def _project_dependencies() -> set[str]:
     }
 
 
-def test_data_boundary_document_exists_and_names_the_two_owners() -> None:
+def test_data_boundary_document_names_upstream_and_downstream_owners() -> None:
     document = ROOT / "docs" / "architecture" / "data-boundary.md"
     text = document.read_text(encoding="utf-8")
 
     assert "market-data-platform" in text
     assert "ticknet" in text
     assert "canonical" in text
+    assert "quant-backtest-runtime" in text
     assert "window" in text
     assert "label" in text
 

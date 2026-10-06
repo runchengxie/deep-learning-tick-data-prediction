@@ -109,7 +109,7 @@ Pack a trading day:
 python -m ticknet.eventstream.pack \
   --days 20250801 \
   --universe artifacts/eventstream-h5-recent-fold/202508/universe.json \
-  --pack-root /mnt/data/hdd6t/quant-data-lake/derived/l2_eventstream/top400-h5-v1
+  --pack-root $QUANT_DATA_ROOT/derived/l2_eventstream/top400-h5-v1
 ```
 
 The first day took 311 seconds wall-clock, used 24.8 GiB peak memory, and peaked at 224 KiB swap. The 396-stock universe produced 60,012,903 orders, 33,284,058 trades, and 1,876,631 snapshots; the pack was 2,742,987,628 bytes. The dataset produced 2,000 training samples with labels for all 396 stocks. Three random reads each returned finite `512 × 80` features.

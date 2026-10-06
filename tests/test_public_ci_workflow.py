@@ -17,6 +17,16 @@ def test_public_ci_runs_static_checks_tests_and_coverage() -> None:
         "uv run --locked --extra dev ruff check",
         "uv run --locked --extra dev ruff format --check",
         "uv run --locked --extra dev ty check",
+        "uv run --locked --extra dev nbqa ruff",
         "uv run --locked --extra dev pytest --cov",
+        "scripts/ci_hygiene.py",
+        "scripts/smoke_test.py",
     ):
         assert command in workflow
+
+
+def test_public_site_build_runs_for_pull_requests() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+    assert "  pull_request:" in workflow
+    assert "npm test && npm run build:pages" in workflow
+    assert "actions/upload-pages-artifact" in workflow

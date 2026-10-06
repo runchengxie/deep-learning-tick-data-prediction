@@ -1,7 +1,7 @@
 # Quant Deep Learning: Independent Research and Publication Site
 
 Date: 2026-10-06
-Status: Draft for user review
+Status: Approved for implementation
 Audience: quantitative researchers and general technical readers
 Related repositories: `quant-market-data-platform`, `quant-backtest-runtime`, `quant-platform`, `quant-research`, and `quant-market-research`
 
@@ -9,7 +9,7 @@ Related repositories: `quant-market-data-platform`, `quant-backtest-runtime`, `q
 
 The user wants Quant Deep Learning to operate as a relatively independent model-research project, with a clear upstream data provider and downstream backtest consumer. They also want its public Pages site to explain research and results in plain language, use substantial visual evidence, and serve both technically curious readers and quantitative researchers.
 
-The user approved developing this direction into a written design. This document is the design for review; it does not authorize product implementation. The user selected both general technical readers and quantitative researchers as audiences.
+The user approved this direction and later authorized the implementation work. The user selected both general technical readers and quantitative researchers as audiences.
 
 ## 2. Current State
 
@@ -101,7 +101,7 @@ The site is static and research-first. Suggested primary routes are:
 - `/studies/<study-id>/`: a study narrative with question, conclusion, sample scope, figures, methods, limitations, and source links.
 - `/models/`: model families and comparable evaluation summaries, with explicit notes where samples or metrics do not support direct comparisons.
 - `/methods/`: definitions for dates/splits, labels, ranking metrics, costs, and artifact handling.
-- Existing technical documentation paths: preserved routes into detailed developer, model, and data-boundary documentation.
+- Existing technical documentation paths: preserved routes into detailed developer, model, and data-boundary documentation. The old MkDocs home at `/` becomes the research homepage; its documentation directory is available at `/documentation/`.
 
 The catalog should show a short conclusion, evidence stage, sample dates, central metric, and most important open question. Initial study records should clearly distinguish:
 
@@ -157,7 +157,7 @@ Interactive charts should:
 ## 10. Framework, Routes, and Build
 
 - Use Astro's static output with the GitHub Pages base path `/quant-deep-learning/`.
-- Use the React integration for selective client-side charts, with ECharts for visualizations where a responsive HTML table is insufficient.
+- Prefer static, accessible SVG or HTML charts backed by reviewed snapshots and provide the values in an adjacent table. Add client-side chart code only when an interaction answers a real reader question.
 - Keep study prose in Markdown or MDX with validated frontmatter for title, study ID, evidence status, date range, summary, public data references, and related pages.
 - Render only documents admitted by a publication allowlist. Agent plans, internal design records, raw artifacts, and operational runbooks are not implicitly public pages.
 - Publish one Astro-generated Pages artifact. During migration, the MkDocs output may be built into a temporary directory for parity checks, but it is not a second public artifact. Test the old route map and link/anchor compatibility; do not silently strand existing deep links.
@@ -195,4 +195,4 @@ Interactive charts should:
 
 ## 14. Review Notes
 
-This draft is based on the current Quant Deep Learning README, status and boundary documents, MkDocs/Pages configuration, repository collaboration rules, and a workspace inventory of all Astro projects and their Pages workflows. `quant-market-research` provides a public research-design reference: its [overview](https://runchengxie.github.io/quant-market-research/) and [low-turnover report](https://runchengxie.github.io/quant-market-research/research/factors/low-turnover/) pair plain-language findings with scope, figures, and caveats. No product code, dependencies, or published Pages configuration have been changed as part of this specification.
+This design is based on the Quant Deep Learning README, status and boundary documents, previous MkDocs/Pages configuration, repository instructions, and a workspace inventory of Astro projects and their Pages workflows. `quant-market-research` provides a public research-design reference: its [overview](https://runchengxie.github.io/quant-market-research/) and [low-turnover report](https://runchengxie.github.io/quant-market-research/research/factors/low-turnover/) pair plain-language findings with scope, figures, and caveats. The implementation now follows this design in the current PR.

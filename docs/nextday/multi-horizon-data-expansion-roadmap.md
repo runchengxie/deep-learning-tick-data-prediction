@@ -53,8 +53,8 @@ On the remote host, after syncing the code, generate H=1/3/5 labels:
 ```bash
 .venv/bin/ticknet-nextday-prepare-horizon-labels \
   --manifest data/nextday-raw-200/manifest.json \
-  --basic-root /mnt/data/hdd6t/quant-data-lake/raw/cn_a_share_level2/basic \
-  --benchmark-path /mnt/data/hdd6t/quant-data-lake/reference/cn_market_reference/csi_all_a_000985.CSI.parquet \
+  --basic-root $QUANT_DATA_ROOT/raw/cn_a_share_level2/basic \
+  --benchmark-path $QUANT_DATA_ROOT/reference/cn_market_reference/csi_all_a_000985.CSI.parquet \
   --output-dir data/nextday-raw-200-targets-v1 \
   --horizons 1 3 5 \
   --min-cross-section 100

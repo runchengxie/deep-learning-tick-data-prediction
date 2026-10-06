@@ -1,0 +1,30 @@
+---
+import SiteLayout from '../../layouts/SiteLayout.astro';
+import EvidenceBars from '../../components/EvidenceBars.astro';
+import { studies } from '../../content/studies.mjs';
+const { id } = Astro.params;
+const study = studies.find((item) => item.id === id);
+if (!study) throw new Error(`Unknown study: ${id}`);
+const base = import.meta.env.BASE_URL;
+const sourceRoute = `/${study.source.replace(/^docs\//, '').replace(/\.md$/, '')}/`;
+export function getStaticPaths() { return studies.map((study) => ({ params: { id: study.id } })); }
+---
+<SiteLayout title={study.title} description={study.summary}>
+  <div class="container">
+    <section class="study-hero"><span class="status">{study.stage}</span><h1>{study.title}</h1><p class="muted">{study.summary}</p><div class="study-meta"><span>{study.sample}</span><span>Source cutoff: {study.source.includes('project-status') ? '2026-08-29' : 'see source record'}</span></div></section>
+    <div class="study-layout">
+      <article class="study-copy">
+        <h2>What was tested?</h2>
+        <p>{study.id === 'event-stream-ranking' ? 'A causal Transformer reads ordered order, trade, and snapshot events. Three separately trained 100M-parameter models were evaluated on the next month, after training and checkpoint choices were made using earlier periods.' : study.id === 'raw-order-book-capacity' ? 'The comparison changed model capacity and input length in a controlled four-cell design. Each cell used three random seeds, a Top-100 universe, and the same validation period.' : 'Minute features were tested with rolling out-of-sample evaluation. A later formal study also evaluated 64 portfolio and buffer combinations against a 10 basis-point one-way cost assumption.'}</p>
+        <h2>What does the chart mean?</h2>
+        <p>Rank IC compares the ordering of model scores with the ordering of later returns across stocks. Values above zero indicate that the rankings tended to align in this sample. They do not show the size of an investable return and do not include all portfolio constraints.</p>
+        <h2>What remains open?</h2>
+        <p>{study.openQuestion}</p>
+        {study.id === 'event-stream-ranking' && <div class="warning"><strong>Trading conversion remains unresolved.</strong> In the separate joint-model evaluation, OOS Rank IC was 0.06398 ± 0.00785 while mean daily Top-100 active return after costs was −9.67 ± 3.71 basis points. The samples and model setup differ from the chart above; read the source before comparing them.</div>}
+        {study.id === 'minute-baselines' && <div class="warning"><strong>Historical signal is not a cost pass.</strong> The 2025 H2 formal matrix found no tested region meeting the pre-set 10 bp one-way cost gate, despite positive monthly Rank IC in the six-month sample.</div>}
+        <p style="margin-top:1.5rem"><a href={`${base}${sourceRoute.replace(/^\//, '')}`}>Read the complete research record →</a></p>
+      </article>
+      <EvidenceBars title={study.chartTitle} description={study.chartDescription} metric={study.metric} max={study.max} values={study.values} source={`${base}${sourceRoute.replace(/^\//, '')}`} />
+    </div>
+  </div>
+</SiteLayout>
