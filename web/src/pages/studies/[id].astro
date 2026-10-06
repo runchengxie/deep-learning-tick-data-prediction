@@ -1,7 +1,9 @@
 ---
 import SiteLayout from '../../layouts/SiteLayout.astro';
 import EvidenceBars from '../../components/EvidenceBars.astro';
+import StudyReport from '../../components/StudyReport.astro';
 import { studies } from '../../content/studies.mjs';
+import { studyReports } from '../../content/study-reports.mjs';
 const { id } = Astro.params;
 const study = studies.find((item) => item.id === id);
 if (!study) throw new Error(`Unknown study: ${id}`);
@@ -22,9 +24,9 @@ export function getStaticPaths() { return studies.map((study) => ({ params: { id
         <p data-i18n-en={study.openQuestion} data-i18n-zh={study.zh.openQuestion}>{study.openQuestion}</p>
         {study.id === 'event-stream-ranking' && <div class="warning"><strong data-i18n-en="Trading value remains unresolved." data-i18n-zh="交易价值仍未得到证实。">Trading value remains unresolved.</strong> <span data-i18n-en="In a separate joint-model evaluation, OOS Rank IC was 0.06398 ± 0.00785, while mean daily Top-100 active return after costs was −9.67 ± 3.71 basis points. That evaluation used a different sample and model setup from the chart above; consult the source record before comparing the results." data-i18n-zh="另一项联合模型评估中，样本外 Rank IC 为 0.06398 ± 0.00785，计入成本后的 Top-100 日均超额收益为 −9.67 ± 3.71 个基点。这项评估的样本和模型设置与图表不同；比较结果前请先查看来源记录。">In a separate joint-model evaluation, OOS Rank IC was 0.06398 ± 0.00785, while mean daily Top-100 active return after costs was −9.67 ± 3.71 basis points. That evaluation used a different sample and model setup from the chart above; consult the source record before comparing the results.</span></div>}
         {study.id === 'minute-baselines' && <div class="warning"><strong data-i18n-en="Historical signal is not a cost pass." data-i18n-zh="历史信号尚未通过成本检验。">Historical signal is not a cost pass.</strong> <span data-i18n-en="The 2025 H2 formal matrix found no tested region meeting the pre-set 10 bp one-way cost gate, despite positive monthly Rank IC in the six-month sample." data-i18n-zh="尽管六个月样本中的月度Rank IC为正，2025年下半年的正式矩阵测试中，没有任何区域达到预设的单边10个基点成本门槛。">The 2025 H2 formal matrix found no tested region meeting the pre-set 10 bp one-way cost gate, despite positive monthly Rank IC in the six-month sample.</span></div>}
-        <p style="margin-top:1.5rem"><a href={`${base}${sourceRoute.replace(/^\//, '')}`} data-i18n-en="Read the complete research record →" data-i18n-zh="阅读完整研究记录 →">Read the complete research record →</a></p>
       </article>
       <EvidenceBars title={study.chartTitle} description={study.chartDescription} metric={study.metric} titleZh={study.zh.chartTitle} descriptionZh={study.zh.chartDescription} metricZh={study.zh.metric} valueLabelsZh={study.zh.values} max={study.max} values={study.values} source={`${base}${sourceRoute.replace(/^\//, '')}`} />
     </div>
+    <StudyReport report={studyReports[study.id as keyof typeof studyReports]} base={base} />
   </div>
 </SiteLayout>

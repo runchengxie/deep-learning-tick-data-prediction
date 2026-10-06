@@ -1,0 +1,25 @@
+---
+interface Props {
+  title: { en: string; zh: string };
+  description: { en: string; zh: string };
+  rowHeader: { en: string; zh: string };
+  columnHeader: { en: string; zh: string };
+  ks: number[];
+  buffers: number[];
+  cellLabel: { en: string; zh: string };
+}
+const { title, description, rowHeader, columnHeader, ks, buffers, cellLabel } = Astro.props;
+---
+<figure class="decision-matrix">
+  <figcaption>
+    <h3 data-i18n-en={title.en} data-i18n-zh={title.zh}>{title.en}</h3>
+    <p data-i18n-en={description.en} data-i18n-zh={description.zh}>{description.en}</p>
+  </figcaption>
+  <table>
+    <thead><tr><th scope="col" data-i18n-en={columnHeader.en} data-i18n-zh={columnHeader.zh}>{columnHeader.en}</th>{buffers.map((buffer) => <th scope="col">{buffer}</th>)}</tr></thead>
+    <tbody>
+      {ks.map((k) => <tr><th scope="row">{k}</th>{buffers.map(() => <td><span class="matrix-fail-mark" aria-hidden="true">×</span><span data-i18n-en={cellLabel.en} data-i18n-zh={cellLabel.zh}>{cellLabel.en}</span></td>)}</tr>)}
+    </tbody>
+  </table>
+  <p class="matrix-axis-note"><span data-i18n-en="Columns · " data-i18n-zh="列 · ">Columns · </span><span data-i18n-en={columnHeader.en} data-i18n-zh={columnHeader.zh}>{columnHeader.en}</span><span> · </span><span data-i18n-en="Rows · " data-i18n-zh="行 · ">Rows · </span><span data-i18n-en={rowHeader.en} data-i18n-zh={rowHeader.zh}>{rowHeader.en}</span></p>
+</figure>
