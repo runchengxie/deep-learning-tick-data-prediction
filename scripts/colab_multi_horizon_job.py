@@ -10,7 +10,7 @@ import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Protocol
 
 SPEC_PATH = Path("/content/ticknet-colab-job.json")
@@ -47,8 +47,9 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
 
 
 def _drive_path(remote: str, path: str) -> str:
-    normalized = Path(path)
-    if normalized.is_absolute() or ".." in normalized.parts:
+    windows_path = PureWindowsPath(path)
+    normalized = PurePosixPath(windows_path.as_posix())
+    if normalized.is_absolute() or windows_path.anchor or ".." in normalized.parts:
         raise ValueError(f"Drive 路径必须是安全的相对路径：{path}")
     return f"{remote}:{normalized.as_posix()}"
 

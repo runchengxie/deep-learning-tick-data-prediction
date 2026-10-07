@@ -1854,7 +1854,17 @@ def test_drive_path_accepts_safe_relative_paths(path: str, expected: str) -> Non
     assert _drive_path("gdrive", path) == expected
 
 
-@pytest.mark.parametrize("path", ["/absolute/path", "../escape", "folder/../../escape"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/absolute/path",
+        "../escape",
+        "folder/../../escape",
+        r"..\escape",
+        r"folder\..\..\escape",
+        r"C:\absolute\path",
+    ],
+)
 def test_drive_path_rejects_unsafe_paths(path: str) -> None:
     with pytest.raises(ValueError, match="安全的相对路径"):
         _drive_path("gdrive", path)

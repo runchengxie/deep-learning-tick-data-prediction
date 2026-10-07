@@ -18,6 +18,12 @@ The FI-2010 paper reproduction is a maintained, separate research track. Its reu
 
 Most scripts are human-run entry points and orchestration. Reusable data contracts, model computation, and evaluation belong under `src/ticknet/`. A few scripts still orchestrate long Colab jobs; future refactoring should move reusable parts into the core package gradually.
 
+The 2026-10-07 maintainability budget refresh reconciles the measured pre-change
+`main` inventory (217 Python files, 50,898 lines, and 40 functions over 100 lines)
+with the previous stale baseline. The chip experiment adds six focused source/test
+files. File/line inventory budgets include those additions; oversized-function,
+oversized-file, and complexity-ignore budgets do not increase from measured `main`.
+
 Common scripts:
 
 | Script | Purpose |
@@ -26,13 +32,14 @@ Common scripts:
 | `prepare_nextday.py` | Convert stock-day bars and event manifests into next-day prediction NPY shards |
 | `run_nextday_baseline.py` | Logistic Regression baseline over aggregated intraday features |
 | `run_minute_baseline.py` | HGB baseline over minute aggregates, with multi-year rolling validation and prediction export |
+| `run_chip_baseline.py` | Lagged age-layer chip HGB, ordinary price controls, optional minute-feature fusion, and formal portfolio evaluation |
 | `prepare_minute_shards.py` | Split minute sequences into `samples × time × features` shards for temporal models |
 | `materialize_minute_features.py` | Atomically materialize formal monthly minute aggregates |
 | `evaluate_cost_adjusted.py` | Thin entry point for Top-K long-only cost evaluation; also supports historical quantile long-short diagnostics |
 
 ## Colab and notebook boundaries
 
-All active Colab workflows use Python entry points. The top-level `notebooks/` directory has been removed. Old notebooks were converted to Python snapshots under `examples/historical-workflows/` only to preserve early interactive workflows.
+All active Colab workflows use Python entry points. The top-level `notebooks/` directory has been removed. Historical notebook snapshots are archived as text under `docs/archive/historical-workflows/`; maintained capabilities live in `src` and `scripts`. See the [migration guide](../dev/historical-colab-snapshots.md).
 
 | Former notebook capability | Current Python entry point |
 |---|---|

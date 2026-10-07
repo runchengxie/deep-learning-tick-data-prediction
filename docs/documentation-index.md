@@ -56,6 +56,7 @@ Top-K tradable portfolios and the AgentX automated quantitative research loop.
 
 | Document | Contents |
 |---|---|
+| [Chip age HGB](research/chip-age-hgb.md) | Lagged cost/age summaries, published daily contract, paired HGB and minute-feature experiments; no real result yet |
 | [AgentX research roadmap](research/topk-agentx-research-roadmap.md) | Roadmap, evidence, shared principles, and M0–M9 status |
 | [M0 research contract](research/topk-agentx-m0-research-contract.md) | Research contract, data-access audit, and trading conventions |
 | [M1 portfolio evaluator](research/topk-agentx-m1-portfolio-evaluator.md) | Input contract and cost formulas for the Top-K long-only evaluator |

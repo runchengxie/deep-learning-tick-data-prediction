@@ -10,7 +10,7 @@ The project owns model-specific representations, training, inference, evaluation
 - Minute models test lower-cost aggregated price and volume inputs.
 - Event-stream models encode order, trade, and snapshot events with causal sequence models.
 - Research tooling records experiment identity, cost evaluation, prediction audits, and controlled access to locked data.
-- Chip-layer research is a planned study track. Its source and independent reproduction status will be documented separately. This repository does not redistribute broker reports without permission.
+- Chip-layer research has a CPU HGB experiment path for lagged age-layer summaries and paired minute-feature comparisons. [Its source and contract](docs/research/chip-age-hgb.md) distinguish synthetic engineering checks from real training and broker reproduction. This repository does not redistribute broker reports without permission.
 
 These tracks do not share the same evidence stage. See [Project status](docs/project-status.md) for the dated results, limits, and current research questions.
 
@@ -60,7 +60,7 @@ configs/                 Local and Colab configurations
 docs/                    Project status, technical guides, roadmaps, and research records
 docs/references/         Papers and reading notes
 src/ticknet/fi2010/      FI-2010 DeepLOB reproduction package
-examples/                Historical Colab workflow snapshots
+docs/archive/            Historical workflow text; active code lives in src and scripts
 ```
 
 The Python import namespace remains `ticknet` for compatibility. Current repository ownership is recorded in [Repository Boundaries](docs/architecture/repository-boundaries.md). Contributor and agent rules are in [AGENTS.md](AGENTS.md).

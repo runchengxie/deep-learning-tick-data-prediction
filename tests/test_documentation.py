@@ -41,6 +41,7 @@ ENGLISH_DOCUMENTS = {
     "docs/nextday/raw-data-expansion-roadmap.md",
     "docs/reports/multi-horizon-decision-2026-08-10/source-inspection.md",
     "docs/research/experiment-log.md",
+    "docs/research/chip-age-hgb.md",
     "docs/research/eventstream-gradient-audit.md",
     "docs/research/eventstream-label-scale.md",
     "docs/research/eventstream-signal-trading-diagnostics.md",

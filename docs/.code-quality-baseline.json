@@ -3,14 +3,13 @@
   "roots": [
     "src",
     "scripts",
-    "research",
     "tests"
   ],
   "metrics": {
-    "python_files": 202,
-    "python_lines": 48768,
+    "python_files": 223,
+    "python_lines": 52144,
     "long_lines_over_100": 0,
-    "functions_over_100": 39,
+    "functions_over_100": 40,
     "functions_over_250": 1,
     "functions_over_500": 0,
     "c901_file_ignores": 5,
