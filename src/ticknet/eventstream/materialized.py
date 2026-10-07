@@ -368,6 +368,9 @@ def _write_shard(
         raise RuntimeError(f"物化分片样本数不一致：{output_index} != {len(indices)}")
     for array in arrays.values():
         array.flush()
+    # The loop variable retains the last mmap after the dictionary is deleted.
+    # Windows cannot rename its directory until that final handle is released.
+    del array
     del arrays
     os.replace(temporary, final_dir)
     return _record_existing_shard(

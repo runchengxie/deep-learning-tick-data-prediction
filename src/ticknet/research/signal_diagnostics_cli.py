@@ -207,7 +207,7 @@ def _write_evaluation_details(
         )
         result[partition] = {
             key: {
-                "path": str(Path(path).relative_to(output)),
+                "path": Path(path).relative_to(output).as_posix(),
                 "sha256": file_sha256(Path(path)),
             }
             for key, path in paths.items()

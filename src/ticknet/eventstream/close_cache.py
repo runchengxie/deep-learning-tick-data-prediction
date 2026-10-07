@@ -398,6 +398,7 @@ def _write_shard(
         raise RuntimeError("尾盘窗口缓存写入样本数不一致")
     for array in arrays.values():
         array.flush()
+    del array  # Release the last mmap before the directory rename on Windows.
     del arrays
     os.replace(temporary, final_dir)
     return _record_shard(

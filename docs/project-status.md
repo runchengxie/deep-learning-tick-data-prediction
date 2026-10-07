@@ -4,6 +4,16 @@ This page records project facts verifiable from code, tests, or experiment artif
 
 ## Capabilities and progress
 
+### Chip-summary engineering addition (2026-10-07)
+
+The [chip age HGB experiment](research/chip-age-hgb.md) implements lagged daily
+cost/age summaries, paired price/chip/combined HGB comparisons, optional verified
+minute-feature fusion, and formal cost-evaluation artifacts. Synthetic tests
+cover the numerical recurrence, factor adjustment, date isolation, and prediction
+contract. No real-data training result is recorded; the older numerical findings
+below are unchanged. A published daily asset with verified VWAP, turnover units,
+and point-in-time adjustment factors is required before real training.
+
 | Track | Existing capability | Evidence at the status date | Status |
 |---|---|---|---|
 | FI-2010 reproduction | DeepLOB training, evaluation, text conversion, and tests | `src/ticknet/fi2010/` | Maintained separate research track |

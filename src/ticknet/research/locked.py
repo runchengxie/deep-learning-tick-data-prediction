@@ -123,7 +123,7 @@ def issue_locked_test_approval(
     checkpoint_bundle_sha256 = _canonical_sha256(checkpoint_bundle)
     spec_sha256 = registry.spec_sha256(experiment_id)
     approved_at = datetime.now(timezone.utc).isoformat()
-    token = secrets.token_urlsafe(32)
+    token = "locked_" + secrets.token_urlsafe(32)
     approval_id = registry.issue_locked_approval(
         experiment_id,
         token_sha256=_token_sha256(token),

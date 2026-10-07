@@ -121,7 +121,9 @@ def test_cli_agent_step_returns_structured_status(tmp_path, capsys) -> None:
     assert "context_fingerprint" in captured.out
 
 
-def test_cli_issues_and_consumes_locked_approval(tmp_path, capsys) -> None:
+def test_cli_issues_and_consumes_locked_approval(tmp_path, capsys, monkeypatch) -> None:
+    # URL-safe randomness may begin with '-', which argparse treats as an option.
+    monkeypatch.setattr("ticknet.research.locked.secrets.token_urlsafe", lambda _size: "-random")
     registry_path = tmp_path / "registry.sqlite"
     predictions = tmp_path / "locked.parquet"
     scores = np.linspace(-1.0, 1.0, 60)
