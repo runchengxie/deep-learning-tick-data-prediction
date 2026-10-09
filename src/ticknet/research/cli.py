@@ -214,6 +214,19 @@ def _locked_test_command(args: argparse.Namespace) -> None:
         registry.close()
 
 
+def _trial_accounting_command(args: argparse.Namespace) -> None:
+    from ticknet.research.trial_accounting import export_trial_accounting
+
+    mapping = json.loads(args.family_map.read_text(encoding="utf-8"))
+    if not isinstance(mapping, dict):
+        raise ValueError("family map must be an object")
+    registry = ExperimentRegistry(args.registry)
+    try:
+        print(json.dumps(export_trial_accounting(registry, family_by_experiment=mapping)))
+    finally:
+        registry.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="自动量化研究实验入口")
     parser.add_argument("--root", type=Path, default=DEFAULT_REPOSITORY_ROOT)
@@ -287,6 +300,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent_parser.add_argument("--id", default=None)
     agent_parser.set_defaults(func=_agent_step_command)
+    accounting = subparsers.add_parser(
+        "export-trial-accounting", help="Export complete trial accounting"
+    )
+    accounting.add_argument("--family-map", type=Path, required=True)
+    accounting.set_defaults(func=_trial_accounting_command)
     return parser
 
 

@@ -172,3 +172,22 @@ The highest-priority refactoring opportunities are:
 Core modules currently vary in size. Trainers repeat substantial loop logic, and the research workflow and some orchestration scripts have multiple responsibilities. Refactor in the order above. Keep CLI, configuration, and artifact contracts stable during each change, and remove complexity exceptions after the corresponding refactoring.
 
 The FI-2010 training loop and CLI live in `ticknet.fi2010.train`; converter, plotting, Colab, and smoke entry points live in `ticknet.fi2010.scripts`. Shared random-seed, device, and classification-metric helpers remain in `ticknet.train`. `ticknet.research` is decoupled from `nextday` through CLI names and YAML configuration and does not directly import its implementation.
+
+## Research assurance artifacts
+
+`ticknet-research --registry "$registry" export-trial-accounting --family-map "$mapping"`
+exports every experiment and seed-run state from one SQLite read snapshot. The
+JSON mapping assigns explicit family IDs to experiment IDs; unmapped experiments
+remain visible. Export does not read artifacts or consume locked-test approval.
+Counts are bookkeeping evidence, not corrected statistical significance.
+
+`ticknet.research.scenario_contract.load_scenario` independently reads
+`quant.assurance-scenario.v1` JSON/CSV bundles into Polars tables. It checks schema,
+declared types, row counts, file hashes, unique inventory and path containment.
+It does not import the producer. Declared truth is a synthetic assertion to verify
+through a consumer, not a finding about market data.
+
+The existing nextday and eventstream horizon tests exercise real sidecar/dataset
+paths: signal, entry and return end must belong to the same split, and purge counts
+must match removed rows. Trading dates are explicit exchange-session identifiers;
+date-only fixtures do not establish intraday publication timing.
