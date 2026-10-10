@@ -17,6 +17,7 @@ ENGLISH_DOCUMENTS = {
     "AGENTS.md",
     "docs/index.md",
     "docs/documentation-index.md",
+    "docs/concepts/orders-books-and-flow.md",
     "docs/project-status.md",
     "docs/model-catalog.md",
     "docs/reproduction-audit.md",

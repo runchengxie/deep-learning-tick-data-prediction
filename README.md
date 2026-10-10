@@ -35,6 +35,8 @@ On Windows PowerShell, activate the environment with `\.venv\Scripts\Activate.ps
 
 ## Documentation
 
+- [Concepts & Explorations](https://runchengxie.github.io/quant-deep-learning/concepts/) explains market-data concepts through interactive synthetic examples.
+
 - [Research presentation site](https://runchengxie.github.io/quant-deep-learning/) presents current evidence in plain language with sample scope, charts, limitations, and links to technical records.
 - [Browse technical documentation](https://runchengxie.github.io/quant-deep-learning/documentation/) or [search public records](https://runchengxie.github.io/quant-deep-learning/search/).
 

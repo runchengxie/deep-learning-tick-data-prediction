@@ -1,0 +1,8 @@
+---
+import { copy } from '../../content/market-concepts.mjs';
+import SiteLayout from '../../layouts/SiteLayout.astro';
+const base=import.meta.env.BASE_URL;
+---
+<SiteLayout title="Concepts & Explorations">
+ <div class="container concept-article"><header class="concept-heading"><p class="eyebrow" data-i18n-en={copy.learnExamples[0]} data-i18n-zh={copy.learnExamples[1]}>{copy.learnExamples[0]}</p><h1 data-i18n-en={copy.sectionName[0]} data-i18n-zh={copy.sectionName[1]}>{copy.sectionName[0]}</h1><p data-i18n-en={copy.sectionIntro[0]} data-i18n-zh={copy.sectionIntro[1]}>{copy.sectionIntro[0]}</p></header><div class="grid"><a class="card concept-card" href={`${base}concepts/order-book/`}><span class="eyebrow" data-i18n-en={copy.microstructure[0]} data-i18n-zh={copy.microstructure[1]}>{copy.microstructure[0]}</span><h2 data-i18n-en={copy.topicTitle[0]} data-i18n-zh={copy.topicTitle[1]}>{copy.topicTitle[0]}</h2><p data-i18n-en={copy.topicIntro[0]} data-i18n-zh={copy.topicIntro[1]}>{copy.topicIntro[0]}</p><span data-i18n-en={copy.explore[0]} data-i18n-zh={copy.explore[1]}>{copy.explore[0]}</span></a></div></div>
+</SiteLayout>
