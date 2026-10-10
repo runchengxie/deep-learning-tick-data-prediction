@@ -10,6 +10,7 @@ const base = '/quant-deep-learning';
 const failures = [];
 const expected = [
   'index.html', '404.html', 'documentation/index.html', 'studies/index.html',
+  'concepts/index.html', 'concepts/order-book/index.html',
   'search/index.html', 'search-index.json', 'favicon.svg',
   ...studies.map((study) => `studies/${study.id}/index.html`),
   ...publicDocuments.map((source) => `${documentSlug(source)}/index.html`),

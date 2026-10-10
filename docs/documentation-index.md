@@ -28,6 +28,10 @@ New readers can start with the root README, then read:
 
 Use `project-status.md` and the main roadmap for current state. M0, M1, M2a–M2d documents preserve the design and findings at each milestone; later work may have extended them. `reports/` and `baselines/` contain frozen artifacts.
 
+## Concepts and exploration
+
+[Orders, books and flow](concepts/orders-books-and-flow.md) defines market-data events, MBP/MBO, order-flow measurements and venue-specific reconstruction boundaries. The [interactive explorer](https://runchengxie.github.io/quant-deep-learning/concepts/order-book/) illustrates them with synthetic charts and event replay.
+
 ## By topic
 
 | Document | Contents |

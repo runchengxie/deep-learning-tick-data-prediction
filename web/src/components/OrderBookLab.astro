@@ -1,0 +1,85 @@
+---
+import { copy } from '../content/market-concepts.mjs';
+import { replay, scenarios } from '../content/order-book-lab.mjs';
+const { kind } = Astro.props as { kind: 'lifecycle' | 'paths' | 'noTrades' };
+const series = kind === 'paths' ? [replay(scenarios.pathA), replay(scenarios.pathB)] : [replay(scenarios[kind])];
+const last = series[0].length - 1;
+const values = kind === 'paths' ? series.map(frames=>frames.map(f=>f.bidTotal)) : [series[0].map(f=>f.bidTotal),series[0].map(f=>f.askTotal)];
+const max = Math.max(...values.flat(),1);
+const legendKeys = kind === 'paths' ? ['pathA','pathB'] as const : ['bid','ask'] as const;
+const points = (data:number[]) => data.map((n,i)=>`${50+i*600/last},${190-n/max*155}`).join(' ');
+---
+<section class="lab" data-lab={kind}>
+  <h2 data-i18n-en={copy[kind][0]} data-i18n-zh={copy[kind][1]}>{copy[kind][0]}</h2>
+  <p class="lab-intro" data-i18n-en={copy[`${kind}Text`][0]} data-i18n-zh={copy[`${kind}Text`][1]}>{copy[`${kind}Text`][0]}</p>
+  <div class="lab-controls">
+    <button type="button" data-action="reset" data-i18n-en={copy.reset[0]} data-i18n-zh={copy.reset[1]}>{copy.reset[0]}</button>
+    <button type="button" data-action="previous" data-i18n-en={copy.previous[0]} data-i18n-zh={copy.previous[1]}>{copy.previous[0]}</button>
+    <label><span data-i18n-en={copy.step[0]} data-i18n-zh={copy.step[1]}>{copy.step[0]}</span> <input type="range" min="0" max={last} value={last} step="1" aria-label={copy.eventStepLabel[0]} data-i18n-label-en={copy.eventStepLabel[0]} data-i18n-label-zh={copy.eventStepLabel[1]} /></label>
+    <output data-step>{last} / {last}</output>
+    <button type="button" data-action="next" data-i18n-en={copy.next[0]} data-i18n-zh={copy.next[1]}>{copy.next[0]}</button>
+  </div>
+  <figure class="quantity-chart">
+    <figcaption data-i18n-en={copy.chart[0]} data-i18n-zh={copy.chart[1]}>{copy.chart[0]}</figcaption>
+    <div class="lab-legend">{legendKeys.map((key,i)=><span class={i===0?'series-a':'series-b'} data-i18n-en={copy[key][0]} data-i18n-zh={copy[key][1]}>{copy[key][0]}</span>)}</div>
+    <svg viewBox="0 0 700 230" role="img" aria-label={copy.quantityChartLabel[0]} data-i18n-label-en={copy.quantityChartLabel[0]} data-i18n-label-zh={copy.quantityChartLabel[1]}>
+      <line x1="50" y1="190" x2="650" y2="190" class="axis" />
+      <line x1="50" y1="35" x2="50" y2="190" class="axis" />
+      <text x="42" y="39" text-anchor="end">{max.toLocaleString('en-US')}</text><text x="42" y="194" text-anchor="end">0</text>
+      {values[0].map((_,i)=><text x={50+i*600/last} y="215" text-anchor="middle">{i}</text>)}
+      {values.map((data,i)=><polyline points={points(data)} class={`line series-${i}`} />)}
+      {values.map((data,i)=><circle data-marker={i} cx="650" cy={190-data[last]/max*155} r="6" class={`marker series-${i}`} />)}
+    </svg>
+    <details><summary data-i18n-en={copy.chartValues[0]} data-i18n-zh={copy.chartValues[1]}>{copy.chartValues[0]}</summary><table><thead><tr><th data-i18n-en={copy.step[0]} data-i18n-zh={copy.step[1]}>{copy.step[0]}</th>{legendKeys.map(key=><th data-i18n-en={copy[key][0]} data-i18n-zh={copy[key][1]}>{copy[key][0]}</th>)}</tr></thead><tbody>{values[0].map((n,i)=><tr><td>{i}</td><td>{n}</td><td>{values[1][i]}</td></tr>)}</tbody></table></details>
+  </figure>
+  <div class:list={['lab-panels', {paired:kind==='paths'}]}>
+    {series.map((_frames,i)=><div class="lab-panel" data-panel={i}><h3>{kind==='paths' ? String.fromCharCode(65+i) : 'MBP / MBO'}</h3><p data-event aria-live="polite"></p><div data-metrics></div><h4 data-i18n-en={copy.depth[0]} data-i18n-zh={copy.depth[1]}>{copy.depth[0]}</h4><div data-depth></div><h4 data-i18n-en={copy.remaining[0]} data-i18n-zh={copy.remaining[1]}>{copy.remaining[0]}</h4><div data-orders></div></div>)}
+  </div>
+  <noscript><p data-i18n-en={copy.noScript[0]} data-i18n-zh={copy.noScript[1]}>{copy.noScript[0]}</p></noscript>
+</section>
+<script>
+  import { replay, scenarios } from '../content/order-book-lab.mjs';
+  import { copy } from '../content/market-concepts.mjs';
+  document.querySelectorAll<HTMLElement>('[data-lab]').forEach(lab=>{
+    const kind = lab.dataset.lab as 'lifecycle'|'paths'|'noTrades';
+    const events = kind==='paths' ? [scenarios.pathA,scenarios.pathB] : [scenarios[kind]];
+    const series = events.map(replay);
+    const last = series[0].length-1;
+    const range = lab.querySelector<HTMLInputElement>('input')!;
+    const label = (key:keyof typeof copy) => copy[key][document.documentElement.lang==='zh-CN' ? 1 : 0];
+    const element = (tag:string,text:string,className='') => {const node=document.createElement(tag);node.textContent=text;node.className=className;return node;};
+    const numbers = (value:number) => value.toLocaleString(document.documentElement.lang);
+    function render() {
+      const step=Number(range.value);
+      lab.querySelector('[data-step]')!.textContent=`${step} / ${last}`;
+      lab.querySelectorAll<HTMLButtonElement>('button').forEach(button=>{button.disabled=button.dataset.action==='next' ? step===last : step===0;});
+      const values = kind==='paths' ? series.map(frames=>frames.map(f=>f.bidTotal)) : [series[0].map(f=>f.bidTotal),series[0].map(f=>f.askTotal)];
+      const max=Math.max(...values.flat(),1);
+      lab.querySelectorAll<SVGCircleElement>('[data-marker]').forEach((marker,i)=>{marker.setAttribute('cx',String(50+step*600/last));marker.setAttribute('cy',String(190-values[i][step]/max*155));});
+      lab.querySelectorAll<HTMLElement>('[data-panel]').forEach((panel,i)=>{
+        const frame=series[i][step];
+        const event=events[i][step-1];
+        panel.querySelector('[data-event]')!.textContent=event ? `${label(event.type as 'add'|'trade'|'cancel')} ${event.id} · ${numbers(event.quantity)}` : label('start');
+        const metrics=panel.querySelector('[data-metrics]')!;metrics.replaceChildren();
+        for (const [key,value] of [['bid',frame.bidTotal],['ask',frame.askTotal],['delta',frame.tradeDelta],['obi',frame.obi]] as const) {
+          const node=element('div','', 'lab-metric');node.append(element('span',label(key)),element('strong',value===null ? '—' : key==='obi' ? value.toFixed(3) : numbers(value)));metrics.append(node);
+        }
+        const orders=panel.querySelector('[data-orders]')!;orders.replaceChildren();
+        const depth=panel.querySelector('[data-depth]')!;depth.replaceChildren();
+        const rows=Object.values(frame.orders) as {id:string,side:string,price:number,quantity:number}[];
+        const levels=new Map<string,number>();
+        rows.forEach(order=>{const key=`${order.side}:${order.price}`;levels.set(key,(levels.get(key)??0)+order.quantity);});
+        const drawRow = (container:Element,title:string,quantity:number,side:string) => {
+          const row=element('div','', 'depth-row');const track=element('span','','depth-track');const bar=element('span','','depth-fill');bar.dataset.side=side;bar.style.width=`${quantity/Math.max(frame.bidTotal,frame.askTotal,1)*100}%`;track.append(bar);row.append(element('span',title),track,element('strong',numbers(quantity)));container.append(row);
+        };
+        levels.forEach((quantity,key)=>{const [side,price]=key.split(':');drawRow(depth,`${label(side==='bid'?'bid':'ask')} ${(Number(price)/100).toFixed(2)}`,quantity,side);});
+        rows.forEach(order=>drawRow(orders,`${order.id} · ${label(order.side==='bid'?'bid':'ask')} ${(order.price/100).toFixed(2)}`,order.quantity,order.side));
+        if(!rows.length){orders.append(element('p',label('empty')));depth.append(element('p',label('empty')));}
+      });
+    }
+    range.addEventListener('input',render);
+    lab.querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.addEventListener('click',()=>{range.value=String(button.dataset.action==='reset'?0:Number(range.value)+(button.dataset.action==='next'?1:-1));render();}));
+    new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+    render();
+  });
+</script>

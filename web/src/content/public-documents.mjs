@@ -2,6 +2,7 @@
 // Internal agent plans, private experiment artifacts, and source PDFs are excluded.
 export const publicDocuments = [
   'docs/index.md',
+  'docs/concepts/orders-books-and-flow.md',
   'docs/documentation-index.md',
   'docs/project-status.md',
   'docs/architecture/data-boundary.md',
