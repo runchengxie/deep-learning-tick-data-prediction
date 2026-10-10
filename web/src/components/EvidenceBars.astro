@@ -31,5 +31,5 @@ const { title, description, metric, max, values, source, titleZh, descriptionZh,
       })}
     </tbody>
   </table>
-  <p class="chart-source"><span data-i18n-en="Source: " data-i18n-zh="来源：">Source: </span><a href={source}>{source}</a><span data-i18n-en=". Bars share the scale shown by the largest value." data-i18n-zh="。柱状图按最大值共用比例尺。">. Bars share the scale shown by the largest value.</span></p>
+  <p class="chart-source"><span data-i18n-en="Source: " data-i18n-zh="来源：">Source: </span><a href={source} data-i18n-en="Research record" data-i18n-zh="研究记录">Research record</a><span data-i18n-en={`. Scale in this chart: 0 to ${max}.`} data-i18n-zh={`。本图比例尺为 0 至 ${max}。`}>{`. Scale in this chart: 0 to ${max}.`}</span></p>
 </figure>

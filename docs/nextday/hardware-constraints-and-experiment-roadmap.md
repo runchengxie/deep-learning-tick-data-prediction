@@ -1,12 +1,14 @@
 # Hardware Constraints and Staged Experiment Roadmap
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 ## Objective
 
 The research question is whether same-day ticks, ten-level order-book snapshots, orders, and trades can reliably predict next-trading-day cross-sectional relative returns.
 
 Minute-level microstructure features, precomputed embeddings, and raw-event models all derive from tick data. Start with low-cost representations to measure signal strength, then test whether raw sequences add value.
 
-## Current engineering priorities
+## Engineering priorities at this roadmap stage
 
 As of 2026-08-16, the minute HGB, TCN, and GRU models and the raw-book and event-stream infrastructure were implemented. The raw-book 2×2, three-seed capacity matrix was complete and supports stopping further expansion. The current sequence is:
 
@@ -18,7 +20,7 @@ verify real seed-0 materialization of fixed event-stream windows
   → run probe150m capacity ablation only after a clear gain
 ```
 
-The raw-book model encodes 100-event chunks with a shared DeepLOB and aggregates them with a GRU, producing a continuous excess-return score and three-class probabilities. It supports raw-200 and raw-1000 windows and approximately 1M and 100M parameters. Only `1M/raw-200` remains a candidate.
+The raw-book model encodes 100-snapshot chunks with a shared DeepLOB and aggregates them with a GRU, producing a continuous excess-return score and three-class probabilities. It supports raw-200 and raw-1000 windows and approximately 1M and 100M parameters. Only `1M/raw-200` remains a candidate.
 
 The later sections preserve early hardware inventories, stage designs, and throughput estimates for auditing historical resource decisions. Current status and task order are maintained in [project status](../project-status.md).
 
@@ -95,9 +97,9 @@ Estimates use 400 stocks and about 1,250 trading days.
 | Daily aggregated features | Hundreds of MB | Logistic Regression, LightGBM, and data audit |
 | Last 60 minutes × 33 features | About 4 GB | Recommended primary model |
 | Full 240-minute day × 33 features | About 16 GB | Test the value of the full day |
-| Last 200 book events × 40 features | About 8 GB in float16 | Raw-book end-to-end track |
-| Last 500 book events × 40 features | About 20 GB in float16 | Raw-book expansion |
-| Last 1,000 book events × 40 features | About 40 GB in float16 | Later expansion, only after earlier gates pass |
+| Last 200 book snapshots × 40 features | About 8 GB in float16 | Raw-book end-to-end track |
+| Last 500 book snapshots × 40 features | About 20 GB in float16 | Raw-book expansion |
+| Last 1,000 book snapshots × 40 features | About 40 GB in float16 | Later expansion, only after earlier gates pass |
 | Daily 64-dimensional embedding | About 128 MB | Multi-day hierarchical models and repeated tuning |
 
 ## Shared research protocol
@@ -201,9 +203,9 @@ Retain this model as a useful control only if TCN consistently beats the aggrega
 
 The raw-book model tests whether minute aggregation loses information useful for next-day prediction. Data preparation, training, and gates are in the [raw-200 end-to-end pipeline](raw-200-end-to-end-pipeline.md); this section preserves the initial design.
 
-The formal experiment began with a controlled 2024 pilot: dynamic Top-100 stocks, the final 200 book events, 2024 H1 training, Q3 validation, and Q4 locked test. Configurations are `configs/nextday-raw-pilot.yaml` and `configs/nextday-pilot.yaml`; the million-parameter variant is `configs/nextday-raw-1m-pilot.yaml`. The pilot required data audit, Logistic baseline, and a 100-batch Colab throughput run before allocating an end-to-end budget. Daily metrics require at least 80 stocks. Since 2024 Q4 has already informed development, it is not an unseen test for new model selection.
+The formal experiment began with a controlled 2024 pilot: dynamic Top-100 stocks, the final 200 book snapshots, 2024 H1 training, Q3 validation, and Q4 locked test. Configurations are `configs/nextday-raw-pilot.yaml` and `configs/nextday-pilot.yaml`; the million-parameter variant is `configs/nextday-raw-1m-pilot.yaml`. The pilot required data audit, Logistic baseline, and a 100-batch Colab throughput run before allocating an end-to-end budget. Daily metrics require at least 80 stocks. Since 2024 Q4 has already informed development, it is not an unseen test for new model selection.
 
-The initial full configuration was 2021–2025, dynamic Top-400, and the last 200 book events, split into two 100-event DeepLOB blocks. Later experiments skipped raw-500 and directly compared raw-200/raw-1000 and 1M/100M on the same fixed Top-100 sample in a four-cell, three-seed matrix. The capacity main effect was negative and the window main effect near zero, triggering the stop gate. Full results are in the [multi-horizon and data expansion roadmap](multi-horizon-data-expansion-roadmap.md).
+The initial full configuration was 2021–2025, dynamic Top-400, and the last 200 book snapshots, split into two 100-snapshot DeepLOB blocks. Later experiments skipped raw-500 and directly compared raw-200/raw-1000 and 1M/100M on the same fixed Top-100 sample in a four-cell, three-seed matrix. The capacity main effect was negative and the window main effect near zero, triggering the stop gate. Full results are in the [multi-horizon and data expansion roadmap](multi-horizon-data-expansion-roadmap.md).
 
 Stop raw-book capacity and window expansion. Retain existing raw models as controls against minute features.
 
@@ -227,7 +229,7 @@ Every stage should report daily Rank IC mean, median, standard deviation, and po
 
 Stop model expansion if training metrics improve without validation Rank IC gains; a month or seed change reverses the result; raw-book models do not consistently beat the minute TCN; returns concentrate in untradable price-limit, post-suspension, or very-low-liquidity stocks; or reasonable costs erase grouped returns.
 
-## Current engineering sequence
+## Engineering sequence at this roadmap stage
 
 The planned minute-cache adapter, dynamic universe, minute baseline, TCN, GRU, raw working sets, and event-stream packing are implemented. Next:
 

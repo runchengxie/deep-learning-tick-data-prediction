@@ -32,7 +32,7 @@ export const studies = [
     title: 'Raw order book: a smaller model remains the candidate',
     stage: 'Validation comparison; locked test remains closed',
     sample: 'Top-100 universe · 2021–2023 train · 2024 validation · three seeds per setting',
-    summary: 'The controlled comparison favored the 1M-parameter model with a 200-event window. Larger capacity and longer input did not produce stable validation gains.',
+    summary: 'The controlled comparison favored the 1M-parameter model with a 200-snapshot window. Larger capacity and longer input did not produce stable validation gains.',
     source: 'docs/project-status.md',
     chartTitle: 'Validation Rank IC by model size and input window',
     chartDescription: 'Three-seed validation means for a controlled four-setting comparison. Whiskers are reported in the table as sample standard deviations.',
@@ -48,7 +48,7 @@ export const studies = [
     zh: {
       title: '原始盘口：小模型仍是当前候选方案', stage: '验证集对比；锁定测试集仍未开启',
       sample: 'Top-100股票池 · 2021–2023训练 · 2024验证 · 每种配置三个随机种子',
-      summary: '受控对比中，1M 参数模型配合 200 个事件的输入窗口表现较好。更大的模型和更长的输入窗口没有带来稳定的验证集提升。',
+      summary: '受控对比中，1M 参数模型配合 200 条十档盘口快照的输入窗口表现较好。更大的模型和更长的输入窗口没有带来稳定的验证集提升。',
       chartTitle: '不同模型规模与输入窗口的验证集Rank IC', chartDescription: '四种受控配置的三随机种子均值。表格中的误差范围是样本标准差。', metric: '验证集Rank IC均值 ± 样本标准差',
       openQuestion: '当前保留的候选方案能否通过未来的锁定样本外评估？',
       values: ['1M · raw-200', '1M · raw-1000', '100M · raw-200', '100M · raw-1000'],

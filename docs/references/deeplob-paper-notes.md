@@ -158,8 +158,8 @@ Table I: Setup 1 FI-2010 results (selected rows, F1 %)
 
 | Model | k=10 | k=50 | k=100 |
 |---|---:|---:|---:|
-| RR [1] | 41.00 | 68.84 | 41.60 |
-| LDA [22] | 36.28 | 74.32 | 41.00 |
+| RR [1] | 41.00 | 42.70 | 41.60 |
+| LDA [22] | 36.28 | Not reported | Not reported |
 | MDA [22] | 46.06 | Not reported | Not reported |
 | MTR [22] | 40.14 | Not reported | Not reported |
 | WMTR [22] | 47.87 | Not reported | Not reported |
@@ -170,15 +170,17 @@ Table I: Setup 1 FI-2010 results (selected rows, F1 %)
 
 Table II: Setup 2 FI-2010 results (selected rows, Accuracy % / F1 %)
 
-| Model | k=10 | k=20 | k=50 | k=100 |
-|---|---|---|---|---|
-| SVM [28] | 44.92 / 35.88 | 84.47 / 43.20 | 70.80 / 49.42 | Not reported |
-| MLP [28] | 60.78 / 48.27 | 65.20 / 51.12 | 73.74 / 55.95 | Not reported |
-| CNN-I [26] | 39.62 / 55.21 | 67.38 / 59.17 | 74.85 / 59.44 | 47.00 / 47.00 |
-| LSTM [28] | 47.81 / 66.33 | 70.52 / 62.37 | 68.58 / 61.43 | Not reported |
-| B(TABL) [25] | 60.77 / 69.20 | 51.33 / 62.22 | 73.09 / 73.64 | Not reported |
-| C(TABL) [25] | 56.00 / 77.63 | 54.79 / 66.93 | 46.05 / 78.44 | Not reported |
-| DeepLOB | 78.91 / 83.40 | 84.70 / 76.95 | 59.60 / 72.82 | 55.21 / 80.35 |
+Checked against Table II of [paper version 6](https://arxiv.org/pdf/1808.03668v6). The source reports only horizons 10, 20, and 50; an unreported accuracy remains unreported.
+
+| Model | k=10 | k=20 | k=50 |
+|---|---|---|---|
+| SVM [28] | Not reported / 35.88 | Not reported / 43.20 | Not reported / 49.42 |
+| MLP [28] | Not reported / 48.27 | Not reported / 51.12 | Not reported / 55.95 |
+| CNN-I [26] | Not reported / 55.21 | Not reported / 59.17 | Not reported / 59.44 |
+| LSTM [28] | Not reported / 66.33 | Not reported / 62.37 | Not reported / 61.43 |
+| B(TABL) [25] | 78.91 / 69.20 | 70.80 / 62.22 | 75.58 / 73.64 |
+| C(TABL) [25] | 84.70 / 77.63 | 73.74 / 66.93 | 79.87 / 78.44 |
+| DeepLOB | 84.47 / 83.40 | 74.85 / 72.82 | 80.51 / 80.35 |
 
 Table III: forward-pass time and parameter count
 

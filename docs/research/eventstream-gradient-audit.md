@@ -1,5 +1,7 @@
 # Event-Stream Multi-Task Gradient Audit
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 `EVT-GRAD-AUDIT-001` asks whether the daily-return task effectively updates the shared event-stream Transformer backbone. Its result selects the next training experiment without simultaneously changing label scale, supervision position, and task weights.
 
 ## Questions and protocol

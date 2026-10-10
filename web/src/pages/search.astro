@@ -7,25 +7,29 @@ const base = import.meta.env.BASE_URL;
     <form class="search-form" id="site-search"><label class="skip-link" for="query" data-i18n-en="Search terms" data-i18n-zh="搜索词">Search terms</label><input id="query" name="q" type="search" placeholder="Try “event stream”, “cost”, or “DeepLOB”" data-placeholder-en="Try “event stream”, “cost”, or “DeepLOB”" data-placeholder-zh="试试“事件流”“成本”或“DeepLOB”"/><button type="submit" data-i18n-en="Search" data-i18n-zh="搜索">Search</button></form><p id="search-status" class="muted" aria-live="polite" data-i18n-en="Search runs in your browser against the published documentation index." data-i18n-zh="搜索在浏览器中运行，检索已发布的文档索引。">Search runs in your browser against the published documentation index.</p><div id="search-results" class="search-results"></div>
     <noscript><p><span data-i18n-en="Search requires JavaScript. You can " data-i18n-zh="搜索功能需要启用 JavaScript。你可以">Search requires JavaScript. You can </span><a href={`${base}documentation/`} data-i18n-en="browse the documentation index" data-i18n-zh="浏览文档索引">browse the documentation index</a>.</p></noscript>
   </section>
-  <script define:vars={{ base }}>
-    const form = document.querySelector('#site-search');
-    const input = document.querySelector('#query');
-    const status = document.querySelector('#search-status');
-    const results = document.querySelector('#search-results');
-    let index = [];
-    const text = (en, zh) => document.documentElement.lang === 'zh-CN' ? zh : en;
-    const updatePlaceholder = () => { input.placeholder = text(input.dataset.placeholderEn, input.dataset.placeholderZh); };
+  <script>
+    import { searchEntries } from '../content/search.mjs';
+    const base = import.meta.env.BASE_URL;
+    const form = document.querySelector<HTMLFormElement>('#site-search')!;
+    const input = document.querySelector<HTMLInputElement>('#query')!;
+    const status = document.querySelector<HTMLElement>('#search-status')!;
+    const results = document.querySelector<HTMLElement>('#search-results')!;
+    let index: Array<{title: string; text: string; route: string}> = [];
+    let ready = false;
+    const text = (en: string, zh: string) => document.documentElement.lang === 'zh-CN' ? zh : en;
+    const updatePlaceholder = () => { input.placeholder = text(input.dataset.placeholderEn ?? '', input.dataset.placeholderZh ?? ''); };
     updatePlaceholder();
-    document.querySelector('[data-locale-toggle]').addEventListener('click', () => setTimeout(updatePlaceholder));
-    fetch(`${base}search-index.json`).then((response) => response.json()).then((items) => { index = items; }).catch(() => { status.textContent = text('The search index is unavailable. Browse the documentation index instead.', '搜索索引暂不可用，请改为浏览文档索引。'); });
+    document.querySelector('[data-locale-toggle]')?.addEventListener('click', () => setTimeout(updatePlaceholder));
+    fetch(`${base}search-index.json`).then((response) => { if (!response.ok) throw new Error('Index unavailable'); return response.json(); }).then((items) => { index = items; ready = true; }).catch(() => { status.textContent = text('The search index is unavailable. Browse the documentation index instead.', '搜索索引暂不可用，请改为浏览文档索引。'); });
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const terms = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
       results.replaceChildren();
+      if (!ready) { status.textContent = text('The index is loading. Please try again shortly, or browse the documentation index.', '索引尚未加载，请稍后再试或浏览文档索引。'); return; }
       if (!terms.length) { status.textContent = text('Enter one or more search terms.', '请输入一个或多个搜索词。'); return; }
-      const matches = index.filter((item) => terms.every((term) => `${item.title} ${item.text}`.toLowerCase().includes(term))).slice(0, 20);
-      status.textContent = text(`${matches.length} matching document${matches.length === 1 ? '' : 's'}.`, `找到 ${matches.length} 篇匹配文档。`);
-      for (const item of matches) {
+      const matches = searchEntries(index, input.value);
+      status.textContent = text(`${matches.length} matching pages; showing up to 20.`, `找到 ${matches.length} 个匹配页面，最多显示 20 个。`);
+      for (const item of matches.slice(0, 20)) {
         const link = document.createElement('a'); link.className = 'search-result'; link.href = item.route;
         const title = document.createElement('strong'); title.textContent = item.title;
         const excerpt = document.createElement('p'); excerpt.textContent = item.text.slice(0, 220);

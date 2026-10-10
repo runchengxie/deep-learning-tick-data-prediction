@@ -1,5 +1,7 @@
 # External L2 Research Project Comparison
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 This page revisits an external project comparison received on 2026-08-19 against TickNet's current code, artifacts, and research protocol. The source offers useful research perspectives but also includes causal explanations that require experiments. Each statement is labeled by evidence type.
 
 ## Evidence categories

@@ -6,7 +6,7 @@ The five-year raw datasets, multi-horizon labels, raw-1000 Top-100 run, and cont
 
 In the earlier 2024 Top-100 raw-200 pilot, the 1,033,383-parameter model achieved best validation Rank IC values of `0.02145`, `0.02054`, and `0.01893` for seeds 0, 1, and 2. The mean was `0.02031`, with a sample standard deviation of `0.00127`. That pilot used a different stock sample from the later fixed Top-100 matrix and is retained only as a stage record.
 
-The formal working set covers 2021–2025, a dynamic Top-400 universe, and the final 200 valid snapshot events per stock-day. The split in `configs/nextday.yaml` uses 2021–2023 for training, 2024 for validation, and keeps 2025 locked. Data generation must not read or calculate model metrics for 2025.
+The formal working set covers 2021–2025, a dynamic Top-400 universe, and the final 200 valid snapshots per stock-day. The split in `configs/nextday.yaml` uses 2021–2023 for training, 2024 for validation, and keeps 2025 locked. Dataset preparation may read the frozen 2025 partition to generate and audit its features and labels. Training, model selection, and test-metric calculation must keep that partition closed until this raw-book protocol authorizes evaluation.
 
 ## Available resources (inventory on 2026-08-09)
 

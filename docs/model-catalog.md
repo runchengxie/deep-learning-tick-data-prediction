@@ -77,7 +77,7 @@ Code: `ticknet.nextday.model`. See the [raw-order-book end-to-end pipeline](next
 
 The event-stream model is a causal Transformer with rotary position embeddings. Presets include smoke, 25M, 50M, 100M, and 150M parameters. The `capacity100m` preset has 100,604,180 parameters.
 
-**How it works:** Merge order, trade, and snapshot events in their true event order. Encode each event using numerical features, stream type, and order type. Self-attention lets each position inspect earlier visible events; the causal mask blocks future information, while rotary embeddings encode relative event position. The model jointly learns the next event type, next order type, next event values, and daily return signal. The shared trunk compresses fine-grained market behavior into a reusable representation.
+**How it works:** Merge available order, trade, and snapshot messages using the dataset timestamp and tie-breaking contract; cross-channel timestamps alone do not establish a global exchange order. Encode each event using numerical features, stream type, and order type. Self-attention lets each position inspect earlier visible events; the causal mask blocks later sequence positions; availability times and feature construction still require separate leakage checks, while rotary embeddings encode relative event position. The model jointly learns the next event type, next order type, next event values, and daily return signal. The shared trunk compresses fine-grained market behavior into a reusable representation.
 
 **Why use it:** It can use long-range dependencies and connect different event types. Multi-task training uses abundant event-level supervision, and hidden states can be exported as frozen embeddings for downstream ranking models.
 
