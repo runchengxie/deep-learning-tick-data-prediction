@@ -1,5 +1,7 @@
 # Minute-Data GRU Stock-Selection Strategy: Reading Notes
 
+Source-check note added 2026-10-10. Earlier transcriptions gave CSI 500 IR as both 1.75 and 1.81. The original report table must resolve this discrepancy; this note does not select either value. The proposed project adaptations below preserve their historical context. Minute GRU and formal M3 diagnostics now exist; use [Project status](../project-status.md) and the [formal M3 target contract](../research/topk-agentx-m3-topk-diagnostics.md) for current work. The older 2025 lock belongs to an earlier proposal; current AgentX experiments lock 2026.
+
 > Source information
 > - Original title: <!-- preserved-source:start -->德邦证券：基于分钟数据的 GRU 模型在选股策略中的应用初探<!-- preserved-source:end -->
 > - Series: Debang Securities quantitative research, Machine Learning Series No. 6, in-depth report
@@ -15,7 +17,7 @@ These notes are based on the full text extracted from the source PDF. They summa
 - The method is simple: normalize one day's 240 minute bars, each with seven price and volume features, and feed them to a GRU with 32 hidden units to predict next-day open-to-open return. The report uses no factor engineering or style neutralization.
 - Mean daily factor Rank IC is 7.5% (about 8.0% before 2022 and 6.9% afterward). Cumulative IC shows no clear decay.
 - A 500-stock equal-weight long portfolio, benchmarked against CSI 1000 and charged 3 per mille for each side, reports 22.45% annualized excess return using daily open execution. Results are highly sensitive to rebalance frequency and slippage. The annualized impact of slippage is about 4.87%–9.54%; rebalance-frequency differences are about 6%–10%. Daily VWAP execution reduces annualized excess return to 12.91%.
-- Weekly VWAP index enhancement, fully neutralized by sector and style, reports excess returns of +7.26% for CSI 300 (IR 1.93), +7.58% for CSI 500 (IR 1.75), and +8.86% for CSI 1000 (IR 1.83), with tracking error below 5%.
+- Weekly VWAP index enhancement, fully neutralized by sector and style, reports excess returns of +7.26% for CSI 300 (IR 1.93), +7.58% for CSI 500 (IR unresolved; see the source-check note below), and +8.86% for CSI 1000 (IR 1.83), with tracking error below 5%.
 - The factor favors low liquidity, low volatility, low valuation, and high profitability. Its size correlation is only -0.03. The report recognizes that these style exposures contribute to both excess returns and transaction-cost sensitivity.
 
 ## 1. Model and method
@@ -51,7 +53,7 @@ The long-only backtest covers 2019-01-01 through 2024-06-21. It excludes ST stoc
 - **Rebalance frequency:** before 2020, more frequent rebalancing performed clearly better. Since 2023, its contribution weakened and sometimes turned negative.
 - **2024:** equal weighting with small-cap exposure had a large drawdown during the February risk event, and returns weakened during the current year.
 
-The index-enhancement portfolio limits absolute sector deviation to below 1%, style deviation to below 0.01 standard deviations, requires 80% constituent coverage, rebalances weekly with 15% two-way turnover, and executes at VWAP. Reported excess returns are +7.26% for CSI 300 (IR 1.93, Calmar 1.68, max drawdown 4.33%), +7.58% for CSI 500 (IR 1.81), and +8.86% for CSI 1000 (IR 1.83, Calmar 1.35). Excess return rises as benchmark constituent size decreases, but sensitivity to small-cap risk events also rises.
+The index-enhancement portfolio limits absolute sector deviation to below 1%, style deviation to below 0.01 standard deviations, requires 80% constituent coverage, rebalances weekly with 15% two-way turnover, and executes at VWAP. Reported excess returns are +7.26% for CSI 300 (IR 1.93, Calmar 1.68, max drawdown 4.33%), +7.58% for CSI 500 (IR unresolved), and +8.86% for CSI 1000 (IR 1.83, Calmar 1.35). Excess return rises as benchmark constituent size decreases, but sensitivity to small-cap risk events also rises.
 
 ## 4. Limitations and independent assessment
 
@@ -65,13 +67,13 @@ The index-enhancement portfolio limits absolute sector deviation to below 1%, st
 ### Independent assessment from this project's perspective
 
 - Excess returns on the order of 22% combine open-price execution, high turnover, and equal-weight small-cap exposure. They should not be treated as tradable net returns. VWAP execution with neutralized index enhancement, around 7%–9%, is a more realistic comparison.
-- The 7.5% IC uses raw open-to-open returns without residualization or neutralization. It is not directly comparable with this project's minute-line residual daily IC of 0.02–0.035.
+- The 7.5% IC uses raw open-to-open returns without residualization or neutralization. It is not directly comparable with this project's historical minute-model daily IC of 0.02–0.035, whose exact benchmark-relative label and sample must be checked before comparison.
 - Factor returns have meaningful low-volatility and low-liquidity style beta. The small-cap risk event in February 2024 and negative contribution from frequent rebalancing since 2023 are direct evidence that trading and style exposures erode the signal. This aligns directionally with this project's cost-sensitive minute signal and breakeven cost of about 5–6 bp.
 
 ## 5. Implications and actionable work
 
 1. **Add a GRU sequence baseline.** The project's minute path currently pairs HGB over aggregates with TCN over sequences. The report's setup can be implemented as a GRU baseline using seven minute features, intraday sequence normalization, next-day open-to-open returns, and rolling ten-month training with monthly retraining. Compare HGB, TCN, and GRU under the same walk-forward and cost framework.
-2. **Align definitions before comparing results.** For reproduction, use this project's target definition, such as Barra residual returns or a neutralized target, and run net-return evaluation through `research/portfolio.py`. Quoting the report's 22% excess return or 7.5% IC directly would overstate comparability.
+2. **Align definitions before comparing results.** For project comparisons, state the target explicitly. Formal M3 supervision uses the stock's T+1-open to T+2-open return minus the concurrent benchmark return; it does not establish Barra or sector/style neutralization. A neutralized target would be a separate experiment. Use the matching return contract and run net-return evaluation through `research/portfolio.py`. Quoting the report's 22% excess return or 7.5% IC directly would overstate comparability.
 3. **Reuse the cost and rebalance sensitivity framework.** The report's open-versus-VWAP, daily/weekly/monthly, and annualized-slippage comparisons complement this project's turnover and cost diagnostics.
 4. **Use neutralized index enhancement as the more honest reading.** The report's CSI 300/500/1000 enhancements (IR around 1.7–1.9) remove style exposures and provide a better cross-project comparison anchor than the long-only portfolio.
 5. **Consider the proposed improvements.** Style constraints in the loss function align with this project's target governance and labels. They could be tested if the GRU line proceeds.

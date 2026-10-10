@@ -1,5 +1,7 @@
 # Research Resource Strategy and Pilot Gates
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 This page records resource-allocation principles for constrained compute. The early plan assumed Colab Pro and a 100 GB Google Drive plan; Drive was upgraded to 200 GB on 2026-08-10. The minute, raw-book, and event-stream tracks have completed infrastructure or controlled experiments. Current state is in [project status](../project-status.md).
 
 ## Principles
@@ -48,7 +50,7 @@ local sequential scan and materialization
   → request locked-test access only after freezing the candidate
 ```
 
-The raw-book capacity/window matrix met its stop condition. `1M/raw-200` had the best validation result and lowest seed variation; 100M parameters and raw-1000 did not produce stable gains. Event-stream input profiling is complete; the next high-cost task is formal seed 0 on the recent fold. AgentX M3 should finish minute-feature materialization before formal Top-K cost diagnostics.
+The raw-book capacity/window matrix met its stop condition. `1M/raw-200` had the best validation result and lowest seed variation; 100M parameters and raw-1000 did not produce stable gains. Event-stream input profiling is complete; the planned next high-cost task at this stage was formal seed 0 on the recent fold. AgentX M3 was to finish minute-feature materialization before formal Top-K cost diagnostics. Both stages subsequently completed; see the current status entry above.
 
 ## Run records
 

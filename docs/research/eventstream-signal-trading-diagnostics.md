@@ -1,5 +1,7 @@
 # Event-Stream Signal Half-Life and Trading Diagnostics
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 ## Conclusion
 
 `EVT-HALFLIFE-001`, `TRD-STAGGERED-H5-001`, `TRD-RANK-EMA-001`, and `RISK-ATTR-001` are complete. Final decision: `HOLD`.

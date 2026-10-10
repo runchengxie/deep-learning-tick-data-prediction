@@ -6,7 +6,7 @@ This guide describes the workflow from local processing of ten-level snapshots t
 
 ### Goal
 
-For each stock-day, use the final 200 ten-level order-book snapshots available before 14:55. Predict next-day open-to-close excess return and probabilities for down, neutral, and up classes. A shared DeepLOB encoder processes two 100-event chunks; a GRU aggregates the chunks before two prediction heads. The default model has 86,775 parameters; the capacity variant has 1,033,383. Both fit a single-GPU Colab session.
+For each stock-day, use the final 200 ten-level order-book snapshots available before 14:55. Predict next-day open-to-close excess return and probabilities for down, neutral, and up classes. A shared DeepLOB encoder processes two 100-snapshot chunks; a GRU aggregates the chunks before two prediction heads. The default model has 86,775 parameters; the capacity variant has 1,033,383. Both fit a single-GPU Colab session.
 
 ### Status
 
@@ -30,8 +30,8 @@ Important parameters in `configs/nextday-raw-pilot.yaml`:
 - `start_date` and `end_date`: the 2024 calendar year.
 - `scan_start_time_ms`: read events starting at 14:30.
 - `signal_time_ms`: 14:55. No later data may enter a sample.
-- `chunks_per_sample: 2` and `chunk_size: 100`: divide 200 events into two 100-event chunks.
-- `min_valid_events: 200`: discard stock-days with fewer than 200 valid events.
+- `chunks_per_sample: 2` and `chunk_size: 100`: divide 200 snapshots into two 100-snapshot chunks.
+- `min_valid_events: 200`: discard stock-days with fewer than 200 valid snapshots.
 - `top_n: 100`: select 100 stocks dynamically each day, using only information available before the signal time.
 - `storage_dtype: float16`: compact storage for the Colab working set.
 - `samples_per_shard: 2048`: shard size.

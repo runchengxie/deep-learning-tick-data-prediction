@@ -1,5 +1,7 @@
 # Multi-Horizon Labels and Data Expansion Roadmap
 
+Reading update, 2026-10-10. This record preserves the plans and evidence available at its research stage. References to upcoming seed-0 training, M3 materialization, gradient checks, or label-scale work are historical plans, not the current task list. Later experiments and formal diagnostics are recorded in [Project status](../project-status.md). Follow that entry point for current decisions and locked-period rules.
+
 ## Current decision
 
 As of 2026-08-10, the five-year Top-400 raw-200 working set was complete: 470,815 stock-day samples occupying about 7.2 GiB. Seeds 0–2 of the 1,033,383-parameter model completed training on the 2024 validation period. Best daily Rank IC values were 0.02145, 0.02054, and 0.01893, respectively; the mean was 0.02031 and the sample standard deviation across seeds was 0.00127. The 2025 test period remained locked.
@@ -40,9 +42,9 @@ Each sidecar is bound to the source feature `dataset_fingerprint`. A change to t
 | C. Standalone H=5 model | Keep raw-200 and 1M architecture; change only the target | Seed 0 complete | No stable gain; retain H=1 as primary target |
 | D. raw-500 | Try Top-100, then Top-400 | Skipped | Use raw-1000 directly as a boundary experiment |
 | E. raw-1000 | Generate Top-100 and complete capacity matrix | Complete | Longer window had no stable gain; do not expand to Top-400 |
-| F. Full-day tick pilot | Measure size, throughput, and random reads | Moved to event-stream track | Packing and input benchmark complete; formal training pending |
+| F. Full-day tick pilot | Measure size, throughput, and random reads | Moved to event-stream track | Packing and input benchmark complete at this stage; later three-seed training is recorded in Project status |
 
-Capacity attribution used a 2×2 matrix with the same stock sample, dates, targets, optimizer, and evaluation contract. `1M/raw-200` was the control; `100M/raw-200` changed capacity only; `1M/raw-1000` changed window only; `100M/raw-1000` changed both. All four cells completed three seeds. The other three cells reused the raw-1000 Top-100 working set used by `100M/raw-1000`; the raw-200 view selected the final two 100-event chunks per sample, avoiding a second working-set copy. All results shared the same fingerprint, 70,805 training samples, 23,472 validation samples, and 241 valid validation days. The matrix selects `1M/raw-200` as the sole candidate for the next gate. Earlier `1M/raw-200` results using a different stock sample are not used for capacity attribution.
+Capacity attribution used a 2×2 matrix with the same stock sample, dates, targets, optimizer, and evaluation contract. `1M/raw-200` was the control; `100M/raw-200` changed capacity only; `1M/raw-1000` changed window only; `100M/raw-1000` changed both. All four cells completed three seeds. The other three cells reused the raw-1000 Top-100 working set used by `100M/raw-1000`; the raw-200 view selected the final two 100-snapshot chunks per sample, avoiding a second working-set copy. All results shared the same fingerprint, 70,805 training samples, 23,472 validation samples, and 241 valid validation days. The matrix selects `1M/raw-200` as the sole candidate for the next gate. Earlier `1M/raw-200` results using a different stock sample are not used for capacity attribution.
 
 Stage B accesses 2024 validation only. Evaluate the 2025 test once, after horizon, return handling, architecture, and seed list are frozen. Since five-day labels overlap, report daily results, one-in-five non-overlapping samples, monthly results, and uncertainty from Newey–West or block bootstrap methods.
 

@@ -13,12 +13,12 @@ export const studyReports = {
         title: text('Question and model', '研究问题与模型'),
         paragraphs: [
           text(
-            'Can a model learn a useful next-day stock ranking from the order, trade, and order-book events recorded during a trading day? The event-stream model reads these records in event order and uses a causal Transformer, so each prediction can use only information already observed.',
-            '模型能否从交易日内的委托、成交和盘口快照事件中学到有用的次日选股排序信号？事件流模型按发生顺序读取这些记录，并使用因果 Transformer，确保每次预测只使用当时已经出现的信息。',
+            'Can a model learn a useful next-day stock ranking from the order, trade, and order-book events recorded during a trading day? The event-stream model reads these records in event order and uses a causal Transformer that attends only to current and earlier sequence positions. Information availability also depends on message publication times, ordering, and feature construction.',
+            '模型能否从交易日内的委托、成交和盘口快照事件中学到有用的次日选股排序信号？事件流模型按发生顺序读取这些记录，并使用因果 Transformer，使注意力只读取当前及之前的序列位置。数据是否当时可用，还要核对发布时间、排序规则和特征计算。',
           ),
           text(
             'The 100M-parameter model receives windows of 512 merged events and 80 features per event. It learns several event-level prediction tasks alongside an H5 daily return signal. The shared event representation can also be exported and tested with downstream rankers.',
-            '1 亿参数模型每次读取 512 个合并后的事件，每个事件包含 80 项特征。模型同时学习多个事件级预测任务和 H5（日后五个交易日）收益信号。学到的事件表示也可以导出，交给下游排序模型评估。',
+            '1 亿参数模型每次读取 512 个合并后的事件，每个事件包含 80 项特征。模型同时学习多个事件级预测任务和 H5 收益信号（本实验定义的五交易日目标，起止时点见来源记录）。学到的事件表示也可以导出，交给下游排序模型评估。',
           ),
         ],
         pipeline: {
@@ -115,8 +115,8 @@ export const studyReports = {
         title: text('What goes into the model', '模型读取哪些数据'),
         paragraphs: [
           text(
-            'For each stock and trading day, the model reads the final 200 or 1,000 valid ten-level order-book snapshots before the signal time. The selected 200-event candidate splits its input into two 100-event chunks. A shared DeepLOB encoder extracts local patterns, and a GRU combines the chunks into a next-day open-to-close excess-return score.',
-            '模型按股票和交易日取样，在信号时点前读取最后 200 或 1,000 条有效的十档盘口快照。当前保留的 200 事件候选方案将输入分成两个各含 100 个事件的片段，由共享 DeepLOB 编码器提取局部模式，再由 GRU 汇总为次日开盘至收盘的超额收益评分。',
+            'For each stock and trading day, the model reads the final 200 or 1,000 valid ten-level order-book snapshots before the signal time. The selected 200-snapshot candidate splits its input into two 100-snapshot chunks. A shared DeepLOB encoder extracts local patterns, and a GRU combines the chunks into a next-day open-to-close excess-return score.',
+            '模型按股票和交易日取样，在信号时点前读取最后 200 或 1,000 条有效的十档盘口快照。当前保留的 200 条快照候选方案将输入分成两个各含 100 条快照的片段，由共享 DeepLOB 编码器提取局部模式，再由 GRU 汇总为次日开盘至收盘的超额收益评分。',
           ),
           text(
             'The controlled comparison used a Top-100 stock universe and the same next-day excess-return target in all four settings. Training dates were 2021–2023, validation was 2024, and 2025 remained locked.',
@@ -127,7 +127,7 @@ export const studyReports = {
           title: text('How a raw-book sample becomes a prediction', '原始盘口样本如何变成预测'),
           steps: [
             text('Last 200 book snapshots', '最后 200 条盘口快照'),
-            text('Two 100-event chunks', '两个 100 事件片段'),
+            text('Two 100-snapshot chunks', '两个 100 条快照片段'),
             text('Shared DeepLOB encoder', '共享 DeepLOB 编码器'),
             text('GRU sequence summary', 'GRU 汇总序列'),
             text('Next-day return score', '次日收益评分'),
@@ -152,7 +152,7 @@ export const studyReports = {
           description: text('Each cell uses three seeds. The test period was not opened.', '每种配置使用三个随机种子；测试集尚未开启。'),
           axisMin: text('0', '0'), axisMax: text('0.045', '0.045'),
           categories: [
-            { label: text('200-event window', '200 事件窗口'), values: [{ value: 0.03748, error: 0.00096, display: '0.03748 ± 0.00096' }, { value: 0.02740, error: 0.00412, display: '0.02740 ± 0.00412' }] },
+            { label: text('200-snapshot window', '200 条快照窗口'), values: [{ value: 0.03748, error: 0.00096, display: '0.03748 ± 0.00096' }, { value: 0.02740, error: 0.00412, display: '0.02740 ± 0.00412' }] },
             { label: text('1,000-event window', '1,000 事件窗口'), values: [{ value: 0.03530, error: 0.00241, display: '0.03530 ± 0.00241' }, { value: 0.03152, error: 0.00287, display: '0.03152 ± 0.00287' }] },
           ],
           series: [text('1M parameters', '1M 参数'), text('100M parameters', '100M 参数')],
@@ -162,8 +162,8 @@ export const studyReports = {
         title: text('What the comparison supports', '这组对比说明了什么'),
         paragraphs: [
           text(
-            '`1M / raw-200` had the highest mean Rank IC and the smallest seed variation. Increasing capacity to 100M lowered the mean at both window lengths. Extending the window from 200 to 1,000 events had only a small average effect, with the direction depending on model size.',
-            '`1M / raw-200` 的 Rank IC 均值最高，种子间差异也最小。模型规模增至 100M 后，两种输入长度下的均值都下降。窗口从 200 延长至 1,000 个事件的平均影响较小，而且效果方向随模型规模而变。',
+            '`1M / raw-200` had the highest mean Rank IC and the smallest seed variation. Increasing capacity to 100M lowered the mean at both window lengths. Extending the window from 200 to 1,000 snapshots had only a small average effect, with the direction depending on model size.',
+            '`1M / raw-200` 的 Rank IC 均值最高，种子间差异也最小。模型规模增至 100M 后，两种输入长度下的均值都下降。窗口从 200 延长至 1,000 条快照的平均影响较小，而且效果方向随模型规模而变。',
           ),
           text(
             'The observed capacity effect was −0.00693 on average, while the window effect was +0.00097. The interaction was +0.00631. With three seeds and validation-only selection, these are descriptive comparisons—not significance or out-of-sample results.',
