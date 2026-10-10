@@ -98,8 +98,8 @@ Estimates use 400 stocks and about 1,250 trading days.
 | Last 60 minutes × 33 features | About 4 GB | Recommended primary model |
 | Full 240-minute day × 33 features | About 16 GB | Test the value of the full day |
 | Last 200 book snapshots × 40 features | About 8 GB in float16 | Raw-book end-to-end track |
-| Last 500 book events × 40 features | About 20 GB in float16 | Raw-book expansion |
-| Last 1,000 book events × 40 features | About 40 GB in float16 | Later expansion, only after earlier gates pass |
+| Last 500 book snapshots × 40 features | About 20 GB in float16 | Raw-book expansion |
+| Last 1,000 book snapshots × 40 features | About 40 GB in float16 | Later expansion, only after earlier gates pass |
 | Daily 64-dimensional embedding | About 128 MB | Multi-day hierarchical models and repeated tuning |
 
 ## Shared research protocol

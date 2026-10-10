@@ -153,7 +153,7 @@ export const studyReports = {
           axisMin: text('0', '0'), axisMax: text('0.045', '0.045'),
           categories: [
             { label: text('200-snapshot window', '200 条快照窗口'), values: [{ value: 0.03748, error: 0.00096, display: '0.03748 ± 0.00096' }, { value: 0.02740, error: 0.00412, display: '0.02740 ± 0.00412' }] },
-            { label: text('1,000-event window', '1,000 事件窗口'), values: [{ value: 0.03530, error: 0.00241, display: '0.03530 ± 0.00241' }, { value: 0.03152, error: 0.00287, display: '0.03152 ± 0.00287' }] },
+            { label: text('1,000-snapshot window', '1,000 条快照窗口'), values: [{ value: 0.03530, error: 0.00241, display: '0.03530 ± 0.00241' }, { value: 0.03152, error: 0.00287, display: '0.03152 ± 0.00287' }] },
           ],
           series: [text('1M parameters', '1M 参数'), text('100M parameters', '100M 参数')],
         },
